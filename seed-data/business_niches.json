@@ -1,0 +1,990 @@
+[
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Grocery Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Supermarket"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Kirana Shop"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Department Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Organic Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Pet Shop"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Toy Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Gift Shop"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Stationery Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Book Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Hardware Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Electrical Shop"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Paint Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Plumbing Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Furniture Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Home Decor Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Kitchenware Shop"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Lighting Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Mattress Store"
+  },
+  {
+    "Category": "Retail & Local Shops",
+    "SubCategory": "Home Appliance Shop"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Restaurant"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Café"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Bakery"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Sweet Shop"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Fast Food Center"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Juice Center"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Ice Cream Parlour"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Cloud Kitchen"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Catering Service"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Tiffin Service"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Food Truck"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Pizza Shop"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Burger Shop"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Meal Subscription Service"
+  },
+  {
+    "Category": "Food & Restaurant Businesses",
+    "SubCategory": "Home Cooked Food Delivery"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Clothing Store"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Boutique"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Tailor Shop"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Fashion Designer"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Footwear Store"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Men's Wear Shop"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Women's Wear Shop"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Kids Wear Shop"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Saree Shop"
+  },
+  {
+    "Category": "Fashion & Apparel",
+    "SubCategory": "Jewelry Shop"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Mobile Shop"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Laptop Shop"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Computer Store"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Electronics Store"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "CCTV Installation Service"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Mobile Accessories Shop"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Smart Home Store"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Gaming Store"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "Software Company"
+  },
+  {
+    "Category": "Electronics & Technology",
+    "SubCategory": "IT Services Company"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Mobile Repair Center"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Laptop Repair Center"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Electronics Repair Shop"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Car Repair Garage"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Bike Repair Garage"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "AC Repair Service"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Refrigerator Repair Service"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Washing Machine Repair"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Home Appliance Service"
+  },
+  {
+    "Category": "Repair & Service Businesses",
+    "SubCategory": "Computer Repair Service"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Pharmacy"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Medical Store"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Clinic"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Hospital"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Diagnostic Center"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Dental Clinic"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Physiotherapy Center"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Optical Shop"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Ayurvedic Store"
+  },
+  {
+    "Category": "Health & Medical",
+    "SubCategory": "Home Nursing Service"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Salon"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Beauty Parlour"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Spa"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Cosmetics Shop"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Tattoo Studio"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Hair Treatment Clinic"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Skin Care Clinic"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Nail Art Studio"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Barber Shop"
+  },
+  {
+    "Category": "Beauty & Personal Care",
+    "SubCategory": "Bridal Makeup Service"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "School"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "College"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Coaching Center"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Tuition Center"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Online Course Provider"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Computer Training Institute"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Language Training Institute"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Competitive Exam Coaching"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Skill Development Institute"
+  },
+  {
+    "Category": "Education & Coaching",
+    "SubCategory": "Music School"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Real Estate Agency"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Property Dealer"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Builders"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Construction Company"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Interior Designer"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Architect"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Property Rental Service"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Property Management Company"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Land Developer"
+  },
+  {
+    "Category": "Real Estate & Construction",
+    "SubCategory": "Home Renovation Service"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Chartered Accountant"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Tax Consultant"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Insurance Agent"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Loan Agent"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Financial Advisor"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Legal Firm"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Business Consultant"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Investment Advisor"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "GST Consultant"
+  },
+  {
+    "Category": "Finance & Professional Services",
+    "SubCategory": "Company Registration Service"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Travel Agency"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Tour Operator"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Hotel"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Resort"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Guest House"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Holiday Planner"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Visa Consultant"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Ticket Booking Service"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Car Rental Service"
+  },
+  {
+    "Category": "Travel & Hospitality",
+    "SubCategory": "Taxi Service"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Car Showroom"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Bike Showroom"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Auto Spare Parts Shop"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Tyre Shop"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Car Accessories Store"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Car Service Center"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Bike Service Center"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Car Wash Center"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "EV Charging Station"
+  },
+  {
+    "Category": "Automobile Businesses",
+    "SubCategory": "Used Car Dealer"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Event Management Company"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Photography Studio"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Printing & Xerox Shop"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Internet Café"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Gym / Fitness Center"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Yoga Studio"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Dance Academy"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Sports Training Center"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Agriculture Equipment Store"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Fertilizer Shop"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "NGO / Charity Organization"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Courier Service"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Packers & Movers"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Digital Marketing Agency"
+  },
+  {
+    "Category": "Other High-Potential Niches",
+    "SubCategory": "Advertising Agency"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Hero MotoCorp"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Bajaj Auto"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "TVS Motor Company"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Royal Enfield"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Jawa Motorcycles"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Yezdi"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Mahindra Two Wheelers"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Ola Electric"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Ather Energy"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Revolt Motors"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Tork Motors"
+  },
+  {
+    "Category": "Indian Bike Companies",
+    "SubCategory": "Ultraviolette Automotive"
+  },
+  {
+    "Category": "Japanese Bike Companies",
+    "SubCategory": "Honda"
+  },
+  {
+    "Category": "Japanese Bike Companies",
+    "SubCategory": "Yamaha"
+  },
+  {
+    "Category": "Japanese Bike Companies",
+    "SubCategory": "Suzuki"
+  },
+  {
+    "Category": "Japanese Bike Companies",
+    "SubCategory": "Kawasaki"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Ducati"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "BMW Motorrad"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "KTM"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Aprilia"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Moto Guzzi"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "MV Agusta"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Triumph Motorcycles"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Norton Motorcycles"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Benelli"
+  },
+  {
+    "Category": "European Bike Companies",
+    "SubCategory": "Husqvarna"
+  },
+  {
+    "Category": "American Bike Companies",
+    "SubCategory": "Harley-Davidson"
+  },
+  {
+    "Category": "American Bike Companies",
+    "SubCategory": "Indian Motorcycle"
+  },
+  {
+    "Category": "American Bike Companies",
+    "SubCategory": "Arch Motorcycle"
+  },
+  {
+    "Category": "American Bike Companies",
+    "SubCategory": "Victory Motorcycles"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "CFMoto"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "QJMotor"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "Zontes"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "Hyosung"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "Kymco"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "SYM"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "Yadea"
+  },
+  {
+    "Category": "Other Global Motorcycle Brands",
+    "SubCategory": "Italika"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Toyota"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Honda"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Nissan"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Suzuki"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Mazda"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Mitsubishi"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Subaru"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Lexus"
+  },
+  {
+    "Category": "Japanese Car Companies",
+    "SubCategory": "Infiniti"
+  },
+  {
+    "Category": "German Car Companies",
+    "SubCategory": "BMW"
+  },
+  {
+    "Category": "German Car Companies",
+    "SubCategory": "Mercedes-Benz"
+  },
+  {
+    "Category": "German Car Companies",
+    "SubCategory": "Audi"
+  },
+  {
+    "Category": "German Car Companies",
+    "SubCategory": "Volkswagen"
+  },
+  {
+    "Category": "German Car Companies",
+    "SubCategory": "Porsche"
+  },
+  {
+    "Category": "German Car Companies",
+    "SubCategory": "Opel"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Ford"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Chevrolet"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Tesla"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "GMC"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Cadillac"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Chrysler"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Dodge"
+  },
+  {
+    "Category": "American Car Companies",
+    "SubCategory": "Jeep"
+  },
+  {
+    "Category": "South Korean Car Companies",
+    "SubCategory": "Hyundai"
+  },
+  {
+    "Category": "South Korean Car Companies",
+    "SubCategory": "Kia"
+  },
+  {
+    "Category": "South Korean Car Companies",
+    "SubCategory": "Genesis"
+  },
+  {
+    "Category": "Indian Car Companies",
+    "SubCategory": "Tata Motors"
+  },
+  {
+    "Category": "Indian Car Companies",
+    "SubCategory": "Mahindra & Mahindra"
+  },
+  {
+    "Category": "Indian Car Companies",
+    "SubCategory": "Maruti Suzuki"
+  },
+  {
+    "Category": "Indian Car Companies",
+    "SubCategory": "Ashok Leyland"
+  },
+  {
+    "Category": "Indian Car Companies",
+    "SubCategory": "Force Motors"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "BYD"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "Geely"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "Chery"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "SAIC Motor"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "Great Wall Motors"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "NIO"
+  },
+  {
+    "Category": "Chinese Car Companies",
+    "SubCategory": "XPeng"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Ferrari"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Lamborghini"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Maserati"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Alfa Romeo"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Fiat"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Volvo"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Skoda"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Renault"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Peugeot"
+  },
+  {
+    "Category": "European Car Companies",
+    "SubCategory": "Citroën"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Volvo Trucks"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Scania"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "MAN"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Isuzu"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Hino Motors"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Ashok Leyland"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Tata Motors Commercial"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Daimler Truck"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Nikola Motors"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Rivian"
+  },
+  {
+    "Category": "Commercial Vehicle Companies",
+    "SubCategory": "Lucid Motors"
+  }
+]

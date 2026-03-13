@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Environment files (contain secrets)
+.env
+!.env.example
+
+# Build output
+dist/
+dist-electron/
+release/
+
+# Vite
+*.local
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
+
+# Session artifacts
+CONVERSATION_SUMMARY.md
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-electron/
+release/
+
+# Environment files (contain secrets)
+.env
+!.env.example
+
+# Vite
+*.local
+
+# Logs
+*.log
+npm-debug.log*

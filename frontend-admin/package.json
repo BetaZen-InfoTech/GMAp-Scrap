@@ -1,0 +1,70 @@
+{
+  "name": "betazen-admin-dashboard",
+  "version": "1.0.0",
+  "description": "BetaZen G-Map Scraper Admin Dashboard",
+  "main": "dist-electron/main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && electron-builder",
+    "build:portable": "vite build && electron-builder --win portable",
+    "build:installer": "vite build && electron-builder --win nsis",
+    "build:all": "vite build && electron-builder --win nsis portable",
+    "preview": "vite preview"
+  },
+  "author": "BetaZen InfoTech",
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.27",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
+    "vite": "^5.0.0",
+    "vite-plugin-electron": "^0.28.0"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1",
+    "electron-store": "^8.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.3",
+    "socket.io-client": "^4.7.5",
+    "zustand": "^4.5.7"
+  },
+  "build": {
+    "appId": "com.betazen.admin-dashboard",
+    "productName": "BetaZen Admin Dashboard",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ]
+  }
+}
