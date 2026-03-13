@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import DevicesPage from './pages/DevicesPage';
 import DeviceDetailPage from './pages/DeviceDetailPage';
 import SessionsPage from './pages/SessionsPage';
+import CategoriesPage from './pages/CategoriesPage';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -79,6 +80,8 @@ const App: React.FC = () => {
         );
       case 'sessions':
         return <SessionsPage />;
+      case 'categories':
+        return <CategoriesPage />;
       default:
         return <DashboardPage />;
     }

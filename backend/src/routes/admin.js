@@ -7,6 +7,7 @@ const DeviceHistory = require('../models/DeviceHistory');
 const SessionStats = require('../models/SessionStats');
 const ScrapeTracking = require('../models/ScrapeTracking');
 const ScrapedData = require('../models/ScrapedData');
+const BusinessNiche = require('../models/BusinessNiche');
 
 // ── POST /api/admin/login ──
 router.post('/login', async (req, res) => {
@@ -327,6 +328,134 @@ router.get('/analytics', async (req, res) => {
     });
   } catch (err) {
     console.error('[admin/analytics] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/categories ──
+// Returns all unique scraped categories with record counts + all BusinessNiche categories
+router.get('/categories', async (req, res) => {
+  try {
+    const [scrapedAgg, niches] = await Promise.all([
+      ScrapedData.aggregate([
+        { $match: { category: { $ne: null, $exists: true, $ne: '' } } },
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      BusinessNiche.find().sort({ Category: 1, SubCategory: 1 }).lean(),
+    ]);
+
+    // Build map of scraped counts
+    const countMap = {};
+    for (const row of scrapedAgg) {
+      countMap[row._id] = row.count;
+    }
+
+    // Combine: all niches + any scraped categories not in niches
+    const nicheCategories = [...new Set(niches.map((n) => n.Category))];
+    const scrapedOnlyCategories = scrapedAgg
+      .map((r) => r._id)
+      .filter((c) => !nicheCategories.includes(c));
+
+    const categories = [
+      ...nicheCategories.map((c) => ({
+        category: c,
+        count: countMap[c] || 0,
+        inNiches: true,
+        subCategories: niches.filter((n) => n.Category === c).map((n) => ({ id: n._id, subCategory: n.SubCategory })),
+      })),
+      ...scrapedOnlyCategories.map((c) => ({
+        category: c,
+        count: countMap[c] || 0,
+        inNiches: false,
+        subCategories: [],
+      })),
+    ].sort((a, b) => b.count - a.count);
+
+    res.json({ categories, total: categories.length });
+  } catch (err) {
+    console.error('[admin/categories] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/categories/:category/records ──
+// Returns paginated scraped records for a specific category
+router.get('/categories/:category/records', async (req, res) => {
+  try {
+    const { category } = req.params;
+    const { page = 1, limit = 25 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const filter = { category };
+    const [data, total] = await Promise.all([
+      ScrapedData.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .select('name phone address rating reviews pincode plusCode website isDuplicate scrapedAt deviceId')
+        .lean(),
+      ScrapedData.countDocuments(filter),
+    ]);
+
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/categories/:category/records] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/admin/categories ──
+// Add a new Category + SubCategory to BusinessNiche
+router.post('/categories', async (req, res) => {
+  try {
+    const { category, subCategory } = req.body;
+    if (!category || !subCategory) {
+      return res.status(400).json({ error: 'category and subCategory are required' });
+    }
+
+    const existing = await BusinessNiche.findOne({
+      Category: category.trim(),
+      SubCategory: subCategory.trim(),
+    });
+    if (existing) {
+      return res.status(409).json({ error: 'This category + sub-category pair already exists' });
+    }
+
+    const niche = await BusinessNiche.create({
+      Category: category.trim(),
+      SubCategory: subCategory.trim(),
+    });
+
+    res.status(201).json({ success: true, id: niche._id });
+  } catch (err) {
+    console.error('[admin/categories POST] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── DELETE /api/admin/categories/:category ──
+// Delete all BusinessNiche entries for a Category
+router.delete('/categories/:category', async (req, res) => {
+  try {
+    const { category } = req.params;
+    const result = await BusinessNiche.deleteMany({ Category: category });
+    res.json({ success: true, deleted: result.deletedCount });
+  } catch (err) {
+    console.error('[admin/categories DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── DELETE /api/admin/categories/:category/niches/:nicheId ──
+// Delete a single SubCategory entry from BusinessNiche
+router.delete('/categories/:category/niches/:nicheId', async (req, res) => {
+  try {
+    const { nicheId } = req.params;
+    await BusinessNiche.findByIdAndDelete(nicheId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin/categories/niches DELETE] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

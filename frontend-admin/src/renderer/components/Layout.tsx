@@ -6,6 +6,7 @@ const PAGE_TITLES: Record<Route, string> = {
   devices: 'Devices',
   'device-detail': 'Device Detail',
   sessions: 'Sessions',
+  categories: 'Categories',
 };
 
 interface LayoutProps {
@@ -44,8 +45,8 @@ const Layout: React.FC<LayoutProps> = ({ currentRoute, onNavigate, onLogout, chi
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-[1400px] mx-auto">
+        <main className="flex-1 overflow-y-auto p-6 flex flex-col min-h-0">
+          <div className="max-w-[1400px] mx-auto w-full flex-1 flex flex-col min-h-0">
             {children}
           </div>
         </main>
