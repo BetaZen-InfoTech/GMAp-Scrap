@@ -24,6 +24,7 @@ export default defineConfig({
                 'exceljs',
                 'electron-store',
                 'axios',
+                'dotenv',
                 'form-data',
                 'uuid',
                 'path',

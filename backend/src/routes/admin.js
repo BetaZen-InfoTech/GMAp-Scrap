@@ -30,6 +30,62 @@ router.use(adminAuth);
 // ── GET /api/admin/devices ──
 router.get('/devices', async (req, res) => {
   try {
+    // Auto-discover devices from Session-Stats & Device-History that aren't in Devices collection
+    const [sessionDeviceIds, historyDeviceIds] = await Promise.all([
+      SessionStats.distinct('deviceId', { deviceId: { $ne: null, $exists: true, $ne: '' } }),
+      DeviceHistory.distinct('deviceId', { deviceId: { $ne: null, $exists: true, $ne: '' } }),
+    ]);
+
+    const allKnownIds = [...new Set([...sessionDeviceIds, ...historyDeviceIds])].filter(Boolean);
+
+    if (allKnownIds.length > 0) {
+      const existingIds = (await Device.find({ deviceId: { $in: allKnownIds } }, { deviceId: 1 }).lean())
+        .map((d) => d.deviceId);
+
+      const missingIds = allKnownIds.filter((id) => !existingIds.includes(id));
+
+      if (missingIds.length > 0) {
+        const newDevices = missingIds.map((id) => ({
+          deviceId: id,
+          nickname: '',
+          hostname: 'Discovered Device',
+          platform: 'unknown',
+          isActive: true,
+          lastSeenAt: new Date(),
+        }));
+        await Device.insertMany(newDevices, { ordered: false }).catch(() => {});
+      }
+    }
+
+    // Also create a placeholder for sessions without any deviceId
+    const orphanCount = await SessionStats.countDocuments({
+      $or: [{ deviceId: null }, { deviceId: '' }, { deviceId: { $exists: false } }],
+    });
+
+    if (orphanCount > 0) {
+      const placeholderId = 'unregistered-device';
+      const exists = await Device.findOne({ deviceId: placeholderId });
+      if (!exists) {
+        await Device.create({
+          deviceId: placeholderId,
+          nickname: 'Unregistered Device',
+          hostname: 'Unknown',
+          platform: 'unknown',
+          isActive: true,
+          lastSeenAt: new Date(),
+        });
+        // Tag orphan sessions with this placeholder deviceId
+        await SessionStats.updateMany(
+          { $or: [{ deviceId: null }, { deviceId: '' }, { deviceId: { $exists: false } }] },
+          { $set: { deviceId: placeholderId } }
+        );
+        await ScrapedData.updateMany(
+          { $or: [{ deviceId: null }, { deviceId: '' }, { deviceId: { $exists: false } }] },
+          { $set: { deviceId: placeholderId } }
+        );
+      }
+    }
+
     const devices = await Device.find().sort({ lastSeenAt: -1 }).lean();
 
     // Get today's date for latest stats lookup
@@ -86,9 +142,25 @@ router.get('/devices/:deviceId', async (req, res) => {
   try {
     const { deviceId } = req.params;
 
-    const device = await Device.findOne({ deviceId }).lean();
+    let device = await Device.findOne({ deviceId }).lean();
     if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
+      // Try to create from known data
+      const hasHistory = await DeviceHistory.findOne({ deviceId });
+      const hasSessions = await SessionStats.findOne({ deviceId });
+      if (hasHistory || hasSessions) {
+        await Device.create({
+          deviceId,
+          nickname: '',
+          hostname: 'Discovered Device',
+          platform: 'unknown',
+          isActive: true,
+          lastSeenAt: new Date(),
+        });
+        device = await Device.findOne({ deviceId }).lean();
+      }
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
     }
 
     const today = new Date().toISOString().split('T')[0];

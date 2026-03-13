@@ -2,9 +2,12 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { createDashboardWindow } from './windowManager';
 import { setupIpcHandlers } from './ipcHandlers';
 import { createTray } from './trayManager';
+import { getSettings } from './store';
+import { registerDevice, verifyDevice } from './deviceAuth';
 
 // When packaged, point Playwright to the bundled browsers inside resources/
 // The bundled browsers are placed there by the electron-builder extraResources config.
@@ -35,9 +38,24 @@ app.on('second-instance', () => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupIpcHandlers();
   mainWindow = createDashboardWindow();
+
+  // Auto-register or verify device on startup
+  try {
+    const settings = getSettings();
+    if (!settings.isRegistered || !settings.deviceId) {
+      const nickname = os.hostname();
+      await registerDevice('BetaZen@2023', nickname);
+      console.log('[Main] Device auto-registered');
+    } else {
+      await verifyDevice();
+      console.log('[Main] Device verified');
+    }
+  } catch (err) {
+    console.error('[Main] Device registration/verify failed:', err);
+  }
 
   // Intercept close: hide to tray instead of quitting
   mainWindow.on('close', (event) => {

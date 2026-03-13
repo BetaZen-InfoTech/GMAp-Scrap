@@ -22,6 +22,7 @@ export default defineConfig({
                 'electron',
                 'electron-store',
                 'axios',
+                'dotenv',
                 'path',
                 'fs',
                 'url',

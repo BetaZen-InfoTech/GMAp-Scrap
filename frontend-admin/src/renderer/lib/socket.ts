@@ -5,7 +5,7 @@ let socket: Socket | null = null;
 export function connectSocket(serverUrl: string): Socket {
   if (socket?.connected) return socket;
   if (socket) socket.disconnect();
-  socket = io(serverUrl, { transports: ['websocket', 'polling'] });
+  socket = io(serverUrl, { transports: ['polling'] });
   return socket;
 }
 
