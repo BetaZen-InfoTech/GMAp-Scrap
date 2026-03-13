@@ -8,31 +8,26 @@ let prevNetRecv = 0;
 let initialized = false;
 
 /**
- * Get CPU usage percentage by sampling os.cpus() twice with a 100ms gap.
+ * Get CPU usage percentage using wmic (matches Task Manager readings).
  */
 function getCpuUsage(): Promise<{ cpuUsedPercent: number }> {
   return new Promise((resolve) => {
-    const startCpus = os.cpus();
-    setTimeout(() => {
-      const endCpus = os.cpus();
-      let totalIdle = 0;
-      let totalTick = 0;
-      for (let i = 0; i < startCpus.length; i++) {
-        const startTimes = startCpus[i].times;
-        const endTimes = endCpus[i].times;
-        const idle = endTimes.idle - startTimes.idle;
-        const total =
-          (endTimes.user - startTimes.user) +
-          (endTimes.nice - startTimes.nice) +
-          (endTimes.sys - startTimes.sys) +
-          (endTimes.irq - startTimes.irq) +
-          idle;
-        totalIdle += idle;
-        totalTick += total;
+    exec('wmic cpu get LoadPercentage /format:csv', { timeout: 5000 }, (err, stdout) => {
+      if (err) {
+        resolve({ cpuUsedPercent: 0 });
+        return;
       }
-      const cpuUsedPercent = totalTick > 0 ? Math.round(((totalTick - totalIdle) / totalTick) * 100) : 0;
-      resolve({ cpuUsedPercent });
-    }, 100);
+      try {
+        // Output: Node,LoadPercentage\r\n HOSTNAME,34
+        const lines = stdout.trim().split('\n').filter((l) => l.trim().length > 0);
+        const dataLine = lines[lines.length - 1];
+        const parts = dataLine.split(',');
+        const load = parseInt(parts[parts.length - 1], 10);
+        resolve({ cpuUsedPercent: isNaN(load) ? 0 : load });
+      } catch {
+        resolve({ cpuUsedPercent: 0 });
+      }
+    });
   });
 }
 
