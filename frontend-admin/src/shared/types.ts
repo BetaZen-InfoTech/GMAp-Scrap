@@ -104,7 +104,7 @@ export interface AnalyticsData {
 
 // --- Auth ---
 export interface AdminSettings {
-  /** 'local' = 127.0.0.1:5000 | 'dev' = 127.0.0.1:5000 | 'prod' = prodApiUrl */
+  /** API environment driven by APP_STATE from .env */
   apiEnvironment: 'local' | 'dev' | 'prod';
   prodApiUrl: string;
   authToken: string;
@@ -132,4 +132,5 @@ export const IPC_CHANNELS = {
   SETTINGS_SAVE: 'admin:settings-save',
   AUTH_LOGIN: 'admin:auth-login',
   AUTH_LOGOUT: 'admin:auth-logout',
+  GET_API_BASE_URL: 'admin:get-api-base-url',
 } as const;

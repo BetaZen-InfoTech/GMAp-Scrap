@@ -1,14 +1,7 @@
-import { config as dotenvConfig } from 'dotenv';
-import path from 'path';
+// .env is loaded via config.ts → loadEnv.ts (import side-effect)
 import { app, BrowserWindow } from 'electron';
 import { createMainWindow } from './windowManager';
 import { setupIpcHandlers } from './ipcHandlers';
-
-// Load .env from project root (works in dev & packaged)
-dotenvConfig({ path: app.isPackaged
-  ? path.join(process.resourcesPath, '.env')
-  : path.join(__dirname, '../../.env'),
-});
 
 // Single-instance lock
 const gotTheLock = app.requestSingleInstanceLock();

@@ -22,7 +22,7 @@ export interface BatchSendResult {
  */
 function getBatchEndpoint(settings: AppSettings): string {
   if (settings.apiEndpoint1) return settings.apiEndpoint1;
-  return `${getApiBaseUrl(settings)}/api/scraped-data/batch`;
+  return `${getApiBaseUrl()}/api/scraped-data/batch`;
 }
 
 export async function sendBatch(

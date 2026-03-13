@@ -1,16 +1,10 @@
-import { config as dotenvConfig } from 'dotenv';
+// .env is loaded via config.ts → loadEnv.ts (import side-effect)
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { createDashboardWindow } from './windowManager';
 import { setupIpcHandlers } from './ipcHandlers';
 import { createTray } from './trayManager';
-
-// Load .env from project root (works in dev & packaged)
-dotenvConfig({ path: app.isPackaged
-  ? path.join(process.resourcesPath, '.env')
-  : path.join(__dirname, '../../.env'),
-});
 
 // When packaged, point Playwright to the bundled browsers inside resources/
 // The bundled browsers are placed there by the electron-builder extraResources config.

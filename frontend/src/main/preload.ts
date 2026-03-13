@@ -117,6 +117,10 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.SCRAPE_JOB_PROGRESS, handler);
   },
 
+  // Resolved API base URL from .env config
+  getApiBaseUrl: (): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_API_BASE_URL),
+
   // Device Stats (live system monitoring)
   getDeviceStats: (): Promise<DeviceStats> =>
     ipcRenderer.invoke(IPC_CHANNELS.DEVICE_STATS_GET),

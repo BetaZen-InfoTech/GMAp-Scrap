@@ -1,14 +1,30 @@
 import axios from 'axios';
 
-const PROD_API_URL = 'https://gmap-scrap-backend-api.betazeninfotech.com';
-
-let baseUrl = PROD_API_URL;
+let baseUrl = '';
 let authToken = '';
 let onUnauthorized: (() => void) | null = null;
+let initialized = false;
+
+/**
+ * Initialize the API base URL from main process config (.env).
+ * Must be called before any API requests are made.
+ */
+export async function initBaseUrl(): Promise<void> {
+  if (initialized) return;
+  try {
+    const url = await window.electronAPI.getApiBaseUrl();
+    baseUrl = url;
+    api.defaults.baseURL = url;
+    initialized = true;
+  } catch (err) {
+    console.error('[api] Failed to get base URL from main process:', err);
+  }
+}
 
 export function setBaseUrl(url: string) {
   baseUrl = url;
   api.defaults.baseURL = url;
+  initialized = true;
 }
 
 export function setAuthToken(token: string) {
@@ -28,12 +44,18 @@ export function setUnauthorizedHandler(handler: () => void) {
 }
 
 const api = axios.create({
-  baseURL: PROD_API_URL,
   timeout: 30000,
 });
 
 // Attach Bearer token to every request
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
+  // Lazy-init base URL if not yet set
+  if (!initialized) {
+    await initBaseUrl();
+  }
+  if (!config.baseURL && baseUrl) {
+    config.baseURL = baseUrl;
+  }
   if (authToken) {
     config.headers.Authorization = `Bearer ${authToken}`;
   }

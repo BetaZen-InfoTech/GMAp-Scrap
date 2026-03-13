@@ -11,9 +11,11 @@ export function setupIpcHandlers(): void {
     return saveSettings(partial);
   });
 
+  // Return the resolved API base URL to the renderer
+  ipcMain.handle(IPC_CHANNELS.GET_API_BASE_URL, async () => getApiBaseUrl());
+
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_, password: string) => {
-    const settings = getSettings();
-    const base = getApiBaseUrl(settings);
+    const base = getApiBaseUrl();
     try {
       const res = await axios.post(`${base}/api/admin/login`, { password }, { timeout: 10000 });
       if (res.data.success) {

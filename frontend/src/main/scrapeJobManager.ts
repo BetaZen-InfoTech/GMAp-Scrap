@@ -91,7 +91,7 @@ export class ScrapeJobManager {
    */
   async load(startPincode: number, endPincode: number, deviceId: string): Promise<ScrapeJobState> {
     const settings = getSettings();
-    const base = getApiBaseUrl(settings);
+    const base = getApiBaseUrl();
 
     // Fetch pincodes in range
     const pincodeRes = await axios.get<PincodeInfo[]>(
@@ -224,7 +224,7 @@ export class ScrapeJobManager {
   private async loadCompletedSearches(jobId: string): Promise<void> {
     try {
       const settings = getSettings();
-      const base = getApiBaseUrl(settings);
+      const base = getApiBaseUrl();
       const res = await axios.get<Array<{ keyword: string; pincode: number; category: string; subCategory: string; round: number }>>(
         `${base}/api/scraped-data/session-stats/completed/${jobId}`,
       );
@@ -250,7 +250,7 @@ export class ScrapeJobManager {
 
     try {
       const settings = getSettings();
-      const base = getApiBaseUrl(settings);
+      const base = getApiBaseUrl();
       const res = await axios.get<{ completed: boolean }>(
         `${base}/api/scraped-data/session-stats/check-completed`,
         { params: { keyword } },
@@ -279,7 +279,7 @@ export class ScrapeJobManager {
   ): Promise<void> {
     try {
       const settings = getSettings();
-      const base = getApiBaseUrl(settings);
+      const base = getApiBaseUrl();
       await axios.post(`${base}/api/scraped-data/session-stats`, {
         sessionId,
         keyword,
@@ -313,7 +313,7 @@ export class ScrapeJobManager {
     this.completedSet.add(keyword);
 
     const settings = getSettings();
-    const base = getApiBaseUrl(settings);
+    const base = getApiBaseUrl();
     axios
       .post(`${base}/api/scrape-tracking/${job.jobId}/search-complete`, {
         deviceId: job.deviceId,
@@ -465,7 +465,7 @@ export class ScrapeJobManager {
 
   private patchTracking(job: ScrapeJobState): void {
     const settings = getSettings();
-    const base = getApiBaseUrl(settings);
+    const base = getApiBaseUrl();
     axios
       .patch(`${base}/api/scrape-tracking/${job.jobId}`, {
         pincodeIndex: job.pincodeIndex,

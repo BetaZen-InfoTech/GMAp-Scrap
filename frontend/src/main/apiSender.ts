@@ -20,7 +20,7 @@ export interface ExcelSendResult {
  */
 function getExcelEndpoint(settings: AppSettings): string {
   if (settings.apiEndpoint2) return settings.apiEndpoint2;
-  return `${getApiBaseUrl(settings)}/api/scraped-data/excel`;
+  return `${getApiBaseUrl()}/api/scraped-data/excel`;
 }
 
 export async function sendExcelFile(

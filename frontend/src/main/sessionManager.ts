@@ -342,7 +342,7 @@ export class SessionManager {
    * Save session statistics to the backend after session finalization.
    */
   private async saveSessionStats(sessionId: string, state: SessionState, excelUploaded: boolean): Promise<void> {
-    const base = getApiBaseUrl(this.settings);
+    const base = getApiBaseUrl();
     const duplicateRecords = this.duplicateCounts.get(sessionId) ?? 0;
     const insertedRecords = this.insertedCounts.get(sessionId) ?? 0;
     const startMs = state.startTime ? new Date(state.startTime).getTime() : Date.now();

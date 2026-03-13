@@ -14,6 +14,9 @@ const electronAPI = {
 
   logout: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
+
+  getApiBaseUrl: (): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_API_BASE_URL),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

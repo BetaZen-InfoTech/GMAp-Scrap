@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from './store/useAuthStore';
 import { useSocket } from './hooks/useSocket';
-import { getBaseUrl, setUnauthorizedHandler } from './lib/api';
+import { getBaseUrl, setUnauthorizedHandler, initBaseUrl } from './lib/api';
 import type { Route } from './components/Sidebar';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
@@ -27,11 +27,12 @@ const App: React.FC = () => {
     });
   }, []);
 
-  // Restore session on mount
+  // Initialize API base URL + restore session on mount
   useEffect(() => {
     if (typeof window.electronAPI?.getSettings === 'function') {
-      restoreSession()
-        .catch((err) => console.error('[App] restoreSession error:', err))
+      initBaseUrl()
+        .then(() => restoreSession())
+        .catch((err) => console.error('[App] init error:', err))
         .finally(() => { console.log("[App] init done"); setInitializing(false); });
     } else {
       console.warn('[App] window.electronAPI not available');

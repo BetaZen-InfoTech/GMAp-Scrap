@@ -266,6 +266,9 @@ export function setupIpcHandlers(): void {
     return result.canceled ? null : result.filePaths[0];
   });
 
+  // ── Resolved API base URL (for renderer) ──
+  ipcMain.handle(IPC_CHANNELS.GET_API_BASE_URL, async () => getApiBaseUrl());
+
   // ── Device Stats: one-time fetch ──
   ipcMain.handle(IPC_CHANNELS.DEVICE_STATS_GET, async () => {
     return getSystemStats();
@@ -292,7 +295,7 @@ export function setupIpcHandlers(): void {
     if (!currentSettings.deviceId) return;
 
     try {
-      const base = getApiBaseUrl(currentSettings);
+      const base = getApiBaseUrl();
       await axios.post(`${base}/api/device-history`, {
         deviceId: currentSettings.deviceId,
         stats: pending,

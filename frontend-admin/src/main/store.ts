@@ -1,10 +1,10 @@
 import Store from 'electron-store';
 import { AdminSettings } from '../shared/types';
+import { APP_STATE, PROD_API_URL } from './config';
 
 const DEFAULT_SETTINGS: AdminSettings = {
-  // Backend API environment — driven by APP_STATE in .env
-  apiEnvironment: (process.env.APP_STATE as 'local' | 'dev' | 'prod') || 'prod',
-  prodApiUrl: process.env.PROD_API_URL || 'https://gmap-scrap-backend-api.betazeninfotech.com',
+  apiEnvironment: APP_STATE,
+  prodApiUrl: PROD_API_URL,
   authToken: '',
 };
 
@@ -20,7 +20,8 @@ const store = new Store<StoreSchema>({
 
 export function getSettings(): AdminSettings {
   const stored = store.get('settings') as AdminSettings;
-  return { ...DEFAULT_SETTINGS, ...stored };
+  // Always use APP_STATE from config (not stale persisted value)
+  return { ...DEFAULT_SETTINGS, ...stored, apiEnvironment: APP_STATE };
 }
 
 export function saveSettings(partial: Partial<AdminSettings>): AdminSettings {

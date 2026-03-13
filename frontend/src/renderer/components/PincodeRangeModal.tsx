@@ -20,11 +20,9 @@ const PincodeRangeModal: React.FC<PincodeRangeModalProps> = ({ open, onClose, on
   useEffect(() => {
     if (!open) return;
     setNicheCount(null);
-    window.electronAPI.getSettings().then(async (settings) => {
+    (async () => {
       try {
-        const base = settings.apiEnvironment === 'prod' && settings.prodApiUrl
-          ? settings.prodApiUrl
-          : 'http://127.0.0.1:5000';
+        const base = await window.electronAPI.getApiBaseUrl();
         const res = await fetch(`${base}/api/niches`);
         if (res.ok) {
           const niches = await res.json();
@@ -33,7 +31,7 @@ const PincodeRangeModal: React.FC<PincodeRangeModalProps> = ({ open, onClose, on
       } catch {
         // Fallback: count will show after job loads
       }
-    });
+    })();
   }, [open]);
 
   if (!open) return null;

@@ -1,5 +1,6 @@
 import Store from 'electron-store';
 import { AppSettings } from '../shared/types';
+import { APP_STATE, PROD_API_URL } from './config';
 
 const DEFAULT_SETTINGS: AppSettings = {
   batchSize: 10,
@@ -27,9 +28,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   detailSettleDelayMs: 300,
   betweenClicksDelayMs: 100,
 
-  // Backend API environment — driven by APP_STATE in .env
-  apiEnvironment: (process.env.APP_STATE as 'local' | 'dev' | 'prod') || 'prod',
-  prodApiUrl: process.env.PROD_API_URL || 'https://gmap-scrap-backend-api.betazeninfotech.com',
+  // Backend API environment — always driven by APP_STATE from config
+  apiEnvironment: APP_STATE,
+  prodApiUrl: PROD_API_URL,
 
   // Device registration
   isRegistered: false,
@@ -52,7 +53,8 @@ const store = new Store<StoreSchema>({
 
 export function getSettings(): AppSettings {
   const stored = store.get('settings') as AppSettings;
-  return { ...DEFAULT_SETTINGS, ...stored };
+  // Always use APP_STATE from config (not stale persisted value)
+  return { ...DEFAULT_SETTINGS, ...stored, apiEnvironment: APP_STATE };
 }
 
 export function saveSettings(partial: Partial<AppSettings>): AppSettings {

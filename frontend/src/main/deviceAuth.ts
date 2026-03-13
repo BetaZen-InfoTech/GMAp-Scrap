@@ -8,7 +8,7 @@ export async function registerDevice(
   nickname?: string
 ): Promise<{ success: boolean; error?: string }> {
   const settings = getSettings();
-  const baseUrl = getApiBaseUrl(settings);
+  const baseUrl = getApiBaseUrl();
 
   try {
     const deviceInfo = getDeviceInfo();
@@ -44,7 +44,7 @@ export async function verifyDevice(): Promise<{ success: boolean; error?: string
     return { success: false, error: 'Device not registered' };
   }
 
-  const baseUrl = getApiBaseUrl(settings);
+  const baseUrl = getApiBaseUrl();
 
   try {
     const response = await axios.post(

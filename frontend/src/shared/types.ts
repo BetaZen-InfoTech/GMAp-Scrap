@@ -90,7 +90,7 @@ export interface AppSettings {
   betweenClicksDelayMs: number;
 
   // ── Backend API environment ──
-  /** 'local' = 127.0.0.1:5000 | 'dev' = 127.0.0.1:5000 | 'prod' = prodApiUrl */
+  /** API environment driven by APP_STATE from .env */
   apiEnvironment: 'local' | 'dev' | 'prod';
   /** Production backend base URL (e.g. https://api.example.com) */
   prodApiUrl: string;
@@ -248,6 +248,7 @@ export const IPC_CHANNELS = {
   SCRAPE_JOB_PROGRESS: 'scrape-job:progress',
   DEVICE_STATS_GET: 'device:stats-get',
   DEVICE_STATS_UPDATE: 'device:stats-update',
+  GET_API_BASE_URL: 'config:get-api-base-url',
 } as const;
 
 export type IpcChannelName = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
