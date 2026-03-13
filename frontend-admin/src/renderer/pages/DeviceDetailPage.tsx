@@ -118,6 +118,7 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
             <h3 className="text-sm font-semibold text-slate-300 mb-4">Live Stats</h3>
             {stats ? (
               <div className="space-y-4">
+                <StatBarSimple label="CPU" percent={stats.cpuUsedPercent ?? 0} />
                 <StatBar label="RAM" used={stats.ramUsedMB} total={stats.ramTotalMB} unit="MB" percent={stats.ramUsedPercent} />
                 <StatBar label="Disk" used={stats.diskUsedGB} total={stats.diskTotalGB} unit="GB" percent={stats.diskUsedPercent} />
                 <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-800">
@@ -184,6 +185,23 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
     <div className="flex justify-between">
       <span className="text-slate-400">{label}</span>
       <span className={`text-slate-200 ${mono ? 'font-mono text-xs' : ''}`}>{value}</span>
+    </div>
+  );
+}
+
+function StatBarSimple({ label, percent }: { label: string; percent: number }) {
+  return (
+    <div>
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-slate-400">{label}</span>
+        <span className="text-slate-300">{percent}%</span>
+      </div>
+      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${percent >= 85 ? 'bg-red-500' : percent >= 60 ? 'bg-yellow-500' : 'bg-green-500'}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }

@@ -8,6 +8,35 @@ let prevNetRecv = 0;
 let initialized = false;
 
 /**
+ * Get CPU usage percentage by sampling os.cpus() twice with a 100ms gap.
+ */
+function getCpuUsage(): Promise<{ cpuUsedPercent: number }> {
+  return new Promise((resolve) => {
+    const startCpus = os.cpus();
+    setTimeout(() => {
+      const endCpus = os.cpus();
+      let totalIdle = 0;
+      let totalTick = 0;
+      for (let i = 0; i < startCpus.length; i++) {
+        const startTimes = startCpus[i].times;
+        const endTimes = endCpus[i].times;
+        const idle = endTimes.idle - startTimes.idle;
+        const total =
+          (endTimes.user - startTimes.user) +
+          (endTimes.nice - startTimes.nice) +
+          (endTimes.sys - startTimes.sys) +
+          (endTimes.irq - startTimes.irq) +
+          idle;
+        totalIdle += idle;
+        totalTick += total;
+      }
+      const cpuUsedPercent = totalTick > 0 ? Math.round(((totalTick - totalIdle) / totalTick) * 100) : 0;
+      resolve({ cpuUsedPercent });
+    }, 100);
+  });
+}
+
+/**
  * Get RAM stats from Node.js os module.
  */
 function getRamStats() {
@@ -117,10 +146,11 @@ function getNetworkStats(): Promise<{ networkSentMB: number; networkRecvMB: numb
  */
 export async function getSystemStats(): Promise<DeviceStats> {
   const ram = getRamStats();
-  const [disk, net] = await Promise.all([getDiskStats(), getNetworkStats()]);
+  const [disk, net, cpu] = await Promise.all([getDiskStats(), getNetworkStats(), getCpuUsage()]);
 
   return {
     timestamp: new Date().toISOString(),
+    ...cpu,
     ...ram,
     ...disk,
     ...net,

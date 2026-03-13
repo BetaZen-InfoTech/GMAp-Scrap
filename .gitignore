@@ -33,3 +33,13 @@ CONVERSATION_SUMMARY.md
 # Logs
 *.log
 npm-debug.log*
+
+# Archives
+*.zip
+*.rar
+*.7z
+*.tar.gz
+
+# Upload folders
+uploads/
+upload/

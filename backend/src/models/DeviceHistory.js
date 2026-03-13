@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const statSnapshotSchema = new mongoose.Schema(
   {
     timestamp: { type: Date, required: true },
+    cpuUsedPercent: { type: Number },
     ramTotalMB: { type: Number },
     ramUsedMB: { type: Number },
     ramUsedPercent: { type: Number },

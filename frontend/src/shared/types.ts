@@ -206,6 +206,7 @@ export interface ScrapeJobState {
 
 export interface DeviceStats {
   timestamp: string;
+  cpuUsedPercent: number;
   ramTotalMB: number;
   ramUsedMB: number;
   ramUsedPercent: number;

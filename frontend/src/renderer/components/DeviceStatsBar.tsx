@@ -44,7 +44,32 @@ const DeviceStatsBar: React.FC = () => {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4 mb-6">
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-4 gap-6">
+        {/* CPU */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span className="text-xs font-medium text-slate-300">CPU</span>
+            </div>
+            <span className={`text-xs font-semibold ${textColor(stats.cpuUsedPercent)}`}>
+              {stats.cpuUsedPercent}%
+            </span>
+          </div>
+          <div className="h-2 bg-slate-700 rounded-full overflow-hidden mb-1">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${barColor(stats.cpuUsedPercent)}`}
+              style={{ width: `${stats.cpuUsedPercent}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            {stats.cpuUsedPercent}% utilization
+          </p>
+        </div>
+
         {/* RAM */}
         <div>
           <div className="flex items-center justify-between mb-1.5">

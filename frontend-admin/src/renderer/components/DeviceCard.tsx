@@ -61,6 +61,16 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick }) => {
         <div className="space-y-2 mb-3">
           <div>
             <div className="flex justify-between text-xs mb-0.5">
+              <span className="text-slate-400">CPU</span>
+              <span className="text-slate-300">{stats.cpuUsedPercent ?? 0}%</span>
+            </div>
+            <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full ${barColor(stats.cpuUsedPercent ?? 0)}`}
+                style={{ width: `${stats.cpuUsedPercent ?? 0}%` }} />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-xs mb-0.5">
               <span className="text-slate-400">RAM</span>
               <span className="text-slate-300">{stats.ramUsedPercent}%</span>
             </div>

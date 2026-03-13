@@ -25,6 +25,7 @@ export interface DeviceInfo {
 
 export interface StatSnapshot {
   timestamp: string;
+  cpuUsedPercent: number;
   ramTotalMB: number;
   ramUsedMB: number;
   ramUsedPercent: number;

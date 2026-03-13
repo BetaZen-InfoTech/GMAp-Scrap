@@ -12,7 +12,7 @@ const DeviceStatsChart: React.FC<DeviceStatsChartProps> = ({ history }) => {
   }
 
   // Flatten: take hourly samples (every 30th snapshot ~= 1 per hour at 2s intervals pushed every 5min)
-  const data: Array<{ time: string; ram: number; disk: number }> = [];
+  const data: Array<{ time: string; cpu: number; ram: number; disk: number }> = [];
   for (const day of [...history].reverse()) {
     const step = Math.max(1, Math.floor(day.stats.length / 24));
     for (let i = 0; i < day.stats.length; i += step) {
@@ -24,6 +24,7 @@ const DeviceStatsChart: React.FC<DeviceStatsChartProps> = ({ history }) => {
           hour: '2-digit',
           minute: '2-digit',
         }),
+        cpu: s.cpuUsedPercent ?? 0,
         ram: s.ramUsedPercent,
         disk: s.diskUsedPercent,
       });
@@ -43,6 +44,7 @@ const DeviceStatsChart: React.FC<DeviceStatsChartProps> = ({ history }) => {
             labelStyle={{ color: '#94a3b8' }}
           />
           <Legend wrapperStyle={{ fontSize: '12px' }} />
+          <Line type="monotone" dataKey="cpu" stroke="#10b981" name="CPU %" dot={false} strokeWidth={2} />
           <Line type="monotone" dataKey="ram" stroke="#3b82f6" name="RAM %" dot={false} strokeWidth={2} />
           <Line type="monotone" dataKey="disk" stroke="#f59e0b" name="Disk %" dot={false} strokeWidth={2} />
         </LineChart>
