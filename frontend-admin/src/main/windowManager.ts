@@ -36,9 +36,6 @@ export function createMainWindow(): BrowserWindow {
 
   win.once('ready-to-show', () => {
     win.show();
-    if (VITE_DEV_SERVER_URL) {
-      win.webContents.openDevTools();
-    }
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {

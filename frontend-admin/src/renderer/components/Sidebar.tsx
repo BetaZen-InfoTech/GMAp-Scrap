@@ -97,7 +97,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, onNavigate, onLogout })
         {/* Version badge */}
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-[11px] text-slate-500">Connected · v1.0</span>
+          <span className="text-[11px] text-slate-500">Connected · v1.1</span>
         </div>
 
         {/* Logout */}
