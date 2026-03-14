@@ -6,10 +6,10 @@ const fs     = require('fs');
 const path   = require('path');
 const { API_BASE_URL } = require('./config');
 
-const DEVICE_FILE       = path.join(__dirname, '..', 'device.json');
-const REG_PASSWORD      = 'BetaZen@2023';
+const DEVICE_FILE  = path.join(__dirname, '..', 'device.json');
+const REG_PASSWORD = 'BetaZen@2023';
 
-// ── Persist / load ─────────────────────────────────────────────────────────
+// ── Persist / load ────────────────────────────────────────────────────────────
 
 function loadDevice() {
   try {
@@ -24,39 +24,46 @@ function saveDevice(data) {
   fs.writeFileSync(DEVICE_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 
-// ── System info ─────────────────────────────────────────────────────────────
+// ── System info (VPS-safe: every call wrapped in try/catch) ───────────────────
+
+function safeGet(fn, fallback = 'unknown') {
+  try { return fn(); } catch { return fallback; }
+}
 
 function buildDeviceInfo() {
-  const interfaces = os.networkInterfaces();
   const macAddresses = [];
-  for (const iface of Object.values(interfaces)) {
-    for (const entry of (iface || [])) {
-      if (!entry.internal && entry.mac && entry.mac !== '00:00:00:00:00:00') {
-        macAddresses.push(entry.mac);
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const iface of Object.values(interfaces)) {
+      for (const entry of (iface || [])) {
+        if (!entry.internal && entry.mac && entry.mac !== '00:00:00:00:00:00') {
+          macAddresses.push(entry.mac);
+        }
       }
     }
-  }
+  } catch { /* VPS may not expose MAC */ }
+
   return {
-    hostname:        os.hostname(),
-    username:        os.userInfo().username,
-    platform:        os.platform(),
-    osVersion:       os.release(),
-    arch:            os.arch(),
-    cpuModel:        os.cpus()[0]?.model || 'Unknown',
-    cpuCores:        os.cpus().length,
-    totalMemoryGB:   parseFloat((os.totalmem() / 1073741824).toFixed(2)),
+    hostname:      safeGet(() => os.hostname(),              'vps-host'),
+    username:      safeGet(() => os.userInfo().username,     'root'),
+    platform:      safeGet(() => os.platform(),              'linux'),
+    osVersion:     safeGet(() => os.release(),               'unknown'),
+    arch:          safeGet(() => os.arch(),                  'x64'),
+    cpuModel:      safeGet(() => os.cpus()[0]?.model,        'Unknown CPU'),
+    cpuCores:      safeGet(() => os.cpus().length,           1),
+    totalMemoryGB: safeGet(() => parseFloat((os.totalmem() / 1073741824).toFixed(2)), 0),
     macAddresses,
   };
 }
 
-// ── Registration ────────────────────────────────────────────────────────────
+// ── Registration ──────────────────────────────────────────────────────────────
 
 async function registerDevice(nickname) {
   const res = await axios.post(
     `${API_BASE_URL}/api/devices/register`,
     {
       password:   REG_PASSWORD,
-      nickname:   nickname.trim(),
+      nickname:   String(nickname).trim(),
       deviceInfo: buildDeviceInfo(),
     },
     { timeout: 15000 }
@@ -82,50 +89,66 @@ async function verifyDevice(deviceId) {
   }
 }
 
-// ── Public API ──────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Ensures this machine has a registered deviceId.
  *
  * Flow:
- *  1. Load from device.json  →  verify with backend  →  use it
- *  2. If missing or invalid  →  ask for nickname     →  register  →  save
- *  3. If backend unreachable →  warn and continue without a deviceId
+ *  1. Load device.json  →  verify with backend  →  use it              (fast path)
+ *  2. device.json exists but verify fails  →  re-register with SAVED nickname (no prompt)
+ *  3. No device.json  →  call askFn for nickname  →  register  →  save
+ *  4. Backend unreachable  →  warn and continue without a deviceId
  *
- * @param {Function} askFn  async (question) => string  (readline helper)
- * @param {object}   chalk  chalk instance for coloring output
- * @returns {string|null}  deviceId or null
+ * @param {Function} askFn  async (question) => string
+ * @param {object}   chalk
+ * @returns {string|null}
  */
 async function ensureDevice(askFn, chalk) {
   const existing = loadDevice();
 
   if (existing?.deviceId) {
-    process.stdout.write(chalk.cyan(`  Verifying device (${existing.deviceId.substring(0, 8)}…)  `));
+    process.stdout.write(chalk.cyan(
+      `  Device: ${chalk.bold(existing.nickname || existing.deviceId.substring(0, 8))} — verifying…  `
+    ));
     const ok = await verifyDevice(existing.deviceId);
     if (ok) {
-      console.log(chalk.green('✓ Device recognised'));
+      console.log(chalk.green('✓ Verified'));
       return existing.deviceId;
     }
-    console.log(chalk.yellow('✗ Device not found on server — re-registering…'));
+
+    // Verify failed → re-register silently using the SAME saved nickname
+    console.log(chalk.yellow('✗ Not found on server — re-registering with saved name…'));
+    const savedNickname = existing.nickname || safeGet(() => os.hostname(), 'vps-host');
+    return _register(savedNickname, chalk);
   }
 
-  // Need to register
+  // First time — ask for nickname
   console.log(chalk.cyan('\n  Device registration (one-time setup)'));
   let nickname;
   try {
-    nickname = await askFn('  Enter a nickname for this device (e.g. "Office PC 1"): ');
+    nickname = await askFn('  Enter a nickname for this device (e.g. "VPS-1"): ');
   } catch {
-    nickname = os.hostname();
+    nickname = safeGet(() => os.hostname(), 'vps-host');
   }
 
+  return _register(nickname || safeGet(() => os.hostname(), 'vps-host'), chalk);
+}
+
+async function _register(nickname, chalk) {
   try {
-    const deviceId = await registerDevice(nickname || os.hostname());
-    saveDevice({ deviceId, nickname: nickname || os.hostname(), registeredAt: new Date().toISOString() });
-    console.log(chalk.green(`  ✓ Registered! Device ID: ${deviceId.substring(0, 8)}…`));
+    const deviceId = await registerDevice(nickname);
+    saveDevice({
+      deviceId,
+      nickname,
+      registeredAt: new Date().toISOString(),
+      host: safeGet(() => os.hostname(), 'unknown'),
+    });
+    console.log(chalk.green(`  ✓ Registered as "${nickname}"  (ID: ${deviceId.substring(0, 8)}…)`));
     return deviceId;
   } catch (err) {
     console.log(chalk.yellow(`  ⚠ Registration failed: ${err.message}`));
-    console.log(chalk.yellow('  Continuing without a device ID (data saved as "Unregistered Device")'));
+    console.log(chalk.yellow('  Continuing without a device ID'));
     return null;
   }
 }
