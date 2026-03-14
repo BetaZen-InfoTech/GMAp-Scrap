@@ -21,6 +21,7 @@ const PincodeDetailsPage: React.FC = () => {
 
   const handleClear = () => {
     clearFilters();
+    fetchFilterOptions();
     setTimeout(() => fetchPincodes(1), 0);
   };
 
@@ -55,7 +56,12 @@ const PincodeDetailsPage: React.FC = () => {
         />
         <select
           value={filters.state || ''}
-          onChange={(e) => { setFilters({ state: e.target.value || undefined }); setTimeout(() => fetchPincodes(1), 0); }}
+          onChange={(e) => {
+            const val = e.target.value || undefined;
+            setFilters({ state: val, district: undefined });
+            fetchFilterOptions(val);
+            setTimeout(() => fetchPincodes(1), 0);
+          }}
           className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         >
           <option value="">All States</option>

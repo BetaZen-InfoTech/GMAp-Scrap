@@ -18,7 +18,7 @@ interface PincodeStore {
   filterOptions: { states: string[]; districts: string[] };
 
   fetchPincodes: (page?: number) => Promise<void>;
-  fetchFilterOptions: () => Promise<void>;
+  fetchFilterOptions: (state?: string) => Promise<void>;
   setFilters: (filters: Partial<PincodeFilters>) => void;
   clearFilters: () => void;
 }
@@ -48,9 +48,11 @@ export const usePincodeStore = create<PincodeStore>((set, get) => ({
     }
   },
 
-  fetchFilterOptions: async () => {
+  fetchFilterOptions: async (state?: string) => {
     try {
-      const res = await api.get('/api/admin/pincodes/filters');
+      const params: Record<string, string> = {};
+      if (state) params.state = state;
+      const res = await api.get('/api/admin/pincodes/filters', { params });
       set({ filterOptions: res.data });
     } catch {
       /* noop */

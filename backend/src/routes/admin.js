@@ -449,9 +449,11 @@ router.delete('/categories/:category/niches/:nicheId', async (req, res) => {
 // ── GET /api/admin/pincodes/filters ──
 router.get('/pincodes/filters', async (req, res) => {
   try {
+    const { state } = req.query;
+    const districtFilter = state ? { StateName: state } : {};
     const [states, districts] = await Promise.all([
       PinCode.distinct('StateName'),
-      PinCode.distinct('District'),
+      PinCode.distinct('District', districtFilter),
     ]);
     res.json({
       states: states.filter(Boolean).sort(),
