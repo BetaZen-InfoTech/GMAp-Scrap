@@ -408,24 +408,15 @@ async function main() {
   liveMonitor = new LiveMonitor();
   await liveMonitor.start(chalk, deviceId, 2000);
 
-  // ── Process each chunk as a separate job ──────────────────────────────────
-  let globalCompleted = 0;
+  // ── Phase 1: Create/resume ALL jobs upfront ───────────────────────────────
+  const jobDefs = [];
 
   for (let chunkIdx = 0; chunkIdx < pincodeChunks.length; chunkIdx++) {
-    const pincodes     = pincodeChunks[chunkIdx];
-    const chunkStart   = pincodes[0].Pincode;
-    const chunkEnd     = pincodes[pincodes.length - 1].Pincode;
+    const pincodes      = pincodeChunks[chunkIdx];
+    const chunkStart    = pincodes[0].Pincode;
+    const chunkEnd      = pincodes[pincodes.length - 1].Pincode;
     const totalSearches = pincodes.length * niches.length * 3;
 
-    if (totalJobs > 1) {
-      print(chalk.bold.cyan(
-        `\n${'═'.repeat(60)}\n` +
-        `  Job ${chunkIdx + 1}/${totalJobs}  |  Pin ${chunkStart} → ${chunkEnd}  (${pincodes.length} pincodes, ${totalSearches} searches)\n` +
-        `${'═'.repeat(60)}`
-      ));
-    }
-
-    // ── Job tracking (create or resume) ──────────────────────────────────
     let jobId;
     const completedJobSearches = new Set();
     let jobCompletedCount = 0;
@@ -442,15 +433,34 @@ async function main() {
         completedJobSearches.add(`${cs.pincode}|${cs.category}|${cs.subCategory}|${cs.round}`);
       }
       jobCompletedCount = doneSearches.length;
-      print(chalk.cyan(`  Resuming job ${jobId.substring(0, 8)}… (${doneSearches.length} searches already done)`));
+      print(chalk.cyan(`  [Job ${chunkIdx + 1}/${totalJobs}] Resuming ${jobId.substring(0, 8)}… (${doneSearches.length} already done)`));
       updateJobProgress(jobId, { status: 'running' });
     } else {
       jobId = uuidv4();
       await createJobTracking(jobId, deviceId, chunkStart, chunkEnd, totalSearches);
-      print(chalk.cyan(`  Created job ${jobId.substring(0, 8)}…`));
+      print(chalk.cyan(`  [Job ${chunkIdx + 1}/${totalJobs}] Created ${jobId.substring(0, 8)}… Pin ${chunkStart} → ${chunkEnd}`));
     }
 
-    // ── Scraping loop ────────────────────────────────────────────────────
+    jobDefs.push({ chunkIdx, pincodes, chunkStart, chunkEnd, totalSearches, jobId, completedJobSearches, jobCompletedCount });
+  }
+
+  if (totalJobs > 1) {
+    print(chalk.bold.green(`\n  All ${totalJobs} jobs registered — launching in parallel…\n`));
+  }
+
+  // ── Phase 2: Execute jobs in parallel ──────────────────────────────────────
+
+  async function executeJob(jobDef) {
+    const { chunkIdx, pincodes, chunkStart, chunkEnd, totalSearches, jobId, completedJobSearches } = jobDef;
+    let jobCompletedCount = jobDef.jobCompletedCount;
+    const tag = `[Job ${chunkIdx + 1}/${totalJobs}]`;
+
+    print(chalk.bold.cyan(
+      `\n${'═'.repeat(60)}\n` +
+      `  ${tag}  Pin ${chunkStart} → ${chunkEnd}  (${pincodes.length} pincodes, ${totalSearches} searches)\n` +
+      `${'═'.repeat(60)}`
+    ));
+
     let completed = 0;
 
     for (const pincodeInfo of pincodes) {
@@ -465,11 +475,8 @@ async function main() {
           );
 
           completed++;
-          globalCompleted++;
 
-          const prefix = totalJobs > 1
-            ? `Job ${chunkIdx + 1}/${totalJobs} | [${completed}/${totalSearches}]`
-            : `[${completed}/${totalSearches}]`;
+          const prefix = `${tag} [${completed}/${totalSearches}]`;
 
           print(chalk.bold.white(
             `\n${'━'.repeat(60)}\n` +
@@ -481,14 +488,14 @@ async function main() {
           // Check if already completed in this job (resume support)
           const searchKey = `${pincodeInfo.Pincode}|${niche.Category}|${niche.SubCategory}|${round}`;
           if (completedJobSearches.has(searchKey)) {
-            print(chalk.yellow('  ⟳ Already completed in this job — skipping'));
+            print(chalk.yellow(`  ${tag} ⟳ Already completed — skipping`));
             continue;
           }
 
           // Check if already scraped globally (across all jobs)
           const alreadyDone = await isAlreadyScraped(keyword, round);
           if (alreadyDone) {
-            print(chalk.yellow('  ⟳ Already scraped — skipping'));
+            print(chalk.yellow(`  ${tag} ⟳ Already scraped — skipping`));
             markSearchComplete(jobId, {
               deviceId, pincode: pincodeInfo.Pincode,
               district: pincodeInfo.District, stateName: pincodeInfo.StateName,
@@ -505,7 +512,7 @@ async function main() {
               niche.Category, niche.SubCategory,
               { district: pincodeInfo.District, stateName: pincodeInfo.StateName, round, jobId }
             );
-            print(chalk.bold.green(`  ✓ Completed  (${result.totalScraped} records)`));
+            print(chalk.bold.green(`  ${tag} ✓ Completed  (${result.totalScraped} records)`));
             completedCache.add(`${keyword}|R${round}`);
 
             jobCompletedCount++;
@@ -517,7 +524,7 @@ async function main() {
             });
             updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'running' });
           } catch (err) {
-            print(chalk.red(`  ✗ Error: ${err.message}`));
+            print(chalk.red(`  ${tag} ✗ Error: ${err.message}`));
           }
 
           await sleep(2000);
@@ -527,11 +534,11 @@ async function main() {
 
     // ── Mark job completed ──────────────────────────────────────────────
     updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'completed' });
+    print(chalk.bold.green(`  ${tag} ✓ Job completed (${jobCompletedCount} searches)`));
+  }
 
-    if (totalJobs > 1) {
-      print(chalk.bold.green(`  ✓ Job ${chunkIdx + 1}/${totalJobs} completed`));
-    }
-  }         // end chunk/job loop
+  // Launch all jobs in parallel
+  await Promise.all(jobDefs.map(jobDef => executeJob(jobDef)));
 
   // ── Done ──────────────────────────────────────────────────────────────────
   liveMonitor.stop();
