@@ -51,6 +51,25 @@ function print(...args) {
   }
 }
 
+// ── CPU throttle — wait if CPU > 90% ─────────────────────────────────────────
+
+const CPU_LIMIT = 90;
+
+async function waitForCpu(tag) {
+  let stats = await getSystemStats();
+  if (stats.cpuUsed <= CPU_LIMIT) return;
+
+  const label = tag ? `${tag} ` : '';
+  print(chalk.yellow(`  ${label}CPU at ${stats.cpuUsed}% (limit ${CPU_LIMIT}%) — waiting…`));
+
+  while (stats.cpuUsed > CPU_LIMIT) {
+    await sleep(1000);
+    stats = await getSystemStats();
+  }
+
+  print(chalk.green(`  ${label}CPU dropped to ${stats.cpuUsed}% — resuming`));
+}
+
 // ── One-time stats snapshot (used before live bar starts) ─────────────────────
 async function printStats(label) {
   try {
@@ -507,6 +526,7 @@ async function main() {
           }
 
           try {
+            await waitForCpu(tag);
             const result = await runSession(
               keyword, pincodeInfo.Pincode, deviceId,
               niche.Category, niche.SubCategory,
