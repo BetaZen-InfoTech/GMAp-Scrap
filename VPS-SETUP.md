@@ -20,22 +20,21 @@ npm -v
 ## 2. Clone the repo
 
 ```bash
-cd /home/user
+cd ~
 git clone https://github.com/BetaZen-InfoTech/GMAp-Scrap.git
 cd GMAp-Scrap/frontend-nodejs
 ```
 
-To pull latest changes later:
-
-```bash
-cd /home/user/GMAp-Scrap
-git pull
-```
+> If the repo already exists, pull the latest instead:
+>
+> ```bash
+> cd ~/GMAp-Scrap && git pull
+> ```
 
 ## 3. Install dependencies
 
 ```bash
-cd /home/user/GMAp-Scrap/frontend-nodejs
+cd ~/GMAp-Scrap/frontend-nodejs
 npm install
 ```
 
@@ -87,19 +86,22 @@ npm start -- "PC NAME" START-PIN END-PIN
 npm start -- "VPS-1" 700001 700010
 ```
 
-**Multi-job mode** — run N jobs, each with 5 pincodes (auto-split):
+**Multi-job mode** — run N parallel jobs, each with 5 pincodes (auto-split):
 
 ```bash
 npm start -- "PC NAME" START-PIN NUMBER-OF-JOBS
 ```
 
 ```bash
-# Example: 10 jobs × 5 pincodes = 50 pincodes starting from 700001
+# Example: 10 parallel jobs × 5 pincodes = 50 pincodes starting from 700001
 npm start -- "VPS-1" 700001 10
 ```
 
 > If the 3rd argument is < 1000, it's treated as number of jobs.
 > If >= 1000, it's treated as an end pincode.
+>
+> All jobs run **in parallel** (not sequentially). A built-in CPU throttle
+> pauses sessions when CPU exceeds 90% and resumes when it drops back down.
 
 ### Interactive mode (manual)
 
@@ -123,7 +125,7 @@ sudo npm install -g pm2
 ### Start a scraper instance
 
 ```bash
-cd /home/user/GMAp-Scrap/frontend-nodejs
+cd ~/GMAp-Scrap/frontend-nodejs
 ```
 
 **Range mode** (single job, all pincodes in range):
@@ -132,11 +134,11 @@ cd /home/user/GMAp-Scrap/frontend-nodejs
 pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 700050
 ```
 
-**Multi-job mode** (N jobs × 5 pincodes each):
+**Multi-job mode** (N parallel jobs × 5 pincodes each):
 
 ```bash
 pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 10
-#                                                            ^^ 10 jobs = 50 pincodes
+#                                                            ^^ 10 parallel jobs = 50 pincodes
 ```
 
 ### Run multiple instances
@@ -178,17 +180,8 @@ After this, all pm2 processes will auto-start when the VPS reboots.
 ### Update code and restart
 
 ```bash
-cd /home/user/GMAp-Scrap
-git pull
-cd frontend-nodejs
-npm install
-npx playwright install chromium
-npx playwright install-deps chromium
-pm2 restart all
+cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install && npx playwright install chromium && npx playwright install-deps chromium && pm2 restart all
 ```
-
-> Run all commands in order after every `git pull` to ensure dependencies,
-> Chromium browser, and system libraries are up to date.
 
 ---
 
