@@ -89,22 +89,6 @@ router.get('/devices', async (req, res) => {
 
     const devices = await Device.find().sort({ lastSeenAt: -1 }).lean();
 
-    // Get today's date for latest stats lookup
-    const today = new Date().toISOString().split('T')[0];
-
-    // Fetch latest stats for all devices
-    const historyDocs = await DeviceHistory.find(
-      { date: today },
-      { deviceId: 1, stats: { $slice: -1 } }
-    ).lean();
-
-    const statsMap = {};
-    for (const doc of historyDocs) {
-      if (doc.stats && doc.stats.length > 0) {
-        statsMap[doc.deviceId] = doc.stats[0];
-      }
-    }
-
     // Get active job counts per device
     const activeJobs = await ScrapeTracking.aggregate([
       { $match: { status: { $in: ['running', 'paused'] } } },
@@ -126,7 +110,6 @@ router.get('/devices', async (req, res) => {
 
     const result = devices.map((d) => ({
       ...d,
-      latestStats: statsMap[d.deviceId] || null,
       activeJobs: jobCountMap[d.deviceId] || 0,
       totalSessions: sessionCountMap[d.deviceId] || 0,
     }));
@@ -164,21 +147,18 @@ router.get('/devices/:deviceId', async (req, res) => {
       }
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    const [sessions, jobs, history, todayHistory] = await Promise.all([
+    const [sessions, jobs, history] = await Promise.all([
       SessionStats.find({ deviceId }).sort({ createdAt: -1 }).limit(100).lean(),
       ScrapeTracking.find({ deviceId }).sort({ createdAt: -1 }).limit(50).lean(),
       DeviceHistory.find({ deviceId }).sort({ date: -1 }).limit(7).lean(),
-      DeviceHistory.findOne({ deviceId, date: today }, { stats: { $slice: -1 } }).lean(),
     ]);
 
-    const latestStats = todayHistory?.stats?.[0] || null;
     const activeJobs = jobs.filter((j) => j.status === 'running' || j.status === 'paused').length;
     const deviceName = device.nickname || device.hostname;
     const enrichedSessions = sessions.map((s) => ({ ...s, deviceName }));
 
     res.json({
-      device: { ...device, latestStats, activeJobs, totalSessions: sessions.length },
+      device: { ...device, activeJobs, totalSessions: sessions.length },
       sessions: enrichedSessions,
       jobs,
       history,

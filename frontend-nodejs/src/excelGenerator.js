@@ -1,6 +1,9 @@
-const ExcelJS = require('exceljs');
-const path    = require('path');
-const fs      = require('fs');
+const ExcelJS  = require('exceljs');
+const path     = require('path');
+const fs       = require('fs');
+const axios    = require('axios');
+const FormData = require('form-data');
+const { API_BASE_URL } = require('./config');
 
 /**
  * Generate a formatted .xlsx file in the project's /excel folder.
@@ -103,4 +106,50 @@ async function generateExcel(sessionId, keyword, records, outputDir) {
   }
 }
 
-module.exports = { generateExcel };
+/**
+ * Upload an Excel file to the backend API.
+ * Retries up to 3 times with back-off.
+ */
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+async function uploadExcel(filePath, sessionId, keyword, deviceId) {
+  if (!fs.existsSync(filePath)) {
+    return { success: false, error: `File not found: ${filePath}` };
+  }
+
+  const endpoint = `${API_BASE_URL}/api/scraped-data/excel`;
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    try {
+      const form = new FormData();
+      form.append('file', fs.createReadStream(filePath), {
+        filename: path.basename(filePath),
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      form.append('sessionId', sessionId);
+      form.append('keyword', keyword);
+      if (deviceId) form.append('deviceId', deviceId);
+      form.append('timestamp', new Date().toISOString());
+
+      await axios.post(endpoint, form, {
+        headers: form.getHeaders(),
+        timeout: 60000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      });
+
+      return { success: true };
+    } catch (err) {
+      const serverMsg = err.response?.data?.message || err.response?.data?.error || '';
+      const fullError = serverMsg ? `${err.message} — ${serverMsg}` : err.message;
+      if (attempt === RETRY_DELAYS.length) {
+        return { success: false, error: fullError };
+      }
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+    }
+  }
+
+  return { success: false, error: 'Max retries reached' };
+}
+
+module.exports = { generateExcel, uploadExcel };

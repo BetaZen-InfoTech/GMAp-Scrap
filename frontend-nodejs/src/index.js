@@ -23,7 +23,7 @@ const chalk  = require('chalk');
 const { API_BASE_URL, APP_STATE, SETTINGS, EXCEL_DIR } = require('./config');
 const { ScraperEngine }          = require('./scraper');
 const { sendBatch }              = require('./batchSender');
-const { generateExcel }          = require('./excelGenerator');
+const { generateExcel, uploadExcel } = require('./excelGenerator');
 const { getSystemStats, LiveMonitor } = require('./monitor');
 const { ensureDevice }           = require('./deviceManager');
 
@@ -246,10 +246,19 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
 
   print(chalk.green(`  Records: ${totalScraped} | Saved: ${inserted} | Dups: ${duplicates}`));
 
+  let excelUploaded = false;
   if (totalScraped > 0) {
     const excelResult = await generateExcel(sessionId, keyword, allRecords, EXCEL_DIR);
     if (excelResult.success) {
       print(chalk.green(`  Excel  : ${excelResult.filePath}`));
+      // Upload Excel to backend
+      const uploadResult = await uploadExcel(excelResult.filePath, sessionId, keyword, deviceId);
+      if (uploadResult.success) {
+        excelUploaded = true;
+        print(chalk.green(`  Upload : Excel uploaded to server`));
+      } else {
+        print(chalk.yellow(`  Upload : failed — ${uploadResult.error}`));
+      }
     } else {
       print(chalk.yellow(`  Excel  : failed — ${excelResult.error}`));
     }
@@ -266,7 +275,7 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
     round: extraContext?.round,
     totalRecords: totalScraped, insertedRecords: inserted,
     duplicateRecords: duplicates, batchesSent,
-    excelUploaded: false, status: 'completed',
+    excelUploaded, status: 'completed',
     startedAt: startTime, completedAt: endTime,
     durationMs: new Date(endTime).getTime() - new Date(startTime).getTime(),
   });

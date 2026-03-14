@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const DeviceHistory = require('../models/DeviceHistory');
+const Device = require('../models/Device');
 
 // POST /api/device-history — receive batch of stat snapshots
 router.post('/', async (req, res) => {
@@ -18,6 +19,30 @@ router.post('/', async (req, res) => {
       { $push: { stats: { $each: stats } } },
       { upsert: true, new: true }
     );
+
+    // Mark device as online + update lastSeenAt + store latest stats
+    const latest = stats[stats.length - 1]; // most recent snapshot
+    const deviceUpdate = {
+      lastSeenAt: new Date(),
+      status: 'online',
+    };
+    if (latest) {
+      deviceUpdate.latestStats = {
+        cpuUsedPercent:  latest.cpuUsedPercent  ?? 0,
+        ramTotalMB:      latest.ramTotalMB      ?? 0,
+        ramUsedMB:       latest.ramUsedMB       ?? 0,
+        ramUsedPercent:  latest.ramUsedPercent   ?? 0,
+        diskTotalGB:     latest.diskTotalGB      ?? 0,
+        diskUsedGB:      latest.diskUsedGB       ?? 0,
+        diskUsedPercent: latest.diskUsedPercent   ?? 0,
+        networkSentMB:   latest.networkSentMB    ?? 0,
+        networkRecvMB:   latest.networkRecvMB    ?? 0,
+        netDownKBps:     latest.netDownKBps      ?? 0,
+        netUpKBps:       latest.netUpKBps        ?? 0,
+        updatedAt:       new Date(),
+      };
+    }
+    Device.updateOne({ deviceId }, { $set: deviceUpdate }).catch(() => {});
 
     res.json({
       success: true,

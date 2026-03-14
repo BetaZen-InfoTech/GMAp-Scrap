@@ -5,6 +5,7 @@ const cors = require( 'cors' );
 const { Server } = require( 'socket.io' );
 const connectDB = require( './config/db' );
 const { setupChangeStreams } = require( './services/changeStreams' );
+const { startDeviceOfflineCron } = require( './services/deviceCron' );
 
 const app = express();
 const server = http.createServer( app );
@@ -32,10 +33,11 @@ io.on( 'connection', ( socket ) =>
   } );
 } );
 
-// Connect to MongoDB, then start Change Streams
+// Connect to MongoDB, then start Change Streams + cron jobs
 connectDB().then( () =>
 {
   setupChangeStreams( io );
+  startDeviceOfflineCron();
 } );
 
 // Middleware

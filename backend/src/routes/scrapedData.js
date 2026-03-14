@@ -6,6 +6,16 @@ const fs = require('fs');
 const ScrapedData = require('../models/ScrapedData');
 const ExcelUpload = require('../models/ExcelUpload');
 const SessionStats = require('../models/SessionStats');
+const Device = require('../models/Device');
+
+/** Fire-and-forget: mark device as online + update lastSeenAt */
+function touchDevice(deviceId) {
+  if (!deviceId) return;
+  Device.updateOne(
+    { deviceId },
+    { $set: { lastSeenAt: new Date(), status: 'online' } }
+  ).catch(() => {});
+}
 
 // ── Multer config for Excel uploads ──
 const uploadDir = path.join(__dirname, '../../uploads');
@@ -14,7 +24,11 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
+  destination: (_req, _file, cb) => {
+    // Ensure directory exists on every upload (survives restarts/deletions)
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
   filename: (_req, file, cb) => {
     const uniqueName = `${Date.now()}-${file.originalname}`;
     cb(null, uniqueName);
@@ -59,6 +73,8 @@ router.post('/batch', async (req, res) => {
     if (!records || !Array.isArray(records) || records.length === 0) {
       return res.status(400).json({ error: 'records array is required and must not be empty' });
     }
+
+    touchDevice(deviceId);
 
     // ── Duplicate detection ──
     // Build $or conditions for all records to check existing duplicates
@@ -188,6 +204,8 @@ router.post('/session-stats', async (req, res) => {
     if (!sessionId) {
       return res.status(400).json({ error: 'sessionId is required' });
     }
+
+    touchDevice(req.body.deviceId);
 
     // Build $set only from defined fields
     const fields = [

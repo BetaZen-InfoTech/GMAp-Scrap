@@ -29,6 +29,7 @@ router.post('/register', async (req, res) => {
       totalMemoryGB: deviceInfo?.totalMemoryGB,
       macAddresses: deviceInfo?.macAddresses || [],
       networkInterfaces: deviceInfo?.networkInterfaces || {},
+      status: 'online',
       lastSeenAt: new Date(),
     });
 
@@ -56,6 +57,7 @@ router.post('/verify', async (req, res) => {
     }
 
     device.lastSeenAt = new Date();
+    device.status = 'online';
     await device.save();
 
     return res.json({ success: true, deviceId: device.deviceId, nickname: device.nickname || '' });
