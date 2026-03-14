@@ -335,14 +335,23 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const timeStr = new Date().toLocaleString('en-IN');
+  const lines = [
+    `   ENV  : ${APP_STATE.toUpperCase()}`,
+    `   API  : ${API_BASE_URL}`,
+    `   Time : ${timeStr}`,
+  ];
+  const boxW = Math.max(52, ...lines.map(l => l.length + 2));
+  const pad = (str) => str + ' '.repeat(boxW - str.length);
+
   console.log('');
-  console.log(chalk.bold.cyan('  ╔══════════════════════════════════════════════════════╗'));
-  console.log(chalk.bold.cyan('  ║') + chalk.bold.white('   BetaZen Google Maps Scraper  —  Node.js CLI       ') + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('  ╠══════════════════════════════════════════════════════╣'));
-  console.log(chalk.bold.cyan('  ║') + chalk.white(`   ENV  : ${chalk.bold.green(APP_STATE.toUpperCase())}`) + ' '.repeat(42 - APP_STATE.length) + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('  ║') + chalk.white(`   API  : ${chalk.bold(API_BASE_URL)}`) + ' '.repeat(42 - API_BASE_URL.length) + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('  ║') + chalk.white(`   Time : ${chalk.bold(new Date().toLocaleString('en-IN'))}`) + ' '.repeat(Math.max(1, 42 - new Date().toLocaleString('en-IN').length)) + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('  ╚══════════════════════════════════════════════════════╝'));
+  console.log(chalk.bold.cyan(`  ╔${'═'.repeat(boxW)}╗`));
+  console.log(chalk.bold.cyan('  ║') + chalk.bold.white(pad('   BetaZen Google Maps Scraper  —  Node.js CLI')) + chalk.bold.cyan('║'));
+  console.log(chalk.bold.cyan(`  ╠${'═'.repeat(boxW)}╣`));
+  for (const line of lines) {
+    console.log(chalk.bold.cyan('  ║') + chalk.white(pad(line)) + chalk.bold.cyan('║'));
+  }
+  console.log(chalk.bold.cyan(`  ╚${'═'.repeat(boxW)}╝`));
   console.log('');
 
   await printStats('Startup');
@@ -603,11 +612,13 @@ async function main() {
   liveMonitor = null;
 
   const jobsText = totalJobs > 1 ? `${totalJobs} jobs finished` : 'Job finished';
+  const endW = 52;
+  const endPad = (s) => s + ' '.repeat(Math.max(0, endW - s.length));
   console.log('');
-  console.log(chalk.bold.green('  ╔══════════════════════════════════════════════════════╗'));
-  console.log(chalk.bold.green('  ║') + chalk.bold.white('          All scraping completed!                   ') + chalk.bold.green('║'));
-  console.log(chalk.bold.green('  ║') + chalk.white(`          ${jobsText}`) + ' '.repeat(42 - jobsText.length) + chalk.bold.green('║'));
-  console.log(chalk.bold.green('  ╚══════════════════════════════════════════════════════╝'));
+  console.log(chalk.bold.green(`  ╔${'═'.repeat(endW)}╗`));
+  console.log(chalk.bold.green('  ║') + chalk.bold.white(endPad('          All scraping completed!')) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`          ${jobsText}`)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green(`  ╚${'═'.repeat(endW)}╝`));
   console.log('');
 
   await printStats('Final');
