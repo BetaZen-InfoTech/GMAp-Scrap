@@ -102,6 +102,62 @@ export interface AnalyticsData {
   pincodesCovered: number;
 }
 
+// --- PinCode (from PinCode-Dataset) ---
+export interface PinCodeRecord {
+  _id: string;
+  CircleName: string;
+  Pincode: number;
+  District: string;
+  StateName: string;
+  Latitude: string;
+  Longitude: string;
+  Country: string;
+}
+
+// --- Scraped Pincode (aggregated) ---
+export interface ScrapedPincodeRecord {
+  pincode: string;
+  district: string;
+  stateName: string;
+  circleName: string;
+  totalRecords: number;
+  categories: string[];
+  subCategories: string[];
+  rounds: number[];
+  devices: string[];
+}
+
+// --- Scraped Data Record (full) ---
+export interface ScrapedDataRecord {
+  _id: string;
+  sessionId: string;
+  deviceId?: string;
+  batchNumber?: number;
+  name?: string;
+  nameEnglish?: string;
+  nameLocal?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  rating?: number;
+  reviews?: number;
+  category?: string;
+  pincode?: string;
+  plusCode?: string;
+  photoUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  mapsUrl?: string;
+  scrapKeyword?: string;
+  scrapCategory?: string;
+  scrapSubCategory?: string;
+  scrapRound?: number;
+  scrapedAt?: string;
+  isDeleted?: boolean;
+  createdAt?: string;
+}
+
 // --- Auth ---
 export interface AdminSettings {
   /** API environment driven by APP_STATE from .env */

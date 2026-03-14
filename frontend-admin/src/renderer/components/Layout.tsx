@@ -7,6 +7,9 @@ const PAGE_TITLES: Record<Route, string> = {
   'device-detail': 'Device Detail',
   sessions: 'Sessions',
   categories: 'Categories',
+  'pincode-details': 'Pincode Details',
+  'scraped-pincodes': 'Scraped Pincodes',
+  'scrap-database': 'Scrap Database',
 };
 
 interface LayoutProps {

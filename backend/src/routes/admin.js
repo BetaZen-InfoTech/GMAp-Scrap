@@ -8,6 +8,8 @@ const SessionStats = require('../models/SessionStats');
 const ScrapeTracking = require('../models/ScrapeTracking');
 const ScrapedData = require('../models/ScrapedData');
 const BusinessNiche = require('../models/BusinessNiche');
+const PinCode = require('../models/PinCode');
+const SearchStatus = require('../models/SearchStatus');
 
 // ── POST /api/admin/login ──
 router.post('/login', async (req, res) => {
@@ -436,6 +438,285 @@ router.delete('/categories/:category/niches/:nicheId', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[admin/categories/niches DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Page: Pincode Details (All)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── GET /api/admin/pincodes/filters ──
+router.get('/pincodes/filters', async (req, res) => {
+  try {
+    const [states, districts] = await Promise.all([
+      PinCode.distinct('StateName'),
+      PinCode.distinct('District'),
+    ]);
+    res.json({
+      states: states.filter(Boolean).sort(),
+      districts: districts.filter(Boolean).sort(),
+    });
+  } catch (err) {
+    console.error('[admin/pincodes/filters] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/pincodes ──
+router.get('/pincodes', async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search, state, district } = req.query;
+    const filter = {};
+
+    if (search) {
+      const isNumeric = /^\d+$/.test(search);
+      if (isNumeric) {
+        filter.Pincode = Number(search);
+      } else {
+        filter.$or = [
+          { District: { $regex: search, $options: 'i' } },
+          { StateName: { $regex: search, $options: 'i' } },
+          { CircleName: { $regex: search, $options: 'i' } },
+        ];
+      }
+    }
+    if (state) filter.StateName = state;
+    if (district) filter.District = district;
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const [data, total] = await Promise.all([
+      PinCode.find(filter).sort({ Pincode: 1 }).skip(skip).limit(Number(limit)).lean(),
+      PinCode.countDocuments(filter),
+    ]);
+
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/pincodes] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Page: Scraped Pincodes
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── GET /api/admin/scraped-pincodes ──
+router.get('/scraped-pincodes', async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search, state } = req.query;
+
+    const matchStage = {
+      pincode: { $ne: null, $exists: true, $ne: '' },
+      isDeleted: { $ne: true },
+    };
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$pincode',
+          totalRecords: { $sum: 1 },
+          categories: { $addToSet: '$scrapCategory' },
+          subCategories: { $addToSet: '$scrapSubCategory' },
+          rounds: { $addToSet: '$scrapRound' },
+          devices: { $addToSet: '$deviceId' },
+        },
+      },
+      { $sort: { totalRecords: -1 } },
+    ];
+
+    // Get total count
+    const countResult = await ScrapedData.aggregate([...pipeline, { $count: 'total' }]);
+    let totalAgg = countResult[0]?.total || 0;
+
+    // Paginate
+    const skip = (Number(page) - 1) * Number(limit);
+    pipeline.push({ $skip: skip }, { $limit: Number(limit) });
+    const aggregated = await ScrapedData.aggregate(pipeline);
+
+    // Enrich with PinCode dataset info
+    const pincodeValues = aggregated.map((a) => Number(a._id)).filter((n) => !isNaN(n));
+    const pincodeDocs = await PinCode.find({ Pincode: { $in: pincodeValues } }).lean();
+    const pincodeMap = {};
+    for (const p of pincodeDocs) {
+      if (!pincodeMap[p.Pincode]) pincodeMap[p.Pincode] = p;
+    }
+
+    let data = aggregated.map((a) => {
+      const info = pincodeMap[Number(a._id)] || {};
+      return {
+        pincode: a._id,
+        district: info.District || '—',
+        stateName: info.StateName || '—',
+        circleName: info.CircleName || '—',
+        totalRecords: a.totalRecords,
+        categories: (a.categories || []).filter(Boolean),
+        subCategories: (a.subCategories || []).filter(Boolean),
+        rounds: (a.rounds || []).filter((r) => r != null).sort(),
+        devices: (a.devices || []).filter(Boolean),
+      };
+    });
+
+    // Post-filter by state and search (text)
+    if (state) {
+      data = data.filter((d) => d.stateName === state);
+      totalAgg = data.length;
+    }
+    if (search) {
+      const s = search.toLowerCase();
+      const isNumeric = /^\d+$/.test(search);
+      if (isNumeric) {
+        data = data.filter((d) => String(d.pincode).includes(search));
+      } else {
+        data = data.filter((d) =>
+          d.district.toLowerCase().includes(s) || d.stateName.toLowerCase().includes(s)
+        );
+      }
+      totalAgg = data.length;
+    }
+
+    res.json({ data, total: totalAgg, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/scraped-pincodes] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Page: Scrap Database
+// ══════════════════════════════════════════════════════════════════════════════
+
+function buildScrapDbFilter(params) {
+  const { search, category, pincode, missingPhone, missingAddress, missingWebsite, missingEmail } = params;
+  const filter = { isDeleted: { $ne: true } };
+
+  if (search) {
+    filter.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { nameEnglish: { $regex: search, $options: 'i' } },
+      { scrapKeyword: { $regex: search, $options: 'i' } },
+      { address: { $regex: search, $options: 'i' } },
+    ];
+  }
+  if (category) filter.category = category;
+  if (pincode) filter.pincode = pincode;
+  if (missingPhone === true || missingPhone === 'true') filter.phone = { $in: [null, ''] };
+  if (missingAddress === true || missingAddress === 'true') filter.address = { $in: [null, ''] };
+  if (missingWebsite === true || missingWebsite === 'true') filter.website = { $in: [null, ''] };
+  if (missingEmail === true || missingEmail === 'true') filter.email = { $in: [null, ''] };
+
+  return filter;
+}
+
+// ── GET /api/admin/scrap-database/filters ──
+router.get('/scrap-database/filters', async (req, res) => {
+  try {
+    const baseFilter = { isDeleted: { $ne: true } };
+    const [categories, pincodes] = await Promise.all([
+      ScrapedData.distinct('category', { ...baseFilter, category: { $ne: null } }),
+      ScrapedData.distinct('pincode', { ...baseFilter, pincode: { $ne: null } }),
+    ]);
+    res.json({
+      categories: categories.filter(Boolean).sort(),
+      pincodes: pincodes.filter(Boolean).sort(),
+    });
+  } catch (err) {
+    console.error('[admin/scrap-database/filters] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/scrap-database/export ──
+router.get('/scrap-database/export', async (req, res) => {
+  try {
+    const { ids, format = 'csv', ...filterParams } = req.query;
+
+    let data;
+    if (ids) {
+      const idArr = ids.split(',');
+      data = await ScrapedData.find({ _id: { $in: idArr } }).lean();
+    } else {
+      const filter = buildScrapDbFilter(filterParams);
+      data = await ScrapedData.find(filter).sort({ createdAt: -1 }).limit(100000).lean();
+    }
+
+    const fields = [
+      'name', 'address', 'phone', 'email', 'website', 'rating', 'reviews',
+      'category', 'pincode', 'plusCode', 'photoUrl', 'latitude', 'longitude',
+      'mapsUrl', 'scrapKeyword', 'scrapCategory', 'scrapSubCategory', 'scrapRound', 'scrapedAt',
+    ];
+
+    if (format === 'csv') {
+      const header = fields.join(',');
+      const rows = data.map((r) =>
+        fields.map((f) => {
+          const val = r[f] != null ? String(r[f]) : '';
+          return val.includes(',') || val.includes('"') || val.includes('\n')
+            ? `"${val.replace(/"/g, '""')}"` : val;
+        }).join(',')
+      );
+      const csv = [header, ...rows].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=scraped-data.csv');
+      return res.send(csv);
+    }
+
+    // JSON format for client-side Excel generation
+    res.json({ data, fields });
+  } catch (err) {
+    console.error('[admin/scrap-database/export] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/scrap-database ──
+router.get('/scrap-database', async (req, res) => {
+  try {
+    const { page = 1, limit = 25, sortBy = 'createdAt', sortOrder = 'desc', ...filterParams } = req.query;
+    const filter = buildScrapDbFilter(filterParams);
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+
+    const [data, total] = await Promise.all([
+      ScrapedData.find(filter).sort(sort).skip(skip).limit(Number(limit)).lean(),
+      ScrapedData.countDocuments(filter),
+    ]);
+
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/scrap-database] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/admin/scrap-database/soft-delete ──
+router.patch('/scrap-database/soft-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array required' });
+    }
+    const result = await ScrapedData.updateMany(
+      { _id: { $in: ids } },
+      { $set: { isDeleted: true } }
+    );
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error('[admin/scrap-database/soft-delete] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/admin/scrap-database/soft-delete-filter ──
+router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
+  try {
+    const filter = buildScrapDbFilter(req.body);
+    const result = await ScrapedData.updateMany(filter, { $set: { isDeleted: true } });
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error('[admin/scrap-database/soft-delete-filter] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

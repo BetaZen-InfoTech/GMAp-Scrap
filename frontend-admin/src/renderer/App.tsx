@@ -10,6 +10,9 @@ import DevicesPage from './pages/DevicesPage';
 import DeviceDetailPage from './pages/DeviceDetailPage';
 import SessionsPage from './pages/SessionsPage';
 import CategoriesPage from './pages/CategoriesPage';
+import PincodeDetailsPage from './pages/PincodeDetailsPage';
+import ScrapedPincodesPage from './pages/ScrapedPincodesPage';
+import ScrapDatabasePage from './pages/ScrapDatabasePage';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -82,6 +85,12 @@ const App: React.FC = () => {
         return <SessionsPage />;
       case 'categories':
         return <CategoriesPage />;
+      case 'pincode-details':
+        return <PincodeDetailsPage />;
+      case 'scraped-pincodes':
+        return <ScrapedPincodesPage />;
+      case 'scrap-database':
+        return <ScrapDatabasePage />;
       default:
         return <DashboardPage />;
     }
