@@ -51,9 +51,9 @@ function print(...args) {
   }
 }
 
-// ── CPU throttle — wait if CPU > 90% ─────────────────────────────────────────
+// ── CPU throttle — wait if CPU > 80% ─────────────────────────────────────────
 
-const CPU_LIMIT = 90;
+const CPU_LIMIT = 80;
 
 async function waitForCpu(tag) {
   let stats = await getSystemStats();
