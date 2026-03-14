@@ -27,7 +27,12 @@ function setupChangeStreams(io) {
 
     changeStream.on('error', (err) => {
       console.error('[ChangeStream] Error:', err.message);
-      // Retry after delay
+      // Don't retry if not a replica set — it will never work
+      if (err.message && err.message.includes('replica set')) {
+        console.log('[ChangeStream] Not a replica set — change streams disabled');
+        return;
+      }
+      // Retry other errors after delay
       setTimeout(() => setupChangeStreams(io), 5000);
     });
 

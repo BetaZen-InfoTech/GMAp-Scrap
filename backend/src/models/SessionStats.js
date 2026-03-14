@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const sessionStatsSchema = new mongoose.Schema(
   {
-    sessionId: { type: String, required: true, index: true },
+    sessionId: { type: String, required: true },
     jobId: { type: String, index: true },
     deviceId: { type: String, index: true },
     keyword: { type: String },

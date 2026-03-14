@@ -1,6 +1,18 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
-const API_BASE_URL = process.env.API_BASE_URL || 'http://127.0.0.1:5000';
+// ── Resolve environment from APP_STATE in .env ───────────────────────────────
+const APP_STATE = (process.env.APP_STATE || 'prod').toLowerCase();
+
+const API_URLS = {
+  local: process.env.LOCAL_API_URL,
+  dev:   process.env.DEV_API_URL,
+  prod:  process.env.PROD_API_URL,
+};
+
+const API_BASE_URL = API_URLS[APP_STATE];
+if (!API_BASE_URL) {
+  throw new Error(`Missing ${APP_STATE.toUpperCase()}_API_URL in .env`);
+}
 
 /**
  * Timing values from the Settings UI screenshot.
@@ -24,9 +36,9 @@ const SETTINGS = {
   batchSize:    10,               // Records before API call
 
   // ── Browser ───────────────────────────────────────────────
-  headless: true,
+  headless: process.env.HEADLESS !== 'false',
 };
 
 const EXCEL_DIR = require('path').join(__dirname, '..', 'excel');
 
-module.exports = { API_BASE_URL, SETTINGS, EXCEL_DIR };
+module.exports = { API_BASE_URL, APP_STATE, SETTINGS, EXCEL_DIR };

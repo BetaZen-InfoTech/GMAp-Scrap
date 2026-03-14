@@ -337,8 +337,14 @@ class ScraperEngine {
 
       const website = await tab
         .$eval(
-          '[data-item-id*="authority"] .Io6YTe, a[data-item-id*="authority"]',
-          (el) => el.textContent?.trim() || ''
+          'a[data-item-id*="authority"]',
+          (el) => {
+            // Get the actual href URL, not just display text
+            const href = el.getAttribute('href') || '';
+            if (href) return href;
+            // Fallback to text content
+            return el.textContent?.trim() || '';
+          }
         )
         .catch(() => '');
 

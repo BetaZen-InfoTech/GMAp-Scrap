@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const PinCode = require('../models/PinCode');
 
-// GET /api/pincodes/range?start=N&end=N
+// GET /api/pincodes/range?start=N&end=N&limit=N
 router.get('/range', async (req, res) => {
   try {
     const start = parseInt(req.query.start, 10);
     const end = parseInt(req.query.end, 10);
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 0;
 
     if (isNaN(start) || isNaN(end)) {
       return res.status(400).json({ error: 'start and end query params must be numbers' });
@@ -31,6 +32,8 @@ router.get('/range', async (req, res) => {
           District: doc.District,
           StateName: doc.StateName,
         });
+        // Stop early if limit reached
+        if (limit > 0 && pincodes.length >= limit) break;
       }
     }
 

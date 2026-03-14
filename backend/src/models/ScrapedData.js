@@ -21,8 +21,11 @@ const scrapedDataSchema = new mongoose.Schema(
     latitude: { type: Number },
     longitude: { type: Number },
     mapsUrl: { type: String },
+    scrapKeyword: { type: String },
+    scrapCategory: { type: String },
+    scrapSubCategory: { type: String },
+    scrapRound: { type: Number },
     scrapedAt: { type: String },
-    isDuplicate: { type: Boolean, default: false },
   },
   {
     collection: 'Scraped-Data',

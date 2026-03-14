@@ -54,7 +54,7 @@ function extractPincode(address) {
 // POST /api/scraped-data/batch — receive batch of scraped records, deduplicate, and save to DB
 router.post('/batch', async (req, res) => {
   try {
-    const { batchNumber, deviceId, sessionId, records, timestamp, pincode: batchPincode } = req.body;
+    const { batchNumber, deviceId, sessionId, records, timestamp, pincode: batchPincode, keyword: batchKeyword, scrapCategory: batchScrapCategory, scrapSubCategory: batchScrapSubCategory, round: batchRound } = req.body;
 
     if (!records || !Array.isArray(records) || records.length === 0) {
       return res.status(400).json({ error: 'records array is required and must not be empty' });
@@ -82,69 +82,65 @@ router.post('/batch', async (req, res) => {
       existingKeys.add(dupKey(e.phone, e.rating, e.reviews, e.category, e.plusCode));
     }
 
-    // Split records into new (to insert) and duplicates (to mark & insert)
+    // Split records into new (to insert) and duplicates (to skip)
     const newDocs = [];
-    const dupDocs = [];
+    let duplicateCount = 0;
 
     for (const r of records) {
       const key = dupKey(r.phone, r.rating || 0, r.reviews || 0, r.category, r.plusCode);
-      // Resolve pincode: record-level → batch-level → extract from address
-      const resolvedPincode = r.pincode || batchPincode || extractPincode(r.address) || undefined;
-
-      const doc = {
-        sessionId: r.sessionId || sessionId,
-        deviceId: deviceId || undefined,
-        batchNumber: batchNumber || 0,
-        name: r.name,
-        nameEnglish: r.nameEnglish,
-        nameLocal: r.nameLocal,
-        address: r.address,
-        phone: r.phone,
-        email: r.email,
-        website: r.website,
-        rating: r.rating || 0,
-        reviews: r.reviews || 0,
-        category: r.category,
-        pincode: resolvedPincode,
-        plusCode: r.plusCode,
-        photoUrl: r.photoUrl,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        mapsUrl: r.mapsUrl,
-        scrapedAt: r.timestamp || timestamp,
-      };
 
       if (existingKeys.has(key)) {
-        dupDocs.push({ ...doc, isDuplicate: true });
+        duplicateCount++;
       } else {
         // Add to existingKeys so within-batch duplicates are also caught
         existingKeys.add(key);
-        newDocs.push({ ...doc, isDuplicate: false });
+
+        // Resolve pincode: record-level → batch-level → extract from address
+        const resolvedPincode = r.pincode || batchPincode || extractPincode(r.address) || undefined;
+
+        newDocs.push({
+          sessionId: r.sessionId || sessionId,
+          deviceId: deviceId || undefined,
+          batchNumber: batchNumber || 0,
+          name: r.name,
+          nameEnglish: r.nameEnglish,
+          nameLocal: r.nameLocal,
+          address: r.address,
+          phone: r.phone,
+          email: r.email,
+          website: r.website,
+          rating: r.rating || 0,
+          reviews: r.reviews || 0,
+          category: r.category,
+          pincode: resolvedPincode,
+          plusCode: r.plusCode,
+          photoUrl: r.photoUrl,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          mapsUrl: r.mapsUrl,
+          scrapKeyword: batchKeyword || undefined,
+          scrapCategory: r.scrapCategory || batchScrapCategory || undefined,
+          scrapSubCategory: r.scrapSubCategory || batchScrapSubCategory || undefined,
+          scrapRound: batchRound || undefined,
+          scrapedAt: r.timestamp || timestamp,
+        });
       }
     }
 
-    // Insert new records
+    // Insert only new (non-duplicate) records
     const insertedIds = [];
     if (newDocs.length > 0) {
       const inserted = await ScrapedData.insertMany(newDocs, { ordered: false });
       for (const d of inserted) insertedIds.push(d._id);
     }
 
-    // Insert duplicate records (marked isDuplicate: true)
-    const duplicateIds = [];
-    if (dupDocs.length > 0) {
-      const dupInserted = await ScrapedData.insertMany(dupDocs, { ordered: false });
-      for (const d of dupInserted) duplicateIds.push(d._id);
-    }
-
     res.status(201).json({
       success: true,
       count: newDocs.length,
-      duplicateCount: dupDocs.length,
+      duplicateCount,
       totalReceived: records.length,
       batchNumber,
       insertedIds,
-      duplicateIds,
     });
   } catch (err) {
     console.error('[scraped-data/batch POST] Error:', err.message);
@@ -223,17 +219,16 @@ router.post('/session-stats', async (req, res) => {
 });
 
 // GET /api/scraped-data/session-stats/check-completed — check if a search is already completed
-// Query params: keyword (the full search text — matches across ALL jobs/sessions)
+// Query params: keyword (required), round (optional — needed when keyword is same across rounds)
 router.get('/session-stats/check-completed', async (req, res) => {
   try {
-    const { keyword } = req.query;
+    const { keyword, round } = req.query;
     if (!keyword) {
       return res.status(400).json({ error: 'keyword is required' });
     }
-    const doc = await SessionStats.findOne({
-      keyword: String(keyword),
-      status: 'completed',
-    }).lean();
+    const filter = { keyword: String(keyword), status: 'completed' };
+    if (round != null) filter.round = Number(round);
+    const doc = await SessionStats.findOne(filter).lean();
     res.json({ completed: !!doc });
   } catch (err) {
     console.error('[session-stats/check-completed GET] Error:', err.message);

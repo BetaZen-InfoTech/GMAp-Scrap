@@ -190,8 +190,8 @@ export class SessionManager {
       const batchNum = (this.batchCounters.get(sessionId) ?? 0) + 1;
       this.batchCounters.set(sessionId, batchNum);
 
-      const jobPincode = this.jobContext.get(sessionId)?.pincode;
-      sendBatch(batchToSend, batchNum, this.settings, sessionId, state.keyword, jobPincode).then((result) => {
+      const ctx = this.jobContext.get(sessionId);
+      sendBatch(batchToSend, batchNum, this.settings, sessionId, state.keyword, ctx?.pincode, ctx?.category, ctx?.subCategory, ctx?.round).then((result) => {
         if (result.success) {
           state.batchesSent++;
           // Track duplicate and inserted counts
@@ -275,8 +275,8 @@ export class SessionManager {
     if (remaining.length > 0) {
       const batchNum = (this.batchCounters.get(sessionId) ?? 0) + 1;
       this.batchCounters.set(sessionId, batchNum);
-      const jobPincode = this.jobContext.get(sessionId)?.pincode;
-      const result = await sendBatch(remaining, batchNum, this.settings, sessionId, state.keyword, jobPincode);
+      const ctx = this.jobContext.get(sessionId);
+      const result = await sendBatch(remaining, batchNum, this.settings, sessionId, state.keyword, ctx?.pincode, ctx?.category, ctx?.subCategory, ctx?.round);
       if (result.success) {
         state.batchesSent++;
         this.duplicateCounts.set(sessionId, (this.duplicateCounts.get(sessionId) ?? 0) + (result.duplicateCount ?? 0));

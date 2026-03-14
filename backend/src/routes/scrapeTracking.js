@@ -39,13 +39,15 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/scrape-tracking/:deviceId — get latest job for device
+// Optional query params: startPincode, endPincode — for multi-job resume matching
 router.get('/:deviceId', async (req, res) => {
   try {
-    const doc = await ScrapeTracking.findOne(
-      { deviceId: req.params.deviceId },
-      null,
-      { sort: { createdAt: -1 } }
-    );
+    const filter = { deviceId: req.params.deviceId };
+    const { startPincode, endPincode } = req.query;
+    if (startPincode != null) filter.startPincode = Number(startPincode);
+    if (endPincode != null) filter.endPincode = Number(endPincode);
+
+    const doc = await ScrapeTracking.findOne(filter, null, { sort: { createdAt: -1 } });
     if (!doc) return res.status(404).json({ error: 'No job found for this device' });
     res.json(doc);
   } catch (err) {

@@ -97,14 +97,14 @@ async function verifyDevice(deviceId) {
  * Flow:
  *  1. Load device.json  →  verify with backend  →  use it              (fast path)
  *  2. device.json exists but verify fails  →  re-register with SAVED nickname (no prompt)
- *  3. No device.json  →  call askFn for nickname  →  register  →  save
+ *  3. No device.json  →  use overrideNickname or os.hostname()  →  register  →  save
  *  4. Backend unreachable  →  warn and continue without a deviceId
  *
- * @param {Function} askFn  async (question) => string
- * @param {object}   chalk
+ * @param {object}  chalk
+ * @param {string}  [overrideNickname]  CLI-provided hostname (optional)
  * @returns {string|null}
  */
-async function ensureDevice(askFn, chalk) {
+async function ensureDevice(chalk, overrideNickname) {
   const existing = loadDevice();
 
   if (existing?.deviceId) {
@@ -119,20 +119,14 @@ async function ensureDevice(askFn, chalk) {
 
     // Verify failed → re-register silently using the SAME saved nickname
     console.log(chalk.yellow('✗ Not found on server — re-registering with saved name…'));
-    const savedNickname = existing.nickname || safeGet(() => os.hostname(), 'vps-host');
+    const savedNickname = existing.nickname || overrideNickname || safeGet(() => os.hostname(), 'vps-host');
     return _register(savedNickname, chalk);
   }
 
-  // First time — ask for nickname
-  console.log(chalk.cyan('\n  Device registration (one-time setup)'));
-  let nickname;
-  try {
-    nickname = await askFn('  Enter a nickname for this device (e.g. "VPS-1"): ');
-  } catch {
-    nickname = safeGet(() => os.hostname(), 'vps-host');
-  }
-
-  return _register(nickname || safeGet(() => os.hostname(), 'vps-host'), chalk);
+  // First time — use CLI arg or hostname (no prompt)
+  const nickname = overrideNickname || safeGet(() => os.hostname(), 'vps-host');
+  console.log(chalk.cyan(`\n  Device registration (one-time setup) — name: ${nickname}`));
+  return _register(nickname, chalk);
 }
 
 async function _register(nickname, chalk) {

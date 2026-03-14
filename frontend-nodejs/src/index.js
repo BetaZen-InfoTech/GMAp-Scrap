@@ -1,14 +1,14 @@
 /**
  * BetaZen Google Maps Scraper — Node.js CLI
  *
- * Usage:  npm start
- *  1. Registers device (one-time) or verifies existing registration
- *  2. Asks for Starting Pincode and Ending Pincode
- *  3. Iterates all pincodes × rounds × niches
- *  4. Sends batches of 10 records to backend API
- *  5. Saves Excel per session in ./excel/
- *  6. Live stats bar: CPU / RAM / Disk / Net speed / Net data — updated every 2 s
- *  7. Uploads device stats snapshots to /api/device-history every 30 s
+ * Usage:
+ *   npm start -- "hostname" startPincode endPincode   (range mode — single job)
+ *   npm start -- "hostname" startPincode N            (multi-job — N jobs × 5 pincodes each)
+ *
+ * Examples:
+ *   npm start -- "DEMO PC 1" 700061 700062   → range mode, pincodes 700061–700062
+ *   npm start -- "DEMO PC 1" 700061 5        → 5 jobs × 5 pincodes = 25 pincodes
+ *   npm start -- "DEMO PC 1" 700061 15       → 15 jobs × 5 pincodes = 75 pincodes
  *
  * Multiple instances can run independently (different pincode ranges).
  */
@@ -20,7 +20,7 @@ const { v4: uuidv4 } = require('uuid');
 const axios  = require('axios');
 const chalk  = require('chalk');
 
-const { API_BASE_URL, SETTINGS, EXCEL_DIR } = require('./config');
+const { API_BASE_URL, APP_STATE, SETTINGS, EXCEL_DIR } = require('./config');
 const { ScraperEngine }          = require('./scraper');
 const { sendBatch }              = require('./batchSender');
 const { generateExcel }          = require('./excelGenerator');
@@ -68,9 +68,11 @@ async function printStats(label) {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-async function fetchPincodes(start, end) {
+async function fetchPincodes(start, end, limit) {
+  const params = { start, end };
+  if (limit) params.limit = limit;
   const res = await axios.get(`${API_BASE_URL}/api/pincodes/range`, {
-    params: { start, end }, timeout: 30000,
+    params, timeout: 30000,
   });
   return Array.isArray(res.data) ? res.data : [];
 }
@@ -86,34 +88,77 @@ async function postSessionStats(payload) {
   } catch { /* fire-and-forget */ }
 }
 
+// ── Job tracking helpers ─────────────────────────────────────────────────────
+
+async function createJobTracking(jobId, deviceId, startPincode, endPincode, totalSearches) {
+  try {
+    await axios.post(`${API_BASE_URL}/api/scrape-tracking`, {
+      jobId, deviceId, startPincode, endPincode, totalSearches,
+    }, { timeout: 15000 });
+  } catch { /* fire-and-forget */ }
+}
+
+async function updateJobProgress(jobId, update) {
+  try {
+    await axios.patch(`${API_BASE_URL}/api/scrape-tracking/${jobId}`, update, { timeout: 10000 });
+  } catch { /* fire-and-forget */ }
+}
+
+async function markSearchComplete(jobId, data) {
+  try {
+    await axios.post(`${API_BASE_URL}/api/scrape-tracking/${jobId}/search-complete`, data, { timeout: 10000 });
+  } catch { /* fire-and-forget */ }
+}
+
+async function fetchExistingJob(deviceId, startPincode, endPincode) {
+  try {
+    const params = {};
+    if (startPincode != null) params.startPincode = startPincode;
+    if (endPincode != null) params.endPincode = endPincode;
+    const res = await axios.get(`${API_BASE_URL}/api/scrape-tracking/${deviceId}`, { params, timeout: 10000 });
+    return res.data || null;
+  } catch { return null; }
+}
+
+async function fetchCompletedSearchesForJob(jobId) {
+  try {
+    const res = await axios.get(
+      `${API_BASE_URL}/api/scrape-tracking/${jobId}/completed-searches`,
+      { timeout: 10000 }
+    );
+    return Array.isArray(res.data) ? res.data : [];
+  } catch { return []; }
+}
+
 // ── Already-scraped check ─────────────────────────────────────────────────────
 
 const completedCache = new Set();
 
-async function isAlreadyScraped(keyword) {
-  if (completedCache.has(keyword)) return true;
+async function isAlreadyScraped(keyword, round) {
+  const cacheKey = `${keyword}|R${round}`;
+  if (completedCache.has(cacheKey)) return true;
   try {
     const res = await axios.get(
       `${API_BASE_URL}/api/scraped-data/session-stats/check-completed`,
-      { params: { keyword }, timeout: 10000 }
+      { params: { keyword, round }, timeout: 10000 }
     );
-    if (res.data?.completed === true) { completedCache.add(keyword); return true; }
+    if (res.data?.completed === true) { completedCache.add(cacheKey); return true; }
   } catch { /* assume not completed */ }
   return false;
 }
 
 // ── Keyword builder ───────────────────────────────────────────────────────────
 
-function buildKeyword(pincode, district, stateName, niche, round) {
+function buildKeyword(pincode, district, stateName, niche) {
   return (
     `get all ${niche.SubCategory} (${niche.Category}) ` +
-    `from ${district}, ${stateName}, Pin - ${pincode} [Round ${round}]`
+    `from ${district}, ${stateName}, Pin - ${pincode}`
   );
 }
 
 // ── Single scraping session ───────────────────────────────────────────────────
 
-async function runSession(keyword, pincode, deviceId) {
+async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCategory, extraContext) {
   const sessionId  = uuidv4();
   const startTime  = new Date().toISOString();
   const allRecords = [];
@@ -132,7 +177,7 @@ async function runSession(keyword, pincode, deviceId) {
       if (pendingBatch.length >= SETTINGS.batchSize) {
         const batch = pendingBatch.splice(0);
         const bNum  = ++batchNumber;
-        sendBatch(batch, bNum, sessionId, keyword, pincode, deviceId)
+        sendBatch(batch, bNum, sessionId, keyword, pincode, deviceId, scrapCategory, scrapSubCategory, extraContext?.round)
           .then((result) => {
             if (result.success) {
               inserted   += result.count          ?? 0;
@@ -175,11 +220,14 @@ async function runSession(keyword, pincode, deviceId) {
     const batch = pendingBatch.splice(0);
     const bNum  = ++batchNumber;
     try {
-      const result = await sendBatch(batch, bNum, sessionId, keyword, pincode, deviceId);
+      const result = await sendBatch(batch, bNum, sessionId, keyword, pincode, deviceId, scrapCategory, scrapSubCategory, extraContext?.round);
       if (result.success) {
         inserted   += result.count          ?? 0;
         duplicates += result.duplicateCount ?? 0;
         batchesSent++;
+        print(chalk.green(`  [Batch ${bNum}] ${result.count} saved, ${result.duplicateCount ?? 0} dups`));
+      } else {
+        print(chalk.red(`  [Batch ${bNum}] FAILED: ${result.error}`));
       }
     } catch { /* ignore */ }
   }
@@ -209,6 +257,13 @@ async function runSession(keyword, pincode, deviceId) {
 
   postSessionStats({
     sessionId, deviceId: deviceId || undefined, keyword,
+    jobId: extraContext?.jobId,
+    pincode: Number(pincode) || undefined,
+    district: extraContext?.district,
+    stateName: extraContext?.stateName,
+    category: scrapCategory,
+    subCategory: scrapSubCategory,
+    round: extraContext?.round,
     totalRecords: totalScraped, insertedRecords: inserted,
     duplicateRecords: duplicates, batchesSent,
     excelUploaded: false, status: 'completed',
@@ -216,7 +271,7 @@ async function runSession(keyword, pincode, deviceId) {
     durationMs: new Date(endTime).getTime() - new Date(startTime).getTime(),
   });
 
-  return { totalScraped };
+  return { totalScraped, sessionId };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -225,24 +280,21 @@ async function main() {
   console.log(chalk.bold.cyan(
     '\n╔═══════════════════════════════════════════════════╗\n' +
     '║  BetaZen Google Maps Scraper  —  Node.js CLI      ║\n' +
-    '╚═══════════════════════════════════════════════════╝\n'
+    '╚═══════════════════════════════════════════════════╝'
   ));
+  console.log(chalk.bold.white(`  ENV : ${APP_STATE.toUpperCase()}  →  ${API_BASE_URL}\n`));
 
   await printStats('Startup');
   console.log('');
 
-  // ── CLI args: npm start [deviceNickname] [startPincode] [endPincode] ─────
-  //   e.g.  node src/index.js "Office PC 1" 110001 110010
-  //   or    npm start -- "Office PC 1" 110001 110010
+  // ── CLI args: npm start -- "hostname" startPincode endPincode ───────────
+  //   e.g.  node src/index.js "DEMO PC 1" 700061 700062
+  //   or    node src/index.js 700061 700062  (uses os.hostname())
   const [,, argNickname, argStart, argEnd] = process.argv;
 
   // ── Device registration / verification ───────────────────────────────────
-  const rl    = makeRl();
-  const askFn = argNickname
-    ? () => Promise.resolve(argNickname)          // use CLI arg, skip prompt
-    : (q) => ask(rl, q);
-
-  const deviceId = await ensureDevice(askFn, chalk);
+  const deviceId = await ensureDevice(chalk, argNickname || undefined);
+  const rl = makeRl();
   console.log('');
 
   // ── Pincode input ─────────────────────────────────────────────────────────
@@ -253,7 +305,11 @@ async function main() {
     startPincode = parseInt(argStart, 10);
     endPincode   = parseInt(argEnd,   10);
     rl.close();
-    console.log(chalk.cyan(`  Using CLI args: ${startPincode} → ${endPincode}`));
+    if (parseInt(argEnd, 10) < 1000) {
+      console.log(chalk.cyan(`  Using CLI args: start=${startPincode}, ${endPincode} jobs × 5 pincodes`));
+    } else {
+      console.log(chalk.cyan(`  Using CLI args: ${startPincode} → ${endPincode}`));
+    }
   } else {
     try {
       startPincode = parseInt(await ask(rl, 'Enter Starting Pincode : '), 10);
@@ -267,7 +323,19 @@ async function main() {
     console.log(chalk.red('\nInvalid pincode. Exiting.'));
     process.exit(1);
   }
-  if (startPincode > endPincode) {
+
+  // ── Detect mode ─────────────────────────────────────────────────────────
+  // If 3rd arg is a valid 6-digit pincode → range mode (single job)
+  // If 3rd arg is small number (< 1000) → multi-job mode
+  //   3rd arg = number of jobs, each job gets 5 pincodes
+  //   e.g. 700061 5  → 5 jobs × 5 pincodes = 25 pincodes total
+  //   e.g. 700061 15 → 15 jobs × 5 pincodes = 75 pincodes total
+  const PINCODES_PER_JOB = 5;
+  const isMultiJobMode = endPincode < 1000;
+  const numberOfJobs   = isMultiJobMode ? endPincode : 0;
+  const totalNeeded    = isMultiJobMode ? numberOfJobs * PINCODES_PER_JOB : 0;
+
+  if (!isMultiJobMode && startPincode > endPincode) {
     console.log(chalk.red('\nStart pincode must be ≤ end pincode. Exiting.'));
     process.exit(1);
   }
@@ -275,10 +343,12 @@ async function main() {
   // ── Fetch data ────────────────────────────────────────────────────────────
   console.log(chalk.cyan(`\nFetching data from ${API_BASE_URL} …`));
 
-  let pincodes, niches;
+  let allPincodes, niches;
   try {
-    [pincodes, niches] = await Promise.all([
-      fetchPincodes(startPincode, endPincode),
+    [allPincodes, niches] = await Promise.all([
+      isMultiJobMode
+        ? fetchPincodes(startPincode, 999999, totalNeeded)   // fetch only what we need
+        : fetchPincodes(startPincode, endPincode),
       fetchNiches(),
     ]);
   } catch (err) {
@@ -287,65 +357,172 @@ async function main() {
     process.exit(1);
   }
 
-  if (pincodes.length === 0) {
+  if (allPincodes.length === 0) {
     console.log(chalk.yellow('\nNo pincodes found. Exiting.'));
     process.exit(0);
   }
 
-  const totalSearches = pincodes.length * niches.length * 3;
+  // ── Split into jobs (multi-job: 5 pincodes per job) ────────────────────
+  const pincodeChunks = [];
+  if (isMultiJobMode) {
+    // Take only the first totalNeeded pincodes, split into jobs of 5
+    const needed = allPincodes.slice(0, totalNeeded);
+    for (let i = 0; i < needed.length; i += PINCODES_PER_JOB) {
+      pincodeChunks.push(needed.slice(i, i + PINCODES_PER_JOB));
+    }
+    if (pincodeChunks.length < numberOfJobs) {
+      console.log(chalk.yellow(
+        `\n  Warning: Only ${allPincodes.length} pincodes available from ${startPincode}, ` +
+        `created ${pincodeChunks.length} jobs instead of ${numberOfJobs}`
+      ));
+    }
+  } else {
+    pincodeChunks.push(allPincodes);
+  }
+
+  const totalPincodes  = pincodeChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const totalJobs      = pincodeChunks.length;
+  const grandTotal     = totalPincodes * niches.length * 3;
 
   console.log('');
-  console.log(chalk.white(`  Pincodes : ${chalk.bold(pincodes.length)}`));
+  console.log(chalk.white(`  Pincodes : ${chalk.bold(totalPincodes)}`));
   console.log(chalk.white(`  Niches   : ${chalk.bold(niches.length)}`));
   console.log(chalk.white(`  Rounds   : ${chalk.bold(3)}`));
-  console.log(chalk.bold.white(`  Total    : ${chalk.bold(totalSearches)} searches`));
+  if (isMultiJobMode) {
+    console.log(chalk.white(`  Per Job  : ${chalk.bold(PINCODES_PER_JOB)} pincodes`));
+    console.log(chalk.bold.white(`  Jobs     : ${chalk.bold(totalJobs)}`));
+  }
+  console.log(chalk.bold.white(`  Total    : ${chalk.bold(grandTotal)} searches`));
   console.log('');
 
   // ── Start live stats monitor ──────────────────────────────────────────────
   liveMonitor = new LiveMonitor();
   await liveMonitor.start(chalk, deviceId, 2000);
 
-  // ── Scraping loop ─────────────────────────────────────────────────────────
-  let completed = 0;
+  // ── Process each chunk as a separate job ──────────────────────────────────
+  let globalCompleted = 0;
 
-  for (const pincodeInfo of pincodes) {
-    for (let round = 1; round <= 3; round++) {
-      for (const niche of niches) {
+  for (let chunkIdx = 0; chunkIdx < pincodeChunks.length; chunkIdx++) {
+    const pincodes     = pincodeChunks[chunkIdx];
+    const chunkStart   = pincodes[0].Pincode;
+    const chunkEnd     = pincodes[pincodes.length - 1].Pincode;
+    const totalSearches = pincodes.length * niches.length * 3;
 
-        if (!pincodeInfo.Pincode || !niche.SubCategory || !niche.Category) continue;
+    if (totalJobs > 1) {
+      print(chalk.bold.cyan(
+        `\n${'═'.repeat(60)}\n` +
+        `  Job ${chunkIdx + 1}/${totalJobs}  |  Pin ${chunkStart} → ${chunkEnd}  (${pincodes.length} pincodes, ${totalSearches} searches)\n` +
+        `${'═'.repeat(60)}`
+      ));
+    }
 
-        const keyword = buildKeyword(
-          pincodeInfo.Pincode, pincodeInfo.District,
-          pincodeInfo.StateName, niche, round
-        );
+    // ── Job tracking (create or resume) ──────────────────────────────────
+    let jobId;
+    const completedJobSearches = new Set();
+    let jobCompletedCount = 0;
 
-        completed++;
+    const existingJob = await fetchExistingJob(deviceId, chunkStart, chunkEnd);
+    if (
+      existingJob &&
+      existingJob.status !== 'completed' &&
+      existingJob.status !== 'stopped'
+    ) {
+      jobId = existingJob.jobId;
+      const doneSearches = await fetchCompletedSearchesForJob(jobId);
+      for (const cs of doneSearches) {
+        completedJobSearches.add(`${cs.pincode}|${cs.category}|${cs.subCategory}|${cs.round}`);
+      }
+      jobCompletedCount = doneSearches.length;
+      print(chalk.cyan(`  Resuming job ${jobId.substring(0, 8)}… (${doneSearches.length} searches already done)`));
+      updateJobProgress(jobId, { status: 'running' });
+    } else {
+      jobId = uuidv4();
+      await createJobTracking(jobId, deviceId, chunkStart, chunkEnd, totalSearches);
+      print(chalk.cyan(`  Created job ${jobId.substring(0, 8)}…`));
+    }
 
-        print(chalk.bold.white(
-          `\n${'━'.repeat(60)}\n` +
-          `  [${completed}/${totalSearches}]  ${keyword}\n` +
-          `${'━'.repeat(60)}`
-        ));
+    // ── Scraping loop ────────────────────────────────────────────────────
+    let completed = 0;
 
-        // Check if already scraped
-        const alreadyDone = await isAlreadyScraped(keyword);
-        if (alreadyDone) {
-          print(chalk.yellow('  ⟳ Already scraped — skipping'));
-          continue;
-        }
+    for (const pincodeInfo of pincodes) {
+      for (let round = 1; round <= 3; round++) {
+        for (const niche of niches) {
 
-        try {
-          const result = await runSession(keyword, pincodeInfo.Pincode, deviceId);
-          print(chalk.bold.green(`  ✓ Completed  (${result.totalScraped} records)`));
-          completedCache.add(keyword);
-        } catch (err) {
-          print(chalk.red(`  ✗ Error: ${err.message}`));
-        }
+          if (!pincodeInfo.Pincode || !niche.SubCategory || !niche.Category) continue;
 
-        await sleep(2000);
-      }   // end niche loop
-    }     // end round loop
-  }       // end pincode loop
+          const keyword = buildKeyword(
+            pincodeInfo.Pincode, pincodeInfo.District,
+            pincodeInfo.StateName, niche
+          );
+
+          completed++;
+          globalCompleted++;
+
+          const prefix = totalJobs > 1
+            ? `Job ${chunkIdx + 1}/${totalJobs} | [${completed}/${totalSearches}]`
+            : `[${completed}/${totalSearches}]`;
+
+          print(chalk.bold.white(
+            `\n${'━'.repeat(60)}\n` +
+            `  ${prefix}  ${keyword}\n` +
+            `  Round: ${round}\n` +
+            `${'━'.repeat(60)}`
+          ));
+
+          // Check if already completed in this job (resume support)
+          const searchKey = `${pincodeInfo.Pincode}|${niche.Category}|${niche.SubCategory}|${round}`;
+          if (completedJobSearches.has(searchKey)) {
+            print(chalk.yellow('  ⟳ Already completed in this job — skipping'));
+            continue;
+          }
+
+          // Check if already scraped globally (across all jobs)
+          const alreadyDone = await isAlreadyScraped(keyword, round);
+          if (alreadyDone) {
+            print(chalk.yellow('  ⟳ Already scraped — skipping'));
+            markSearchComplete(jobId, {
+              deviceId, pincode: pincodeInfo.Pincode,
+              district: pincodeInfo.District, stateName: pincodeInfo.StateName,
+              category: niche.Category, subCategory: niche.SubCategory, round,
+            });
+            jobCompletedCount++;
+            updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'running' });
+            continue;
+          }
+
+          try {
+            const result = await runSession(
+              keyword, pincodeInfo.Pincode, deviceId,
+              niche.Category, niche.SubCategory,
+              { district: pincodeInfo.District, stateName: pincodeInfo.StateName, round, jobId }
+            );
+            print(chalk.bold.green(`  ✓ Completed  (${result.totalScraped} records)`));
+            completedCache.add(`${keyword}|R${round}`);
+
+            jobCompletedCount++;
+            markSearchComplete(jobId, {
+              deviceId, pincode: pincodeInfo.Pincode,
+              district: pincodeInfo.District, stateName: pincodeInfo.StateName,
+              category: niche.Category, subCategory: niche.SubCategory,
+              round, sessionId: result.sessionId,
+            });
+            updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'running' });
+          } catch (err) {
+            print(chalk.red(`  ✗ Error: ${err.message}`));
+          }
+
+          await sleep(2000);
+        }   // end niche loop
+      }     // end round loop
+    }       // end pincode loop
+
+    // ── Mark job completed ──────────────────────────────────────────────
+    updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'completed' });
+
+    if (totalJobs > 1) {
+      print(chalk.bold.green(`  ✓ Job ${chunkIdx + 1}/${totalJobs} completed`));
+    }
+  }         // end chunk/job loop
 
   // ── Done ──────────────────────────────────────────────────────────────────
   liveMonitor.stop();
@@ -354,6 +531,7 @@ async function main() {
   console.log(chalk.bold.green(
     '\n╔═══════════════════════════════════════════════════╗\n' +
     '║           All scraping completed!                 ║\n' +
+    `║  ${totalJobs > 1 ? `${totalJobs} jobs finished` : 'Job finished'}${' '.repeat(totalJobs > 1 ? 34 - String(totalJobs).length : 39)}║\n` +
     '╚═══════════════════════════════════════════════════╝\n'
   ));
 

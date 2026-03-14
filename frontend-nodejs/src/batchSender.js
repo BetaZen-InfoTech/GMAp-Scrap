@@ -7,7 +7,7 @@ const RETRY_DELAYS = [1000, 2000, 4000];
  * Send a batch of scraped records to the backend.
  * Retries up to 3 times with exponential back-off.
  */
-async function sendBatch(records, batchNumber, sessionId, keyword, pincode, deviceId) {
+async function sendBatch(records, batchNumber, sessionId, keyword, pincode, deviceId, scrapCategory, scrapSubCategory, round) {
   const endpoint = `${API_BASE_URL}/api/scraped-data/batch`;
 
   const payload = {
@@ -18,6 +18,9 @@ async function sendBatch(records, batchNumber, sessionId, keyword, pincode, devi
     count: records.length,
     pincode: pincode != null ? String(pincode) : undefined,
     keyword,
+    scrapCategory:    scrapCategory || undefined,
+    scrapSubCategory: scrapSubCategory || undefined,
+    round:            round || undefined,
     records,
   };
 

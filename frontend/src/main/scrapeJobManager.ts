@@ -229,8 +229,8 @@ export class ScrapeJobManager {
         `${base}/api/scraped-data/session-stats/completed/${jobId}`,
       );
       for (const item of res.data) {
-        if (item.keyword) {
-          this.completedSet.add(item.keyword);
+        if (item.keyword && item.round != null) {
+          this.completedSet.add(`${item.keyword}|R${item.round}`);
         }
       }
       console.log(`[ScrapeJobManager] Loaded ${res.data.length} completed searches for job ${jobId}`);
@@ -243,20 +243,20 @@ export class ScrapeJobManager {
    * Check if a search is already completed by keyword.
    * Checks local cache first, then LIVE database query.
    */
-  private async isSearchCompleted(keyword: string): Promise<boolean> {
-    if (this.completedSet.has(keyword)) {
+  private async isSearchCompleted(keyword: string, round: number): Promise<boolean> {
+    const cacheKey = `${keyword}|R${round}`;
+    if (this.completedSet.has(cacheKey)) {
       return true;
     }
 
     try {
-      const settings = getSettings();
       const base = getApiBaseUrl();
       const res = await axios.get<{ completed: boolean }>(
         `${base}/api/scraped-data/session-stats/check-completed`,
-        { params: { keyword } },
+        { params: { keyword, round } },
       );
       if (res.data.completed) {
-        this.completedSet.add(keyword);
+        this.completedSet.add(cacheKey);
         return true;
       }
       return false;
@@ -310,7 +310,7 @@ export class ScrapeJobManager {
     round: number,
     sessionId: string,
   ): void {
-    this.completedSet.add(keyword);
+    this.completedSet.add(`${keyword}|R${round}`);
 
     const settings = getSettings();
     const base = getApiBaseUrl();
@@ -349,10 +349,10 @@ export class ScrapeJobManager {
       const pinInfo = job.pincodes[job.pincodeIndex];
       const niche = job.niches[job.nicheIndex];
 
-      const searchText = `get all ${niche.SubCategory} (${niche.Category}) from ${pinInfo.District}, ${pinInfo.StateName}, Pin - ${pinInfo.Pincode} [Round ${job.round}]`;
+      const searchText = `get all ${niche.SubCategory} (${niche.Category}) from ${pinInfo.District}, ${pinInfo.StateName}, Pin - ${pinInfo.Pincode}`;
 
       // Check if already completed → skip
-      const alreadyCompleted = await this.isSearchCompleted(searchText);
+      const alreadyCompleted = await this.isSearchCompleted(searchText, job.round);
       if (alreadyCompleted) {
         console.log(`[ScrapeJobManager][${jobId.slice(0, 8)}] Skipping (already completed): ${searchText}`);
         job.completedSearches++;

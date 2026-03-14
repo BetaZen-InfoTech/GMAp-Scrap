@@ -43,3 +43,6 @@ npm-debug.log*
 # Upload folders
 uploads/
 upload/
+
+# Excel output
+frontend-nodejs/excel/

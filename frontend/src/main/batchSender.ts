@@ -31,7 +31,10 @@ export async function sendBatch(
   settings: AppSettings,
   sessionId: string,
   keyword?: string,
-  pincode?: string | number
+  pincode?: string | number,
+  scrapCategory?: string,
+  scrapSubCategory?: string,
+  round?: number,
 ): Promise<BatchSendResult> {
   const endpoint = getBatchEndpoint(settings);
 
@@ -51,6 +54,10 @@ export async function sendBatch(
     deviceId: settings.deviceId || undefined,
     count: records.length,
     pincode: pincode != null ? String(pincode) : undefined,
+    keyword: keyword || undefined,
+    scrapCategory: scrapCategory || undefined,
+    scrapSubCategory: scrapSubCategory || undefined,
+    round: round || undefined,
     records,
   };
 

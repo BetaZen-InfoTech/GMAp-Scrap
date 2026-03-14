@@ -54,32 +54,58 @@ Second command auto-installs all required OS libraries for your Ubuntu version.
 Create the `.env` file:
 
 ```bash
-echo "API_BASE_URL=https://gmap-scrap-backend-api.betazeninfotech.com" > .env
+cat > .env << 'EOF'
+# APP_STATE: local | dev | prod
+APP_STATE=prod
+
+# API URLs
+LOCAL_API_URL=http://127.0.0.1:5000
+DEV_API_URL=http://127.0.0.1:5000
+PROD_API_URL=https://gmap-scrap-backend-api.betazeninfotech.com
+
+# Browser: true = headless (no GUI), false = show browser window
+HEADLESS=true
+EOF
 ```
+
+> On VPS, always use `APP_STATE=prod` and `HEADLESS=true` (no GUI available).
 
 ---
 
 ## 6. Run the scraper
 
-### CLI arguments (non-interactive — required for auto-restart)
+### Two modes
+
+**Range mode** — scrape all pincodes from START to END (single job):
 
 ```bash
 npm start -- "PC NAME" START-PIN END-PIN
 ```
 
-Example:
+```bash
+# Example: scrape pincodes 700001 to 700010
+npm start -- "VPS-1" 700001 700010
+```
+
+**Multi-job mode** — run N jobs, each with 5 pincodes (auto-split):
 
 ```bash
-npm start -- "VPS-1" 110001 200000
-#             ^       ^      ^
-#             nickname start  end pincode
+npm start -- "PC NAME" START-PIN NUMBER-OF-JOBS
 ```
+
+```bash
+# Example: 10 jobs × 5 pincodes = 50 pincodes starting from 700001
+npm start -- "VPS-1" 700001 10
+```
+
+> If the 3rd argument is < 1000, it's treated as number of jobs.
+> If >= 1000, it's treated as an end pincode.
 
 ### Interactive mode (manual)
 
 ```bash
 npm start
-# Will ask for nickname, start pincode, end pincode
+# Will ask for nickname, start pincode, end pincode / number of jobs
 ```
 
 ---
@@ -98,25 +124,34 @@ sudo npm install -g pm2
 
 ```bash
 cd /home/user/GMAp-Scrap/frontend-nodejs
-
-pm2 start npm --name "scraper-1" -- start -- "PC NAME" START-PIN END-PIN
 ```
 
-Example:
+**Range mode** (single job, all pincodes in range):
 
 ```bash
-pm2 start npm --name "scraper-1" -- start -- "VPS-1" 110001 200000
+pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 700050
 ```
 
-### Run multiple instances (different pincode ranges)
+**Multi-job mode** (N jobs × 5 pincodes each):
 
 ```bash
+pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 10
+#                                                            ^^ 10 jobs = 50 pincodes
+```
+
+### Run multiple instances
+
+```bash
+# Range mode examples
 pm2 start npm --name "scraper-1" -- start -- "VPS-1" 110001 200000
 pm2 start npm --name "scraper-2" -- start -- "VPS-2" 200001 300000
-pm2 start npm --name "scraper-3" -- start -- "VPS-3" 300001 400000
+
+# Multi-job mode examples
+pm2 start npm --name "scraper-3" -- start -- "VPS-3" 300001 10
+pm2 start npm --name "scraper-4" -- start -- "VPS-4" 400001 15
 ```
 
-Each instance gets its own device nickname and pincode range.
+Each instance gets its own device nickname and pincode range/jobs.
 
 ### PM2 commands
 
@@ -147,8 +182,13 @@ cd /home/user/GMAp-Scrap
 git pull
 cd frontend-nodejs
 npm install
+npx playwright install chromium
+npx playwright install-deps chromium
 pm2 restart all
 ```
+
+> Run all commands in order after every `git pull` to ensure dependencies,
+> Chromium browser, and system libraries are up to date.
 
 ---
 
@@ -200,11 +240,19 @@ sudo apt-get install -y htop nload vnstat glances
 | Scraper skips all keywords | Already completed on backend; this is normal |
 | PM2 process keeps restarting | Check `pm2 logs scraper-1` for the error |
 
-## Key config tweaks (src/config.js)
+## Key config tweaks
+
+### .env file
+
+| Setting | VPS Value | Description |
+|---------|-----------|-------------|
+| `APP_STATE` | `prod` | Use `prod` for production API |
+| `HEADLESS` | `true` | Must be `true` on VPS (no GUI) |
+
+### src/config.js
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `headless` | `true` | Must be `true` on VPS (no GUI) |
 | `parallelTabs` | `5` | Lower to 2-3 on low-RAM VPS |
 | `batchSize` | `10` | Records per API batch |
 | `scrollDelayMs` | `2000` | Delay between scroll attempts |

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "remove-duplicate-flag": "node src/scripts/removeDuplicateFlag.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
