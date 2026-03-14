@@ -26,6 +26,7 @@ const scrapedDataSchema = new mongoose.Schema(
     scrapSubCategory: { type: String },
     scrapRound: { type: Number },
     scrapedAt: { type: String },
+    isDuplicate: { type: Boolean, default: false, index: true },
     isDeleted: { type: Boolean, default: false, index: true },
   },
   {

@@ -98,65 +98,78 @@ router.post('/batch', async (req, res) => {
       existingKeys.add(dupKey(e.phone, e.rating, e.reviews, e.category, e.plusCode));
     }
 
-    // Split records into new (to insert) and duplicates (to skip)
+    // Split records into new and duplicates — both are saved, duplicates flagged
     const newDocs = [];
-    let duplicateCount = 0;
+    const dupDocs = [];
 
     for (const r of records) {
       const key = dupKey(r.phone, r.rating || 0, r.reviews || 0, r.category, r.plusCode);
 
+      // Resolve pincode: record-level → batch-level → extract from address
+      const resolvedPincode = r.pincode || batchPincode || extractPincode(r.address) || undefined;
+
+      const doc = {
+        sessionId: r.sessionId || sessionId,
+        deviceId: deviceId || undefined,
+        batchNumber: batchNumber || 0,
+        name: r.name,
+        nameEnglish: r.nameEnglish,
+        nameLocal: r.nameLocal,
+        address: r.address,
+        phone: r.phone,
+        email: r.email,
+        website: r.website,
+        rating: r.rating || 0,
+        reviews: r.reviews || 0,
+        category: r.category,
+        pincode: resolvedPincode,
+        plusCode: r.plusCode,
+        photoUrl: r.photoUrl,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        mapsUrl: r.mapsUrl,
+        scrapKeyword: batchKeyword || undefined,
+        scrapCategory: r.scrapCategory || batchScrapCategory || undefined,
+        scrapSubCategory: r.scrapSubCategory || batchScrapSubCategory || undefined,
+        scrapRound: batchRound || undefined,
+        scrapedAt: r.timestamp || timestamp,
+      };
+
       if (existingKeys.has(key)) {
-        duplicateCount++;
+        doc.isDuplicate = true;
+        dupDocs.push(doc);
       } else {
         // Add to existingKeys so within-batch duplicates are also caught
         existingKeys.add(key);
-
-        // Resolve pincode: record-level → batch-level → extract from address
-        const resolvedPincode = r.pincode || batchPincode || extractPincode(r.address) || undefined;
-
-        newDocs.push({
-          sessionId: r.sessionId || sessionId,
-          deviceId: deviceId || undefined,
-          batchNumber: batchNumber || 0,
-          name: r.name,
-          nameEnglish: r.nameEnglish,
-          nameLocal: r.nameLocal,
-          address: r.address,
-          phone: r.phone,
-          email: r.email,
-          website: r.website,
-          rating: r.rating || 0,
-          reviews: r.reviews || 0,
-          category: r.category,
-          pincode: resolvedPincode,
-          plusCode: r.plusCode,
-          photoUrl: r.photoUrl,
-          latitude: r.latitude,
-          longitude: r.longitude,
-          mapsUrl: r.mapsUrl,
-          scrapKeyword: batchKeyword || undefined,
-          scrapCategory: r.scrapCategory || batchScrapCategory || undefined,
-          scrapSubCategory: r.scrapSubCategory || batchScrapSubCategory || undefined,
-          scrapRound: batchRound || undefined,
-          scrapedAt: r.timestamp || timestamp,
-        });
+        doc.isDuplicate = false;
+        newDocs.push(doc);
       }
     }
 
-    // Insert only new (non-duplicate) records
+    // Insert all records (new + duplicates)
     const insertedIds = [];
-    if (newDocs.length > 0) {
-      const inserted = await ScrapedData.insertMany(newDocs, { ordered: false });
-      for (const d of inserted) insertedIds.push(d._id);
+    const duplicateIds = [];
+    const allDocs = [...newDocs, ...dupDocs];
+
+    if (allDocs.length > 0) {
+      const inserted = await ScrapedData.insertMany(allDocs, { ordered: false });
+      for (const d of inserted) {
+        if (d.isDuplicate) {
+          duplicateIds.push(d._id);
+        } else {
+          insertedIds.push(d._id);
+        }
+      }
     }
 
     res.status(201).json({
       success: true,
       count: newDocs.length,
-      duplicateCount,
+      duplicateCount: dupDocs.length,
       totalReceived: records.length,
       batchNumber,
       insertedIds,
+      duplicateIds,
     });
   } catch (err) {
     console.error('[scraped-data/batch POST] Error:', err.message);
