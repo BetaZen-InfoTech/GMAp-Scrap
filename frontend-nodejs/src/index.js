@@ -51,23 +51,51 @@ function print(...args) {
   }
 }
 
-// ── CPU throttle — wait if CPU > 80% ─────────────────────────────────────────
+// ── CPU throttle — only start if CPU < 75% ───────────────────────────────────
 
-const CPU_LIMIT = 80;
+const CPU_LIMIT = 75;
+
+function cpuBar(percent) {
+  const width = 20;
+  const filled = Math.round((percent / 100) * width);
+  const empty  = width - filled;
+  const bar    = '█'.repeat(filled) + '░'.repeat(empty);
+  if (percent >= CPU_LIMIT) return chalk.red(bar);
+  if (percent >= 50)        return chalk.yellow(bar);
+  return chalk.green(bar);
+}
 
 async function waitForCpu(tag) {
   let stats = await getSystemStats();
-  if (stats.cpuUsed <= CPU_LIMIT) return;
-
-  const label = tag ? `${tag} ` : '';
-  print(chalk.yellow(`  ${label}CPU at ${stats.cpuUsed}% (limit ${CPU_LIMIT}%) — waiting…`));
-
-  while (stats.cpuUsed > CPU_LIMIT) {
-    await sleep(1000);
-    stats = await getSystemStats();
+  if (stats.cpuUsed < CPU_LIMIT) {
+    print(chalk.green(`  ${tag ? tag + ' ' : ''}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% — OK`));
+    return;
   }
 
-  print(chalk.green(`  ${label}CPU dropped to ${stats.cpuUsed}% — resuming`));
+  const label = tag ? `${tag} ` : '';
+  print(chalk.yellow(
+    `  ${label}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% ≥ ${CPU_LIMIT}% — waiting…`
+  ));
+
+  let dots = 0;
+  while (stats.cpuUsed >= CPU_LIMIT) {
+    await sleep(1500);
+    stats = await getSystemStats();
+    dots = (dots + 1) % 4;
+    const dotStr = '.'.repeat(dots + 1).padEnd(4);
+    if (liveMonitor && liveMonitor.active) {
+      liveMonitor.writeProgress(
+        chalk.yellow(`  ${label}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% — cooling down${dotStr}`)
+      );
+    } else {
+      process.stdout.write(
+        `\r${chalk.yellow(`  ${label}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% — cooling down${dotStr}`)}`
+      );
+    }
+  }
+
+  if (!(liveMonitor && liveMonitor.active)) process.stdout.write('\n');
+  print(chalk.green(`  ${label}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% — ready!`));
 }
 
 // ── One-time stats snapshot (used before live bar starts) ─────────────────────
@@ -263,7 +291,9 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
   const endTime      = new Date().toISOString();
   const totalScraped = allRecords.length;
 
-  print(chalk.green(`  Records: ${totalScraped} | Saved: ${inserted} | Dups: ${duplicates}`));
+  print(chalk.bold.green('  ┌───────────────────────────────────┐'));
+  print(chalk.bold.green('  │') + chalk.white(` Records: ${chalk.bold.cyan(totalScraped)}  Saved: ${chalk.bold.green(inserted)}  Dups: ${chalk.bold.yellow(duplicates)}`) + ' '.repeat(Math.max(1, 18 - String(totalScraped).length - String(inserted).length - String(duplicates).length)) + chalk.bold.green('│'));
+  print(chalk.bold.green('  └───────────────────────────────────┘'));
 
   let excelUploaded = false;
   if (totalScraped > 0) {
@@ -305,12 +335,15 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(chalk.bold.cyan(
-    '\n╔═══════════════════════════════════════════════════╗\n' +
-    '║  BetaZen Google Maps Scraper  —  Node.js CLI      ║\n' +
-    '╚═══════════════════════════════════════════════════╝'
-  ));
-  console.log(chalk.bold.white(`  ENV : ${APP_STATE.toUpperCase()}  →  ${API_BASE_URL}\n`));
+  console.log('');
+  console.log(chalk.bold.cyan('  ╔══════════════════════════════════════════════════════╗'));
+  console.log(chalk.bold.cyan('  ║') + chalk.bold.white('   BetaZen Google Maps Scraper  —  Node.js CLI       ') + chalk.bold.cyan('║'));
+  console.log(chalk.bold.cyan('  ╠══════════════════════════════════════════════════════╣'));
+  console.log(chalk.bold.cyan('  ║') + chalk.white(`   ENV  : ${chalk.bold.green(APP_STATE.toUpperCase())}`) + ' '.repeat(42 - APP_STATE.length) + chalk.bold.cyan('║'));
+  console.log(chalk.bold.cyan('  ║') + chalk.white(`   API  : ${chalk.bold(API_BASE_URL)}`) + ' '.repeat(42 - API_BASE_URL.length) + chalk.bold.cyan('║'));
+  console.log(chalk.bold.cyan('  ║') + chalk.white(`   Time : ${chalk.bold(new Date().toLocaleString('en-IN'))}`) + ' '.repeat(Math.max(1, 42 - new Date().toLocaleString('en-IN').length)) + chalk.bold.cyan('║'));
+  console.log(chalk.bold.cyan('  ╚══════════════════════════════════════════════════════╝'));
+  console.log('');
 
   await printStats('Startup');
   console.log('');
@@ -413,14 +446,19 @@ async function main() {
   const grandTotal     = totalPincodes * niches.length * 3;
 
   console.log('');
-  console.log(chalk.white(`  Pincodes : ${chalk.bold(totalPincodes)}`));
-  console.log(chalk.white(`  Niches   : ${chalk.bold(niches.length)}`));
-  console.log(chalk.white(`  Rounds   : ${chalk.bold(3)}`));
+  console.log(chalk.bold.yellow('  ┌─────────────────────────────────────┐'));
+  console.log(chalk.bold.yellow('  │') + chalk.bold.white('        Scraping Plan Summary         ') + chalk.bold.yellow('│'));
+  console.log(chalk.bold.yellow('  ├─────────────────────────────────────┤'));
+  console.log(chalk.bold.yellow('  │') + chalk.white(`  Pincodes : ${chalk.bold.cyan(totalPincodes)}`) + ' '.repeat(24 - String(totalPincodes).length) + chalk.bold.yellow('│'));
+  console.log(chalk.bold.yellow('  │') + chalk.white(`  Niches   : ${chalk.bold.cyan(niches.length)}`) + ' '.repeat(24 - String(niches.length).length) + chalk.bold.yellow('│'));
+  console.log(chalk.bold.yellow('  │') + chalk.white(`  Rounds   : ${chalk.bold.cyan(3)}`) + ' '.repeat(23) + chalk.bold.yellow('│'));
   if (isMultiJobMode) {
-    console.log(chalk.white(`  Per Job  : ${chalk.bold(PINCODES_PER_JOB)} pincodes`));
-    console.log(chalk.bold.white(`  Jobs     : ${chalk.bold(totalJobs)}`));
+    console.log(chalk.bold.yellow('  │') + chalk.white(`  Per Job  : ${chalk.bold.cyan(PINCODES_PER_JOB)} pincodes`) + ' '.repeat(15 - String(PINCODES_PER_JOB).length) + chalk.bold.yellow('│'));
+    console.log(chalk.bold.yellow('  │') + chalk.white(`  Jobs     : ${chalk.bold.cyan(totalJobs)}`) + ' '.repeat(24 - String(totalJobs).length) + chalk.bold.yellow('│'));
   }
-  console.log(chalk.bold.white(`  Total    : ${chalk.bold(grandTotal)} searches`));
+  console.log(chalk.bold.yellow('  ├─────────────────────────────────────┤'));
+  console.log(chalk.bold.yellow('  │') + chalk.bold.white(`  TOTAL    : ${chalk.bold.green(grandTotal)} searches`) + ' '.repeat(15 - String(grandTotal).length) + chalk.bold.yellow('│'));
+  console.log(chalk.bold.yellow('  └─────────────────────────────────────┘'));
   console.log('');
 
   // ── Start live stats monitor ──────────────────────────────────────────────
@@ -564,12 +602,13 @@ async function main() {
   liveMonitor.stop();
   liveMonitor = null;
 
-  console.log(chalk.bold.green(
-    '\n╔═══════════════════════════════════════════════════╗\n' +
-    '║           All scraping completed!                 ║\n' +
-    `║  ${totalJobs > 1 ? `${totalJobs} jobs finished` : 'Job finished'}${' '.repeat(totalJobs > 1 ? 34 - String(totalJobs).length : 39)}║\n` +
-    '╚═══════════════════════════════════════════════════╝\n'
-  ));
+  const jobsText = totalJobs > 1 ? `${totalJobs} jobs finished` : 'Job finished';
+  console.log('');
+  console.log(chalk.bold.green('  ╔══════════════════════════════════════════════════════╗'));
+  console.log(chalk.bold.green('  ║') + chalk.bold.white('          All scraping completed!                   ') + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(`          ${jobsText}`) + ' '.repeat(42 - jobsText.length) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ╚══════════════════════════════════════════════════════╝'));
+  console.log('');
 
   await printStats('Final');
   process.exit(0);
