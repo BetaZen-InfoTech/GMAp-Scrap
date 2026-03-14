@@ -5,59 +5,51 @@
 - Ubuntu 20.04+ (or any Debian-based Linux)
 - Root or sudo access
 - Git installed (`sudo apt-get install -y git`)
-- Backend API already running (`.env` points to `https://gmap-scrap-backend-api.betazeninfotech.com`)
 
 ---
 
-## 1. Install Node.js (v18+)
+## 1. Install Node.js (v22+)
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
-node -v   # should show v18.x+
+node -v   # should show v22.x+
 npm -v
 ```
 
-## 2. Install system dependencies for Playwright
-
-```bash
-sudo apt-get update
-sudo apt-get install -y \
-  libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-  libxcomposite1 libxdamage1 libxrandr2 libgbm1 \
-  libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
-  libx11-xcb1 fonts-liberation libappindicator3-1 xdg-utils
-```
-
-## 3. Clone the repo
+## 2. Clone the repo
 
 ```bash
 cd /home/user
-git clone https://github.com/BetaZen-InfoTech/BetaZen-G-Map-Scrap.git
-cd BetaZen-G-Map-Scrap/frontend-nodejs
+git clone https://github.com/BetaZen-InfoTech/GMAp-Scrap.git
+cd GMAp-Scrap/frontend-nodejs
 ```
 
 To pull latest changes later:
 
 ```bash
-cd /home/user/BetaZen-G-Map-Scrap
+cd /home/user/GMAp-Scrap
 git pull
 ```
 
-## 4. Install dependencies
+## 3. Install dependencies
 
 ```bash
-cd /home/user/BetaZen-G-Map-Scrap/frontend-nodejs
+cd /home/user/GMAp-Scrap/frontend-nodejs
 npm install
 ```
 
-## 5. Install Playwright Chromium browser
+## 4. Install Playwright Chromium + system libraries
 
 ```bash
 npx playwright install chromium
+npx playwright install-deps chromium
 ```
 
-## 6. Configure environment
+First command downloads the Chromium browser binary.
+Second command auto-installs all required OS libraries for your Ubuntu version.
+
+## 5. Configure environment
 
 Create the `.env` file:
 
@@ -67,7 +59,7 @@ echo "API_BASE_URL=https://gmap-scrap-backend-api.betazeninfotech.com" > .env
 
 ---
 
-## 7. Run the scraper
+## 6. Run the scraper
 
 ### CLI arguments (non-interactive — required for auto-restart)
 
@@ -92,7 +84,7 @@ npm start
 
 ---
 
-## 8. Auto-restart with PM2 (recommended)
+## 7. Auto-restart with PM2 (recommended)
 
 PM2 keeps the scraper running 24/7 and auto-restarts on crash or VPS reboot.
 
@@ -105,7 +97,7 @@ sudo npm install -g pm2
 ### Start a scraper instance
 
 ```bash
-cd /home/user/BetaZen-G-Map-Scrap/frontend-nodejs
+cd /home/user/GMAp-Scrap/frontend-nodejs
 
 pm2 start npm --name "scraper-1" -- start -- "PC NAME" START-PIN END-PIN
 ```
@@ -151,7 +143,7 @@ After this, all pm2 processes will auto-start when the VPS reboots.
 ### Update code and restart
 
 ```bash
-cd /home/user/BetaZen-G-Map-Scrap
+cd /home/user/GMAp-Scrap
 git pull
 cd frontend-nodejs
 npm install
@@ -160,12 +152,48 @@ pm2 restart all
 
 ---
 
+## 8. Monitor VPS resources
+
+### Live one-liner (CPU + RAM + Network speed + Total usage)
+
+```bash
+sudo apt-get install -y sysstat vnstat
+```
+
+```bash
+watch -n 2 'echo "$(top -bn1 | grep "Cpu(s)" | awk "{printf \"CPU: %.0f%%\", 100-\$8}") | $(free -h | awk "/Mem:/{printf \"RAM: %s/%s\", \$3, \$2}") | $(cat /proc/net/dev | awk "/eth0|ens/{split(\$0,a,\":\"); split(a[2],b); printf \"Net: ↓%s ↑%s\", b[1], b[9]}") | $(vnstat --oneline 2>/dev/null | awk -F\; "{printf \"Today: %s\", \$11}" || echo "Today: N/A")"'
+```
+
+This shows a live updating line like:
+
+```
+CPU: 23% | RAM: 1.2G/4.0G | Net: ↓123456789 ↑987654 | Today: 2.5 GB
+```
+
+### Other useful tools
+
+```bash
+htop                      # visual CPU + RAM dashboard
+nload                     # live network speed graph
+vnstat -d                 # daily internet usage
+vnstat -m                 # monthly internet usage
+glances                   # all-in-one dashboard (CPU + RAM + Disk + Net)
+```
+
+Install all at once:
+
+```bash
+sudo apt-get install -y htop nload vnstat glances
+```
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| `Chromium not installed and Edge not found` | Run `npx playwright install chromium` |
-| Playwright crashes with missing libs | Run the `apt-get install` command from Step 2 |
+| `Chromium not installed` | Run `npx playwright install chromium` |
+| Playwright crashes with missing libs | Run `npx playwright install-deps chromium` |
 | `API error: connect ECONNREFUSED` | Check `.env` has the correct `API_BASE_URL` |
 | `EACCES: permission denied` | Don't run as root, or fix: `chown -R $USER:$USER .` |
 | High memory usage | Reduce `parallelTabs` in `src/config.js` (default 5) |
