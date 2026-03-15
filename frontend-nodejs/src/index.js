@@ -528,6 +528,14 @@ async function main() {
     ));
 
     let completed = 0;
+    let skippedCount = 0;
+
+    function flushSkipped() {
+      if (skippedCount > 0) {
+        print(chalk.yellow(`  ${tag} ⟳ Skipped ${skippedCount} already completed`));
+        skippedCount = 0;
+      }
+    }
 
     for (const pincodeInfo of pincodes) {
       for (let round = 1; round <= 3; round++) {
@@ -542,26 +550,17 @@ async function main() {
 
           completed++;
 
-          const prefix = `${tag} [${completed}/${totalSearches}]`;
-
-          print(chalk.bold.white(
-            `\n${'━'.repeat(60)}\n` +
-            `  ${prefix}  ${keyword}\n` +
-            `  Round: ${round}\n` +
-            `${'━'.repeat(60)}`
-          ));
-
           // Check if already completed in this job (resume support)
           const searchKey = `${pincodeInfo.Pincode}|${niche.Category}|${niche.SubCategory}|${round}`;
           if (completedJobSearches.has(searchKey)) {
-            print(chalk.yellow(`  ${tag} ⟳ Already completed — skipping`));
+            skippedCount++;
             continue;
           }
 
           // Check if already scraped globally (across all jobs)
           const alreadyDone = await isAlreadyScraped(keyword, round);
           if (alreadyDone) {
-            print(chalk.yellow(`  ${tag} ⟳ Already scraped — skipping`));
+            skippedCount++;
             markSearchComplete(jobId, {
               deviceId, pincode: pincodeInfo.Pincode,
               district: pincodeInfo.District, stateName: pincodeInfo.StateName,
@@ -571,6 +570,17 @@ async function main() {
             updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'running' });
             continue;
           }
+
+          // Print skipped summary before starting a new scrape
+          flushSkipped();
+
+          const prefix = `${tag} [${completed}/${totalSearches}]`;
+          print(chalk.bold.white(
+            `\n${'━'.repeat(60)}\n` +
+            `  ${prefix}  ${keyword}\n` +
+            `  Round: ${round}\n` +
+            `${'━'.repeat(60)}`
+          ));
 
           try {
             await waitForCpu(tag);
@@ -598,6 +608,8 @@ async function main() {
         }   // end niche loop
       }     // end round loop
     }       // end pincode loop
+
+    flushSkipped();  // print any remaining skipped count
 
     // ── Mark job completed ──────────────────────────────────────────────
     updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'completed' });
