@@ -112,6 +112,7 @@ export interface PinCodeRecord {
   Latitude: string;
   Longitude: string;
   Country: string;
+  scrapedCount?: number;
 }
 
 // --- Scraped Pincode (aggregated) ---

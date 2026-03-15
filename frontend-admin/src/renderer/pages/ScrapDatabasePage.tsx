@@ -6,6 +6,7 @@ import Spinner from '../components/Spinner';
 import ScrapTableView from '../components/ScrapTableView';
 import ScrapCardView from '../components/ScrapCardView';
 import ScrapExcelView from '../components/ScrapExcelView';
+import MultiSelect from '../components/MultiSelect';
 
 const viewModes: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
   {
@@ -101,7 +102,7 @@ const ScrapDatabasePage: React.FC = () => {
   };
 
   const selectionCount = selectAllPages ? total : selectedIds.size;
-  const hasFilters = !!(filters.search || filters.category || filters.pincode || filters.missingPhone || filters.missingAddress || filters.missingWebsite || filters.missingEmail);
+  const hasFilters = !!(filters.search || filters.category?.length || filters.scrapCategory?.length || filters.scrapSubCategory?.length || filters.pincode?.length || filters.missingPhone || filters.missingAddress || filters.missingWebsite || filters.missingEmail || filters.hasPhone || filters.hasAddress || filters.hasWebsite || filters.hasEmail || filters.minRating != null || filters.maxRating != null || filters.minReviews != null || filters.maxReviews != null);
 
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
@@ -175,46 +176,129 @@ const ScrapDatabasePage: React.FC = () => {
           placeholder="Search name, keyword, address..."
           className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-56"
         />
+        <MultiSelect
+          options={filterOptions.scrapCategories}
+          selected={filters.scrapCategory || []}
+          onChange={(v) => { setFilters({ scrapCategory: v.length ? v : undefined, scrapSubCategory: undefined }); fetchFilterOptions(v.length ? v : undefined); setTimeout(() => fetchRecords(1), 0); }}
+          placeholder="All Categories"
+        />
+        <MultiSelect
+          options={filterOptions.scrapSubCategories}
+          selected={filters.scrapSubCategory || []}
+          onChange={(v) => { setFilters({ scrapSubCategory: v.length ? v : undefined }); setTimeout(() => fetchRecords(1), 0); }}
+          placeholder="All Sub Categories"
+        />
+        <MultiSelect
+          options={filterOptions.categories}
+          selected={filters.category || []}
+          onChange={(v) => { setFilters({ category: v.length ? v : undefined }); setTimeout(() => fetchRecords(1), 0); }}
+          placeholder="Google Category"
+        />
+        <MultiSelect
+          options={filterOptions.pincodes}
+          selected={filters.pincode || []}
+          onChange={(v) => { setFilters({ pincode: v.length ? v : undefined }); setTimeout(() => fetchRecords(1), 0); }}
+          placeholder="All Pincodes"
+        />
+
+        {/* Rating filter */}
         <select
-          value={filters.category || ''}
-          onChange={(e) => { setFilters({ category: e.target.value || undefined }); setTimeout(() => fetchRecords(1), 0); }}
-          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 max-w-[180px]"
+          value={filters.minRating != null ? String(filters.minRating) : ''}
+          onChange={(e) => {
+            const val = e.target.value ? Number(e.target.value) : undefined;
+            setFilters({ minRating: val });
+            setTimeout(() => fetchRecords(1), 0);
+          }}
+          className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-24"
         >
-          <option value="">All Categories</option>
-          {filterOptions.categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <select
-          value={filters.pincode || ''}
-          onChange={(e) => { setFilters({ pincode: e.target.value || undefined }); setTimeout(() => fetchRecords(1), 0); }}
-          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 max-w-[140px]"
-        >
-          <option value="">All Pincodes</option>
-          {filterOptions.pincodes.map((p) => (
-            <option key={p} value={p}>{p}</option>
+          <option value="">Rating</option>
+          {[1, 2, 3, 3.5, 4, 4.5].map((r) => (
+            <option key={r} value={r}>{r}+</option>
           ))}
         </select>
 
-        {/* Missing data filters */}
-        <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
-          <span className="text-xs text-slate-500">Missing:</span>
+        {/* Reviews range */}
+        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5">
+          <span className="text-[10px] text-slate-500 font-medium">Reviews</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={filters.minReviews ?? ''}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, '');
+              setFilters({ minReviews: v !== '' ? Number(v) : undefined });
+            }}
+            onBlur={() => fetchRecords(1)}
+            onKeyDown={(e) => { if (e.key === 'Enter') fetchRecords(1); }}
+            onWheel={(e) => (e.target as HTMLInputElement).blur()}
+            placeholder="Min"
+            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-600 w-16 focus:outline-none focus:border-blue-500 text-center"
+          />
+          <span className="text-slate-600 text-xs">–</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={filters.maxReviews ?? ''}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, '');
+              setFilters({ maxReviews: v !== '' ? Number(v) : undefined });
+            }}
+            onBlur={() => fetchRecords(1)}
+            onKeyDown={(e) => { if (e.key === 'Enter') fetchRecords(1); }}
+            onWheel={(e) => (e.target as HTMLInputElement).blur()}
+            placeholder="Max"
+            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-600 w-16 focus:outline-none focus:border-blue-500 text-center"
+          />
+        </div>
+
+        {/* Data filters — cycle: off → missing → available */}
+        <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
           {[
-            { key: 'missingPhone' as const, label: 'Phone' },
-            { key: 'missingAddress' as const, label: 'Address' },
-            { key: 'missingWebsite' as const, label: 'Website' },
-            { key: 'missingEmail' as const, label: 'Email' },
-          ].map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!filters[key]}
-                onChange={(e) => { setFilters({ [key]: e.target.checked || undefined }); setTimeout(() => fetchRecords(1), 0); }}
-                className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-0 cursor-pointer"
-              />
-              <span className="text-xs text-slate-400">{label}</span>
-            </label>
-          ))}
+            { field: 'Phone', missingKey: 'missingPhone' as const, hasKey: 'hasPhone' as const },
+            { field: 'Address', missingKey: 'missingAddress' as const, hasKey: 'hasAddress' as const },
+            { field: 'Website', missingKey: 'missingWebsite' as const, hasKey: 'hasWebsite' as const },
+            { field: 'Email', missingKey: 'missingEmail' as const, hasKey: 'hasEmail' as const },
+          ].map(({ field, missingKey, hasKey }) => {
+            const isMissing = !!filters[missingKey];
+            const isHas = !!filters[hasKey];
+            // Cycle: off → missing → available → off
+            const handleClick = () => {
+              if (!isMissing && !isHas) {
+                // off → missing
+                setFilters({ [missingKey]: true, [hasKey]: undefined });
+              } else if (isMissing) {
+                // missing → available
+                setFilters({ [missingKey]: undefined, [hasKey]: true });
+              } else {
+                // available → off
+                setFilters({ [missingKey]: undefined, [hasKey]: undefined });
+              }
+              setTimeout(() => fetchRecords(1), 0);
+            };
+
+            let btnClass = 'bg-slate-800 text-slate-500 hover:text-slate-300';
+            let label = field;
+            if (isMissing) {
+              btnClass = 'bg-red-900/50 text-red-300 ring-1 ring-red-700/60';
+              label = `No ${field}`;
+            } else if (isHas) {
+              btnClass = 'bg-green-900/50 text-green-300 ring-1 ring-green-700/60';
+              label = `Has ${field}`;
+            }
+
+            return (
+              <button
+                key={field}
+                onClick={handleClick}
+                className={`text-xs font-medium px-2.5 py-1 rounded-md transition-all ${btnClass}`}
+                title={isMissing ? `Showing: missing ${field.toLowerCase()}` : isHas ? `Showing: has ${field.toLowerCase()}` : `Click to filter by ${field.toLowerCase()}`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Page size */}

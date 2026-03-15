@@ -3,6 +3,7 @@ import { useDeviceStore } from '../store/useDeviceStore';
 import SessionTable from '../components/SessionTable';
 import JobTable from '../components/JobTable';
 import DeviceStatsChart from '../components/DeviceStatsChart';
+import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
 
 interface DeviceDetailPageProps {
@@ -12,14 +13,12 @@ interface DeviceDetailPageProps {
 
 type Tab = 'overview' | 'sessions' | 'jobs' | 'performance';
 
-function barColor(percent: number): string {
-  if (percent >= 85) return 'bg-red-500';
-  if (percent >= 60) return 'bg-yellow-500';
-  return 'bg-green-500';
-}
-
 const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack }) => {
-  const { selectedDevice, deviceSessions, deviceJobs, deviceHistory, loading, fetchDeviceDetail } = useDeviceStore();
+  const {
+    selectedDevice, deviceSessions, deviceJobs, deviceHistory,
+    totalSessions, totalJobs, sessionPage, sessionLimit, jobPage, jobLimit,
+    loading, fetchDeviceDetail, fetchDeviceSessions, fetchDeviceJobs,
+  } = useDeviceStore();
   const [tab, setTab] = useState<Tab>('overview');
 
   useEffect(() => {
@@ -46,8 +45,8 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: 'Overview' },
-    { key: 'sessions', label: `Sessions (${deviceSessions.length})` },
-    { key: 'jobs', label: `Jobs (${deviceJobs.length})` },
+    { key: 'sessions', label: `Sessions (${totalSessions})` },
+    { key: 'jobs', label: `Jobs (${totalJobs})` },
     { key: 'performance', label: 'Performance' },
   ];
 
@@ -143,17 +142,17 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <p className="text-xs text-slate-400">Total Sessions</p>
-                <p className="text-2xl font-bold text-white">{deviceSessions.length}</p>
+                <p className="text-2xl font-bold text-white">{totalSessions}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Active Jobs</p>
                 <p className="text-2xl font-bold text-blue-400">
-                  {deviceJobs.filter((j) => j.status === 'running' || j.status === 'paused').length}
+                  {d.activeJobs || 0}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Total Jobs</p>
-                <p className="text-2xl font-bold text-slate-300">{deviceJobs.length}</p>
+                <p className="text-2xl font-bold text-slate-300">{totalJobs}</p>
               </div>
             </div>
           </div>
@@ -163,12 +162,32 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
       {tab === 'sessions' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <SessionTable sessions={deviceSessions} showDevice={false} />
+          {totalSessions > sessionLimit && (
+            <div className="border-t border-slate-800 mt-2 pt-2">
+              <Pagination
+                page={sessionPage}
+                total={totalSessions}
+                limit={sessionLimit}
+                onPageChange={(p) => fetchDeviceSessions(deviceId, p)}
+              />
+            </div>
+          )}
         </div>
       )}
 
       {tab === 'jobs' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <JobTable jobs={deviceJobs} />
+          {totalJobs > jobLimit && (
+            <div className="border-t border-slate-800 mt-2 pt-2">
+              <Pagination
+                page={jobPage}
+                total={totalJobs}
+                limit={jobLimit}
+                onPageChange={(p) => fetchDeviceJobs(deviceId, p)}
+              />
+            </div>
+          )}
         </div>
       )}
 

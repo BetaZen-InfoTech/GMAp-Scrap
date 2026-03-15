@@ -149,21 +149,37 @@ router.get('/devices/:deviceId', async (req, res) => {
       }
     }
 
-    const [sessions, jobs, history] = await Promise.all([
-      SessionStats.find({ deviceId }).sort({ createdAt: -1 }).limit(100).lean(),
-      ScrapeTracking.find({ deviceId }).sort({ createdAt: -1 }).limit(50).lean(),
+    const sessionPage = Math.max(1, Number(req.query.sessionPage) || 1);
+    const sessionLimit = Math.min(500, Math.max(1, Number(req.query.sessionLimit) || 50));
+    const jobPage = Math.max(1, Number(req.query.jobPage) || 1);
+    const jobLimit = Math.min(500, Math.max(1, Number(req.query.jobLimit) || 50));
+
+    const sessionSkip = (sessionPage - 1) * sessionLimit;
+    const jobSkip = (jobPage - 1) * jobLimit;
+
+    const [sessions, jobs, history, totalSessions, totalJobs, activeJobCount] = await Promise.all([
+      SessionStats.find({ deviceId }).sort({ createdAt: -1 }).skip(sessionSkip).limit(sessionLimit).lean(),
+      ScrapeTracking.find({ deviceId }).sort({ createdAt: -1 }).skip(jobSkip).limit(jobLimit).lean(),
       DeviceHistory.find({ deviceId }).sort({ date: -1 }).limit(7).lean(),
+      SessionStats.countDocuments({ deviceId }),
+      ScrapeTracking.countDocuments({ deviceId }),
+      ScrapeTracking.countDocuments({ deviceId, status: { $in: ['running', 'paused'] } }),
     ]);
 
-    const activeJobs = jobs.filter((j) => j.status === 'running' || j.status === 'paused').length;
     const deviceName = device.nickname || device.hostname;
     const enrichedSessions = sessions.map((s) => ({ ...s, deviceName }));
 
     res.json({
-      device: { ...device, activeJobs, totalSessions: sessions.length },
+      device: { ...device, activeJobs: activeJobCount, totalSessions },
       sessions: enrichedSessions,
       jobs,
       history,
+      totalSessions,
+      totalJobs,
+      sessionPage,
+      sessionLimit,
+      jobPage,
+      jobLimit,
     });
   } catch (err) {
     console.error('[admin/devices/:id] Error:', err.message);
@@ -361,21 +377,58 @@ router.get('/categories', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/categories/:category/subcategories ──
+// Aggregates scraped records by scrapSubCategory within a category
+router.get('/categories/:category/subcategories', async (req, res) => {
+  try {
+    const { category } = req.params;
+
+    const pipeline = [
+      { $match: { category, isDeleted: { $ne: true } } },
+      {
+        $group: {
+          _id: '$scrapSubCategory',
+          count: { $sum: 1 },
+          devices: { $addToSet: '$deviceId' },
+          rounds: { $addToSet: '$scrapRound' },
+        },
+      },
+      { $sort: { count: -1 } },
+    ];
+
+    const agg = await ScrapedData.aggregate(pipeline);
+    const subCategories = agg.map((a) => ({
+      subCategory: a._id || 'Uncategorized',
+      count: a.count,
+      devices: (a.devices || []).filter(Boolean).length,
+      rounds: (a.rounds || []).filter((r) => r != null).sort(),
+    }));
+
+    const totalRecords = subCategories.reduce((sum, sc) => sum + sc.count, 0);
+    res.json({ subCategories, totalRecords });
+  } catch (err) {
+    console.error('[admin/categories/:category/subcategories] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/admin/categories/:category/records ──
-// Returns paginated scraped records for a specific category
+// Returns paginated scraped records for a specific category (optionally filtered by subCategory)
 router.get('/categories/:category/records', async (req, res) => {
   try {
     const { category } = req.params;
-    const { page = 1, limit = 25 } = req.query;
+    const { page = 1, limit = 25, subCategory } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const filter = { category };
+    const filter = { category, isDeleted: { $ne: true } };
+    if (subCategory) filter.scrapSubCategory = subCategory;
+
     const [data, total] = await Promise.all([
       ScrapedData.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
-        .select('name phone address rating reviews pincode plusCode website isDuplicate scrapedAt deviceId')
+        .select('name phone address rating reviews pincode plusCode website email photoUrl isDuplicate scrapedAt deviceId scrapSubCategory')
         .lean(),
       ScrapedData.countDocuments(filter),
     ]);
@@ -450,7 +503,11 @@ router.delete('/categories/:category/niches/:nicheId', async (req, res) => {
 router.get('/pincodes/filters', async (req, res) => {
   try {
     const { state } = req.query;
-    const districtFilter = state ? { StateName: state } : {};
+    let districtFilter = {};
+    if (state) {
+      const arr = state.split(',').map((s) => s.trim()).filter(Boolean);
+      districtFilter = { StateName: arr.length === 1 ? arr[0] : { $in: arr } };
+    }
     const [states, districts] = await Promise.all([
       PinCode.distinct('StateName'),
       PinCode.distinct('District', districtFilter),
@@ -483,8 +540,14 @@ router.get('/pincodes', async (req, res) => {
         ];
       }
     }
-    if (state) filter.StateName = state;
-    if (district) filter.District = district;
+    if (state) {
+      const arr = state.split(',').map((s) => s.trim()).filter(Boolean);
+      filter.StateName = arr.length === 1 ? arr[0] : { $in: arr };
+    }
+    if (district) {
+      const arr = district.split(',').map((s) => s.trim()).filter(Boolean);
+      filter.District = arr.length === 1 ? arr[0] : { $in: arr };
+    }
 
     const skip = (Number(page) - 1) * Number(limit);
     const [data, total] = await Promise.all([
@@ -492,7 +555,21 @@ router.get('/pincodes', async (req, res) => {
       PinCode.countDocuments(filter),
     ]);
 
-    res.json({ data, total, page: Number(page), limit: Number(limit) });
+    // Enrich with scraped data counts per pincode
+    const pincodeValues = data.map((p) => String(p.Pincode));
+    const scrapedCounts = await ScrapedData.aggregate([
+      { $match: { pincode: { $in: pincodeValues }, isDeleted: { $ne: true } } },
+      { $group: { _id: '$pincode', count: { $sum: 1 } } },
+    ]);
+    const countMap = {};
+    for (const row of scrapedCounts) countMap[row._id] = row.count;
+
+    const enriched = data.map((p) => ({
+      ...p,
+      scrapedCount: countMap[String(p.Pincode)] || 0,
+    }));
+
+    res.json({ data: enriched, total, page: Number(page), limit: Number(limit) });
   } catch (err) {
     console.error('[admin/pincodes] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -590,7 +667,12 @@ router.get('/scraped-pincodes', async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function buildScrapDbFilter(params) {
-  const { search, category, pincode, missingPhone, missingAddress, missingWebsite, missingEmail } = params;
+  const {
+    search, category, pincode, scrapCategory, scrapSubCategory,
+    missingPhone, missingAddress, missingWebsite, missingEmail,
+    hasPhone, hasAddress, hasWebsite, hasEmail,
+    minRating, maxRating, minReviews, maxReviews,
+  } = params;
   const filter = { isDeleted: { $ne: true } };
 
   if (search) {
@@ -601,12 +683,48 @@ function buildScrapDbFilter(params) {
       { address: { $regex: search, $options: 'i' } },
     ];
   }
-  if (category) filter.category = category;
-  if (pincode) filter.pincode = pincode;
+  if (category) {
+    const arr = category.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.category = arr.length === 1 ? arr[0] : { $in: arr };
+  }
+  if (scrapCategory) {
+    const arr = scrapCategory.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.scrapCategory = arr.length === 1 ? arr[0] : { $in: arr };
+  }
+  if (scrapSubCategory) {
+    const arr = scrapSubCategory.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.scrapSubCategory = arr.length === 1 ? arr[0] : { $in: arr };
+  }
+  if (pincode) {
+    const arr = pincode.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.pincode = arr.length === 1 ? arr[0] : { $in: arr };
+  }
+
+  // Missing filters (field is null or empty)
   if (missingPhone === true || missingPhone === 'true') filter.phone = { $in: [null, ''] };
   if (missingAddress === true || missingAddress === 'true') filter.address = { $in: [null, ''] };
   if (missingWebsite === true || missingWebsite === 'true') filter.website = { $in: [null, ''] };
   if (missingEmail === true || missingEmail === 'true') filter.email = { $in: [null, ''] };
+
+  // Available filters (field exists and is not empty)
+  if (hasPhone === true || hasPhone === 'true') filter.phone = { $nin: [null, ''] };
+  if (hasAddress === true || hasAddress === 'true') filter.address = { $nin: [null, ''] };
+  if (hasWebsite === true || hasWebsite === 'true') filter.website = { $nin: [null, ''] };
+  if (hasEmail === true || hasEmail === 'true') filter.email = { $nin: [null, ''] };
+
+  // Rating filter
+  if (minRating != null || maxRating != null) {
+    filter.rating = {};
+    if (minRating != null) filter.rating.$gte = Number(minRating);
+    if (maxRating != null) filter.rating.$lte = Number(maxRating);
+  }
+
+  // Reviews count filter
+  if (minReviews != null || maxReviews != null) {
+    filter.reviews = {};
+    if (minReviews != null) filter.reviews.$gte = Number(minReviews);
+    if (maxReviews != null) filter.reviews.$lte = Number(maxReviews);
+  }
 
   return filter;
 }
@@ -614,13 +732,26 @@ function buildScrapDbFilter(params) {
 // ── GET /api/admin/scrap-database/filters ──
 router.get('/scrap-database/filters', async (req, res) => {
   try {
+    const { scrapCategory } = req.query;
     const baseFilter = { isDeleted: { $ne: true } };
-    const [categories, pincodes] = await Promise.all([
+    let subCatFilter;
+    if (scrapCategory) {
+      const arr = scrapCategory.split(',').map((s) => s.trim()).filter(Boolean);
+      const catMatch = arr.length === 1 ? arr[0] : { $in: arr };
+      subCatFilter = { ...baseFilter, scrapCategory: catMatch, scrapSubCategory: { $ne: null } };
+    } else {
+      subCatFilter = { ...baseFilter, scrapSubCategory: { $ne: null } };
+    }
+    const [categories, scrapCategories, scrapSubCategories, pincodes] = await Promise.all([
       ScrapedData.distinct('category', { ...baseFilter, category: { $ne: null } }),
+      ScrapedData.distinct('scrapCategory', { ...baseFilter, scrapCategory: { $ne: null } }),
+      ScrapedData.distinct('scrapSubCategory', subCatFilter),
       ScrapedData.distinct('pincode', { ...baseFilter, pincode: { $ne: null } }),
     ]);
     res.json({
       categories: categories.filter(Boolean).sort(),
+      scrapCategories: scrapCategories.filter(Boolean).sort(),
+      scrapSubCategories: scrapSubCategories.filter(Boolean).sort(),
       pincodes: pincodes.filter(Boolean).sort(),
     });
   } catch (err) {

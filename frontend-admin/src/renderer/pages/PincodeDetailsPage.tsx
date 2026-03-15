@@ -2,6 +2,7 @@ import React, { useEffect, useCallback } from 'react';
 import { usePincodeStore } from '../store/usePincodeStore';
 import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
+import MultiSelect from '../components/MultiSelect';
 
 const PincodeDetailsPage: React.FC = () => {
   const {
@@ -24,6 +25,8 @@ const PincodeDetailsPage: React.FC = () => {
     fetchFilterOptions();
     setTimeout(() => fetchPincodes(1), 0);
   };
+
+  const hasFilters = !!(filters.search || filters.state?.length || filters.district?.length);
 
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
@@ -54,38 +57,32 @@ const PincodeDetailsPage: React.FC = () => {
           placeholder="Search pincode, district, state..."
           className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-64"
         />
-        <select
-          value={filters.state || ''}
-          onChange={(e) => {
-            const val = e.target.value || undefined;
-            setFilters({ state: val, district: undefined });
-            fetchFilterOptions(val);
+        <MultiSelect
+          options={filterOptions.states}
+          selected={filters.state || []}
+          onChange={(v) => {
+            setFilters({ state: v.length ? v : undefined, district: undefined });
+            fetchFilterOptions(v.length ? v : undefined);
             setTimeout(() => fetchPincodes(1), 0);
           }}
-          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-        >
-          <option value="">All States</option>
-          {filterOptions.states.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <select
-          value={filters.district || ''}
-          onChange={(e) => { setFilters({ district: e.target.value || undefined }); setTimeout(() => fetchPincodes(1), 0); }}
-          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-        >
-          <option value="">All Districts</option>
-          {filterOptions.districts.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
+          placeholder="All States"
+        />
+        <MultiSelect
+          options={filterOptions.districts}
+          selected={filters.district || []}
+          onChange={(v) => {
+            setFilters({ district: v.length ? v : undefined });
+            setTimeout(() => fetchPincodes(1), 0);
+          }}
+          placeholder="All Districts"
+        />
         <button
           onClick={handleSearch}
           className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           Search
         </button>
-        {(filters.search || filters.state || filters.district) && (
+        {hasFilters && (
           <button
             onClick={handleClear}
             className="text-slate-400 hover:text-white text-sm transition-colors"
@@ -111,6 +108,7 @@ const PincodeDetailsPage: React.FC = () => {
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">District</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">State</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Circle</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Scraped</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Latitude</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Longitude</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Country</th>
@@ -123,6 +121,15 @@ const PincodeDetailsPage: React.FC = () => {
                       <td className="px-4 py-3 text-white">{p.District || '—'}</td>
                       <td className="px-4 py-3 text-slate-300">{p.StateName || '—'}</td>
                       <td className="px-4 py-3 text-slate-400">{p.CircleName || '—'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {p.scrapedCount ? (
+                          <span className="text-xs font-semibold bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded-full">
+                            {p.scrapedCount.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-600">0</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-slate-400 font-mono text-xs">{p.Latitude || '—'}</td>
                       <td className="px-4 py-3 text-slate-400 font-mono text-xs">{p.Longitude || '—'}</td>
                       <td className="px-4 py-3 text-slate-400">{p.Country || '—'}</td>

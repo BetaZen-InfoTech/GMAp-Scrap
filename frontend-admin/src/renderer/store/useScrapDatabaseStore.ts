@@ -6,12 +6,22 @@ export type ViewMode = 'table' | 'card' | 'excel';
 
 export interface ScrapDbFilters {
   search?: string;
-  category?: string;
-  pincode?: string;
+  category?: string[];
+  scrapCategory?: string[];
+  scrapSubCategory?: string[];
+  pincode?: string[];
   missingPhone?: boolean;
   missingAddress?: boolean;
   missingWebsite?: boolean;
   missingEmail?: boolean;
+  hasPhone?: boolean;
+  hasAddress?: boolean;
+  hasWebsite?: boolean;
+  hasEmail?: boolean;
+  minRating?: number;
+  maxRating?: number;
+  minReviews?: number;
+  maxReviews?: number;
 }
 
 interface ScrapDatabaseStore {
@@ -21,13 +31,13 @@ interface ScrapDatabaseStore {
   limit: number;
   loading: boolean;
   filters: ScrapDbFilters;
-  filterOptions: { categories: string[]; pincodes: string[] };
+  filterOptions: { categories: string[]; scrapCategories: string[]; scrapSubCategories: string[]; pincodes: string[] };
   viewMode: ViewMode;
   selectedIds: Set<string>;
   selectAllPages: boolean;
 
   fetchRecords: (page?: number) => Promise<void>;
-  fetchFilterOptions: () => Promise<void>;
+  fetchFilterOptions: (scrapCategories?: string[]) => Promise<void>;
   setFilters: (filters: Partial<ScrapDbFilters>) => void;
   clearFilters: () => void;
   setViewMode: (mode: ViewMode) => void;
@@ -47,12 +57,22 @@ interface ScrapDatabaseStore {
 function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
   const params: Record<string, string> = {};
   if (filters.search) params.search = filters.search;
-  if (filters.category) params.category = filters.category;
-  if (filters.pincode) params.pincode = filters.pincode;
+  if (filters.category?.length) params.category = filters.category.join(',');
+  if (filters.scrapCategory?.length) params.scrapCategory = filters.scrapCategory.join(',');
+  if (filters.scrapSubCategory?.length) params.scrapSubCategory = filters.scrapSubCategory.join(',');
+  if (filters.pincode?.length) params.pincode = filters.pincode.join(',');
   if (filters.missingPhone) params.missingPhone = 'true';
   if (filters.missingAddress) params.missingAddress = 'true';
   if (filters.missingWebsite) params.missingWebsite = 'true';
   if (filters.missingEmail) params.missingEmail = 'true';
+  if (filters.hasPhone) params.hasPhone = 'true';
+  if (filters.hasAddress) params.hasAddress = 'true';
+  if (filters.hasWebsite) params.hasWebsite = 'true';
+  if (filters.hasEmail) params.hasEmail = 'true';
+  if (filters.minRating != null) params.minRating = String(filters.minRating);
+  if (filters.maxRating != null) params.maxRating = String(filters.maxRating);
+  if (filters.minReviews != null) params.minReviews = String(filters.minReviews);
+  if (filters.maxReviews != null) params.maxReviews = String(filters.maxReviews);
   return params;
 }
 
@@ -63,7 +83,7 @@ export const useScrapDatabaseStore = create<ScrapDatabaseStore>((set, get) => ({
   limit: 25,
   loading: false,
   filters: {},
-  filterOptions: { categories: [], pincodes: [] },
+  filterOptions: { categories: [], scrapCategories: [], scrapSubCategories: [], pincodes: [] },
   viewMode: 'table',
   selectedIds: new Set(),
   selectAllPages: false,
@@ -80,9 +100,11 @@ export const useScrapDatabaseStore = create<ScrapDatabaseStore>((set, get) => ({
     }
   },
 
-  fetchFilterOptions: async () => {
+  fetchFilterOptions: async (scrapCategories?: string[]) => {
     try {
-      const res = await api.get('/api/admin/scrap-database/filters');
+      const params: Record<string, string> = {};
+      if (scrapCategories?.length) params.scrapCategory = scrapCategories.join(',');
+      const res = await api.get('/api/admin/scrap-database/filters', { params });
       set({ filterOptions: res.data });
     } catch {
       /* noop */
@@ -125,14 +147,7 @@ export const useScrapDatabaseStore = create<ScrapDatabaseStore>((set, get) => ({
 
   softDeleteAllFiltered: async () => {
     const { filters, fetchRecords } = get();
-    const body: Record<string, unknown> = {};
-    if (filters.search) body.search = filters.search;
-    if (filters.category) body.category = filters.category;
-    if (filters.pincode) body.pincode = filters.pincode;
-    if (filters.missingPhone) body.missingPhone = true;
-    if (filters.missingAddress) body.missingAddress = true;
-    if (filters.missingWebsite) body.missingWebsite = true;
-    if (filters.missingEmail) body.missingEmail = true;
+    const body: Record<string, unknown> = filtersToParams(filters);
     const res = await api.patch('/api/admin/scrap-database/soft-delete-filter', body);
     set({ selectedIds: new Set(), selectAllPages: false });
     await fetchRecords(1);
