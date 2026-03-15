@@ -51,9 +51,9 @@ function print(...args) {
   }
 }
 
-// ── CPU throttle — only start if CPU < 75% ───────────────────────────────────
+// ── CPU throttle — only start if CPU < 90% ───────────────────────────────────
 
-const CPU_LIMIT = 75;
+const CPU_LIMIT = 90;
 
 function cpuBar(percent) {
   const width = 20;
