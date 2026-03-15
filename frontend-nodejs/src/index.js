@@ -51,9 +51,9 @@ function print(...args) {
   }
 }
 
-// ── CPU throttle — only start if CPU < 90% ───────────────────────────────────
+// ── CPU throttle — only start if CPU < 75% ───────────────────────────────────
 
-const CPU_LIMIT = 90;
+const CPU_LIMIT = 75;
 
 function cpuBar(percent) {
   const width = 20;
@@ -65,24 +65,20 @@ function cpuBar(percent) {
   return chalk.green(bar);
 }
 
-const CPU_MAX_WAIT_MS = 120_000;  // max 2 min wait, then proceed anyway
-
 async function waitForCpu(tag) {
   let stats = await getSystemStats();
-  if (stats.cpuUsed < CPU_LIMIT) return;
+  if (stats.cpuUsed < CPU_LIMIT) {
+    print(chalk.green(`  ${tag ? tag + ' ' : ''}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% — OK`));
+    return;
+  }
 
   const label = tag ? `${tag} ` : '';
   print(chalk.yellow(
-    `  ${label}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% ≥ ${CPU_LIMIT}% — waiting (max 2m)…`
+    `  ${label}CPU ${cpuBar(stats.cpuUsed)} ${stats.cpuUsed}% ≥ ${CPU_LIMIT}% — waiting…`
   ));
 
-  const deadline = Date.now() + CPU_MAX_WAIT_MS;
   let dots = 0;
   while (stats.cpuUsed >= CPU_LIMIT) {
-    if (Date.now() >= deadline) {
-      print(chalk.yellow(`  ${label}CPU still ${stats.cpuUsed}% — timeout, proceeding anyway`));
-      return;
-    }
     await sleep(1500);
     stats = await getSystemStats();
     dots = (dots + 1) % 4;
@@ -541,13 +537,8 @@ async function main() {
       }
     }
 
-    for (let pIdx = 0; pIdx < pincodes.length; pIdx++) {
-      const pincodeInfo = pincodes[pIdx];
-      flushSkipped();
-      print(chalk.bold.cyan(`\n  ${tag} Pincode ${pIdx + 1}/${pincodes.length}: ${pincodeInfo.Pincode} (${pincodeInfo.District})`));
-
+    for (const pincodeInfo of pincodes) {
       for (let round = 1; round <= 3; round++) {
-        print(chalk.cyan(`  ${tag} Round ${round}/3`));
         for (const niche of niches) {
 
           if (!pincodeInfo.Pincode || !niche.SubCategory || !niche.Category) continue;
