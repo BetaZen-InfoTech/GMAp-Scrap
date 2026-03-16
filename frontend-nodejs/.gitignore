@@ -1,11 +1,6 @@
 # ── Dependencies ──────────────────────────────────────────────
 node_modules/
 
-# ── Build output ─────────────────────────────────────────────
-dist/
-dist-electron/
-release/
-
 # ── Environment files ────────────────────────────────────────
 .env
 !.env.local
@@ -13,10 +8,9 @@ release/
 !.env.prod
 !.env.example
 
-# ── Vite ─────────────────────────────────────────────────────
-*.local
-!.env.local
-
 # ── Logs ─────────────────────────────────────────────────────
 *.log
 npm-debug.log*
+
+# ── Excel output ─────────────────────────────────────────────
+excel/

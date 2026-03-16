@@ -1,10 +1,17 @@
-# Dependencies
+# ── Dependencies ──────────────────────────────────────────────
 node_modules/
 
-# Environment files (contain secrets)
+# ── Environment files ────────────────────────────────────────
 .env
+!.env.local
+!.env.dev
+!.env.prod
 !.env.example
 
-# Logs
+# ── Logs ─────────────────────────────────────────────────────
 *.log
 npm-debug.log*
+
+# ── Upload folders ───────────────────────────────────────────
+uploads/
+upload/

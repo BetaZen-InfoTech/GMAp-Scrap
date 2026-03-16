@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite build:*)",
+      "Bash(timeout 20 npx vite:*)",
+      "Bash(git status:*)",
+      "Bash(git push:*)",
+      "Bash(npm run dev:*)",
+      "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/node_modules/electron/dist/electron.exe\" \"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/dist-electron/main/index.js\")",
+      "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/node_modules/electron/dist/electron.exe\" -e \"const e = require\\(''electron''\\); console.log\\(''keys:'', Object.keys\\(e\\)\\); console.log\\(''app:'', typeof e.app\\); process.exit\\(0\\)\")",
+      "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend/node_modules/electron/dist/electron.exe\" -e \"console.log\\(''app type:'', typeof require\\(''electron''\\).app\\)\")",
+      "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/node_modules/.bin/electron\" \"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/_test_electron.js\")",
+      "Bash(npx electron:*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\sayan\\Project\\BetaZen-InfoTech\\BetaZen-G-Map-Scrap\\backend\\src"
+    ]
+  }
+}

@@ -1,18 +1,22 @@
-# Dependencies
+# ── Dependencies ──────────────────────────────────────────────
 node_modules/
 
-# Build output
+# ── Build output ─────────────────────────────────────────────
 dist/
 dist-electron/
 release/
 
-# Environment files (contain secrets)
+# ── Environment files ────────────────────────────────────────
 .env
+!.env.local
+!.env.dev
+!.env.prod
 !.env.example
 
-# Vite
+# ── Vite ─────────────────────────────────────────────────────
 *.local
+!.env.local
 
-# Logs
+# ── Logs ─────────────────────────────────────────────────────
 *.log
 npm-debug.log*
