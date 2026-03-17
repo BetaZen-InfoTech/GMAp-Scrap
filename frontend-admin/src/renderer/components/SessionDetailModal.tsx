@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { SessionStatsRecord } from '../../shared/types';
+import SessionRecordsModal from './SessionRecordsModal';
 
 function formatDuration(ms?: number): string {
   if (!ms) return '—';
@@ -52,6 +53,8 @@ interface Props {
 }
 
 const SessionDetailModal: React.FC<Props> = ({ session: s, onClose }) => {
+  const [showRecords, setShowRecords] = useState(false);
+
   // Close on backdrop click
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose();
@@ -138,16 +141,26 @@ const SessionDetailModal: React.FC<Props> = ({ session: s, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-800">
+        <div className="px-5 py-3 border-t border-slate-800 flex gap-2">
+          <button
+            onClick={() => setShowRecords(true)}
+            className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+          >
+            View Records
+          </button>
           <button
             onClick={onClose}
-            className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+            className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
           >
             Close
           </button>
         </div>
 
       </div>
+
+      {showRecords && (
+        <SessionRecordsModal session={s} onClose={() => setShowRecords(false)} />
+      )}
     </div>
   );
 };

@@ -854,4 +854,21 @@ router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/sessions/:sessionId/records ──
+router.get('/sessions/:sessionId/records', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { page = 1, limit = 100 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+    const [data, total] = await Promise.all([
+      ScrapedData.find({ sessionId }).sort({ createdAt: 1 }).skip(skip).limit(Number(limit)).lean(),
+      ScrapedData.countDocuments({ sessionId }),
+    ]);
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/sessions/:sessionId/records] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;
