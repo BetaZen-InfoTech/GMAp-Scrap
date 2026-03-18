@@ -5,6 +5,12 @@ import type { ScrapedDataRecord } from '../../shared/types';
 export type DuplicatesTab = 'flagged' | 'archive';
 
 interface AnalyzeResult {
+  flaggedCount: number;
+  mainTotal: number;
+  archiveTotal: number;
+}
+
+interface DeleteResult {
   movedCount: number;
   groupCount: number;
   flagsUpdated: number;
@@ -32,7 +38,11 @@ interface DuplicatesStore {
 
   // Delete by phone+name+address
   deleting: boolean;
-  deleteResult: AnalyzeResult | null;
+  deleteResult: DeleteResult | null;
+
+  // Restore all from archive
+  restoring: boolean;
+  restoreResult: { restoredCount: number } | null;
 
   // Active tab
   activeTab: DuplicatesTab;
@@ -47,6 +57,8 @@ interface DuplicatesStore {
   clearAnalyzeResult: () => void;
   runDeleteByPNA: () => Promise<void>;
   clearDeleteResult: () => void;
+  runRestoreAll: () => Promise<void>;
+  clearRestoreResult: () => void;
 }
 
 export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
@@ -68,6 +80,9 @@ export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
 
   deleting: false,
   deleteResult: null,
+
+  restoring: false,
+  restoreResult: null,
 
   activeTab: 'flagged',
 
@@ -130,4 +145,18 @@ export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
   },
 
   clearDeleteResult: () => set({ deleteResult: null }),
+
+  runRestoreAll: async () => {
+    set({ restoring: true, restoreResult: null });
+    try {
+      const res = await api.post('/api/admin/duplicates/restore-all');
+      set({ restoreResult: res.data, restoring: false });
+      const { fetchRecords, fetchArchive } = get();
+      await Promise.all([fetchRecords(1), fetchArchive(1)]);
+    } catch {
+      set({ restoring: false });
+    }
+  },
+
+  clearRestoreResult: () => set({ restoreResult: null }),
 }));

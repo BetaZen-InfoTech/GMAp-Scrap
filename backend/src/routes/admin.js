@@ -1012,98 +1012,17 @@ router.get('/duplicates', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/analyze ──
-// Finds records where name + phone + website + address all match (exact duplicates).
-// Keeps the OLDEST record in Scraped-Data (isDuplicate set to false),
-// moves 2nd+ duplicates to Scraped-Data-Duplicate and removes them from Scraped-Data.
-// After moving, re-checks ALL isDuplicate flags in Scraped-Data.
+// Read-only: returns collection counts and flagged duplicate count.
+// Does NOT move or modify any records.
 router.post('/duplicates/analyze', async (req, res) => {
   try {
-    // Group by name + phone + website + address — only non-empty values
-    const pipeline = [
-      {
-        $match: {
-          isDeleted: { $ne: true },
-          name: { $nin: [null, ''] },
-          phone: { $nin: [null, ''] },
-          website: { $nin: [null, ''] },
-          address: { $nin: [null, ''] },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            name: '$name',
-            phone: '$phone',
-            website: '$website',
-            address: '$address',
-          },
-          // Push objects with _id + createdAt so we can sort and keep the oldest
-          docs: { $push: { id: '$_id', createdAt: '$createdAt' } },
-          count: { $sum: 1 },
-        },
-      },
-      { $match: { count: { $gte: 2 } } },
-    ];
+    const [flaggedCount, mainTotal, archiveTotal] = await Promise.all([
+      ScrapedData.countDocuments({ isDuplicate: true }),
+      ScrapedData.countDocuments({}),
+      ScrapedDataDuplicate.countDocuments({}),
+    ]);
 
-    const groups = await ScrapedData.aggregate(pipeline);
-
-    if (groups.length === 0) {
-      // No exact duplicates found — still re-check all isDuplicate flags
-      await recheckAllDuplicateFlags();
-      return res.json({ success: true, movedCount: 0, groupCount: 0 });
-    }
-
-    // For each group: sort by createdAt ASC, keep first (oldest), move the rest
-    const keepIds = [];      // IDs to keep in Scraped-Data (set isDuplicate: false)
-    const moveIds = [];      // IDs to move to Scraped-Data-Duplicate
-
-    for (const group of groups) {
-      // Sort ascending by createdAt — oldest first
-      const sorted = group.docs.slice().sort((a, b) => {
-        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
-      });
-      keepIds.push(sorted[0].id);
-      for (let i = 1; i < sorted.length; i++) {
-        moveIds.push(sorted[i].id);
-      }
-    }
-
-    // Fetch full records to move
-    const recordsToMove = await ScrapedData.find({ _id: { $in: moveIds } }).lean();
-
-    let movedCount = 0;
-    if (recordsToMove.length > 0) {
-      const now = new Date();
-      const dupDocs = recordsToMove.map((r) => {
-        const { _id, __v, ...rest } = r;
-        return { ...rest, originalId: String(_id), movedAt: now };
-      });
-
-      // Insert into Scraped-Data-Duplicate
-      await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
-
-      // Remove moved records from Scraped-Data
-      const deleteResult = await ScrapedData.deleteMany({ _id: { $in: moveIds } });
-      movedCount = deleteResult.deletedCount;
-    }
-
-    // Mark kept records as not duplicate
-    if (keepIds.length > 0) {
-      await ScrapedData.updateMany(
-        { _id: { $in: keepIds } },
-        { $set: { isDuplicate: false } }
-      );
-    }
-
-    // Re-check ALL isDuplicate flags across the entire Scraped-Data collection
-    const flagsUpdated = await recheckAllDuplicateFlags();
-
-    res.json({
-      success: true,
-      movedCount,
-      groupCount: groups.length,
-      flagsUpdated,
-    });
+    res.json({ success: true, flaggedCount, mainTotal, archiveTotal });
   } catch (err) {
     console.error('[admin/duplicates/analyze] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -1111,11 +1030,15 @@ router.post('/duplicates/analyze', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/delete-phone-name-address ──
-// Finds records where phone + name + address all match (case-insensitive, trimmed).
-// Keeps the OLDEST record in Scraped-Data, moves 2nd+ duplicates to Scraped-Data-Duplicate.
+// Step 1: Unset isDuplicate field from ALL records in Scraped-Data.
+// Step 2: Finds records where phone + name + address all match (case-insensitive, trimmed).
+//         Keeps the OLDEST record in Scraped-Data, moves 2nd+ duplicates to Scraped-Data-Duplicate.
 // After moving, re-checks ALL isDuplicate flags in Scraped-Data.
 router.post('/duplicates/delete-phone-name-address', async (req, res) => {
   try {
+    // Step 1: Clear isDuplicate flag from all records before deduplication
+    await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
+
     const groups = await ScrapedData.aggregate([
       {
         $match: {
@@ -1264,6 +1187,37 @@ router.get('/duplicates/archive', async (req, res) => {
     res.json({ data, total, page: Number(page), limit: Number(limit) });
   } catch (err) {
     console.error('[admin/duplicates/archive] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/admin/duplicates/restore-all ──
+// Moves ALL records from Scraped-Data-Duplicate back to Scraped-Data.
+// Strips only: _id, __v, movedAt, originalId — no extra flags added.
+// Processes in batches of 500 to handle large archives.
+router.post('/duplicates/restore-all', async (req, res) => {
+  try {
+    const BATCH = 500;
+    let restoredCount = 0;
+
+    while (true) {
+      const batch = await ScrapedDataDuplicate.find({}).limit(BATCH).lean();
+      if (batch.length === 0) break;
+
+      const batchIds = batch.map((r) => r._id);
+      const cleanDocs = batch.map((r) => {
+        const { _id, __v, movedAt, originalId, ...rest } = r;
+        return rest;
+      });
+
+      await ScrapedData.insertMany(cleanDocs, { ordered: false });
+      await ScrapedDataDuplicate.deleteMany({ _id: { $in: batchIds } });
+      restoredCount += batch.length;
+    }
+
+    res.json({ success: true, restoredCount });
+  } catch (err) {
+    console.error('[admin/duplicates/restore-all] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

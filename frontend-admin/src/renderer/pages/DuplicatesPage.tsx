@@ -95,15 +95,18 @@ const DuplicatesPage: React.FC = () => {
   const {
     records, total, page, limit, loading, search,
     archiveRecords, archiveTotal, archivePage, archiveLoading, archiveSearch,
-    analyzing, analyzeResult, deleting, deleteResult, activeTab,
+    analyzing, analyzeResult, deleting, deleteResult,
+    restoring, restoreResult, activeTab,
     fetchRecords, fetchArchive,
     setSearch, setArchiveSearch, setLimit, setTab,
     runAnalysis, clearAnalyzeResult,
     runDeleteByPNA, clearDeleteResult,
+    runRestoreAll, clearRestoreResult,
   } = useDuplicatesStore();
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [archiveSearchInput, setArchiveSearchInput] = useState('');
 
@@ -132,6 +135,11 @@ const DuplicatesPage: React.FC = () => {
     await runDeleteByPNA();
   };
 
+  const handleRestoreConfirm = async () => {
+    setShowRestoreConfirm(false);
+    await runRestoreAll();
+  };
+
   return (
     <div className="p-6 space-y-6 min-h-0">
 
@@ -151,10 +159,34 @@ const DuplicatesPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Restore All button */}
+          <button
+            onClick={() => setShowRestoreConfirm(true)}
+            disabled={restoring || deleting || analyzing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-900/30"
+          >
+            {restoring ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Restoring...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Restore All
+              </>
+            )}
+          </button>
+
           {/* Delete by Phone+Name+Address button */}
           <button
             onClick={() => setShowDeleteConfirm(true)}
-            disabled={deleting || analyzing}
+            disabled={deleting || analyzing || restoring}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-red-900/30"
           >
             {deleting ? (
@@ -178,7 +210,7 @@ const DuplicatesPage: React.FC = () => {
           {/* Analyze button */}
           <button
             onClick={() => setShowConfirm(true)}
-            disabled={analyzing || deleting}
+            disabled={analyzing || deleting || restoring}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-orange-900/30"
           >
             {analyzing ? (
@@ -204,23 +236,45 @@ const DuplicatesPage: React.FC = () => {
 
       {/* Analysis result banner */}
       {analyzeResult && (
+        <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/30 rounded-xl px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <div>
+              <p className="text-sm text-blue-300 font-semibold">Analysis complete</p>
+              <p className="text-xs text-blue-400/70 mt-0.5">
+                <span className="font-mono">Scraped-Data</span>: <strong>{analyzeResult.mainTotal.toLocaleString()}</strong> total &mdash;{' '}
+                <strong>{analyzeResult.flaggedCount.toLocaleString()}</strong> flagged as duplicate
+                &emsp;|&emsp;
+                <span className="font-mono">Archive</span>: <strong>{analyzeResult.archiveTotal.toLocaleString()}</strong> records
+              </p>
+            </div>
+          </div>
+          <button onClick={clearAnalyzeResult} className="text-slate-500 hover:text-slate-300 transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Restore result banner */}
+      {restoreResult && (
         <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-5 py-3.5">
           <div className="flex items-center gap-3">
             <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-sm text-emerald-300 font-semibold">Analysis complete</p>
+              <p className="text-sm text-emerald-300 font-semibold">Restore complete</p>
               <p className="text-xs text-emerald-400/70 mt-0.5">
-                Found <strong>{analyzeResult.groupCount}</strong> duplicate groups &mdash; moved{' '}
-                <strong>{analyzeResult.movedCount}</strong> records to <span className="font-mono">Scraped-Data-Duplicate</span>
-                {analyzeResult.flagsUpdated > 0 && (
-                  <> &mdash; updated <strong>{analyzeResult.flagsUpdated}</strong> <span className="font-mono">isDuplicate</span> flags</>
-                )}
+                Restored <strong>{restoreResult.restoredCount.toLocaleString()}</strong> records back to{' '}
+                <span className="font-mono">Scraped-Data</span>. Archive is now empty.
               </p>
             </div>
           </div>
-          <button onClick={clearAnalyzeResult} className="text-slate-500 hover:text-slate-300 transition-colors">
+          <button onClick={clearRestoreResult} className="text-slate-500 hover:text-slate-300 transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -451,12 +505,15 @@ const DuplicatesPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-white">Delete Duplicates by Phone + Name + Address?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  Finds records where <strong className="text-slate-200">phone + name + address</strong> all match (case-insensitive).
-                  The <strong className="text-slate-200">oldest record</strong> is kept in{' '}
+                  <strong className="text-slate-200">Step 1:</strong> Clears the{' '}
+                  <span className="font-mono text-slate-300">isDuplicate</span> field from all records.
+                  <br />
+                  <strong className="text-slate-200">Step 2:</strong> Finds records where{' '}
+                  <strong className="text-slate-200">phone + name + address</strong> all match (case-insensitive).
+                  The <strong className="text-slate-200">oldest record</strong> stays in{' '}
                   <span className="font-mono text-slate-300">Scraped-Data</span>; all others are{' '}
                   <strong className="text-red-300">moved</strong> to{' '}
                   <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span>.
-                  Afterwards, all <span className="font-mono text-slate-300">isDuplicate</span> flags are re-evaluated.
                 </p>
                 <p className="text-xs text-slate-500 mt-2">This action cannot be undone.</p>
               </div>
@@ -479,6 +536,47 @@ const DuplicatesPage: React.FC = () => {
         </div>
       )}
 
+      {/* Restore All confirm modal */}
+      {showRestoreConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white">Restore All from Archive?</h2>
+                <p className="text-sm text-slate-400 mt-1 leading-relaxed">
+                  Moves <strong className="text-slate-200">all records</strong> from{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span> back to{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data</span>.
+                  Archive-specific fields (<span className="font-mono text-slate-300">movedAt</span>,{' '}
+                  <span className="font-mono text-slate-300">originalId</span>) are stripped.
+                  No extra flags are added.
+                </p>
+                <p className="text-xs text-slate-500 mt-2">The archive will be empty after this operation.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowRestoreConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRestoreConfirm}
+                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+              >
+                Yes, Restore All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirm modal */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -492,14 +590,10 @@ const DuplicatesPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-white">Run Duplicate Analysis?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  Finds records where <strong className="text-slate-200">name + phone + website + address</strong> all match.
-                  The <strong className="text-slate-200">oldest record</strong> is kept in{' '}
-                  <span className="font-mono text-slate-300">Scraped-Data</span>; all others are{' '}
-                  <strong className="text-orange-300">moved</strong> to{' '}
-                  <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span>.
-                  Afterwards, all <span className="font-mono text-slate-300">isDuplicate</span> flags are re-evaluated.
+                  Counts records in <span className="font-mono text-slate-300">Scraped-Data</span> (total + flagged as duplicate)
+                  and in <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span> (archive).
+                  <strong className="text-slate-200"> No records are moved or deleted.</strong> This is a read-only operation.
                 </p>
-                <p className="text-xs text-slate-500 mt-2">This action cannot be undone.</p>
               </div>
             </div>
             <div className="flex gap-3 justify-end">
@@ -513,7 +607,7 @@ const DuplicatesPage: React.FC = () => {
                 onClick={handleAnalyzeConfirm}
                 className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition-colors"
               >
-                Yes, Analyze & Move
+                Run Analysis
               </button>
             </div>
           </div>
