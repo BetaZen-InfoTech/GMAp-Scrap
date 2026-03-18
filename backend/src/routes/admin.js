@@ -1140,9 +1140,26 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
       { $match: { count: { $gte: 2 } } },
     ], { allowDiskUse: true });
 
+    const BATCH = 500;
+    const now = new Date();
+
     if (groups.length === 0) {
       const flagsUpdated = await recheckAllDuplicateFlags();
-      return res.json({ success: true, movedCount: 0, groupCount: 0, flagsUpdated });
+      // Still delete isDuplicate:true records
+      let isDupMovedCount = 0;
+      const isDupIds = await ScrapedData.find({ isDuplicate: true, isDeleted: { $ne: true } }, { _id: 1 }).lean();
+      const isDupIdList = isDupIds.map((r) => r._id);
+      for (let i = 0; i < isDupIdList.length; i += BATCH) {
+        const batchIds = isDupIdList.slice(i, i + BATCH);
+        const recordsToMove = await ScrapedData.find({ _id: { $in: batchIds } }).lean();
+        if (recordsToMove.length > 0) {
+          const dupDocs = recordsToMove.map((r) => { const { _id, __v, ...rest } = r; return { ...rest, originalId: String(_id), movedAt: now }; });
+          await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
+          const del = await ScrapedData.deleteMany({ _id: { $in: batchIds } });
+          isDupMovedCount += del.deletedCount;
+        }
+      }
+      return res.json({ success: true, movedCount: 0, groupCount: 0, flagsUpdated, isDupMovedCount });
     }
 
     const keepIds = [];
@@ -1155,9 +1172,7 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
     }
 
     // Fetch full records in batches and archive to Scraped-Data-Duplicate
-    const BATCH = 500;
     let movedCount = 0;
-    const now = new Date();
 
     for (let i = 0; i < moveIds.length; i += BATCH) {
       const batchIds = moveIds.slice(i, i + BATCH);
@@ -1180,7 +1195,32 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
 
     const flagsUpdated = await recheckAllDuplicateFlags();
 
-    res.json({ success: true, movedCount, groupCount: groups.length, flagsUpdated });
+    // Step 2: Delete all remaining isDuplicate:true records and archive them
+    let isDupMovedCount = 0;
+    const isDupIds = await ScrapedData.find({ isDuplicate: true, isDeleted: { $ne: true } }, { _id: 1 }).lean();
+    const isDupIdList = isDupIds.map((r) => r._id);
+
+    for (let i = 0; i < isDupIdList.length; i += BATCH) {
+      const batchIds = isDupIdList.slice(i, i + BATCH);
+      const recordsToMove = await ScrapedData.find({ _id: { $in: batchIds } }).lean();
+      if (recordsToMove.length > 0) {
+        const dupDocs = recordsToMove.map((r) => {
+          const { _id, __v, ...rest } = r;
+          return { ...rest, originalId: String(_id), movedAt: now };
+        });
+        await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
+        const del = await ScrapedData.deleteMany({ _id: { $in: batchIds } });
+        isDupMovedCount += del.deletedCount;
+      }
+    }
+
+    res.json({
+      success: true,
+      movedCount,
+      groupCount: groups.length,
+      flagsUpdated,
+      isDupMovedCount,
+    });
   } catch (err) {
     console.error('[admin/duplicates/delete-phone-name-address] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
