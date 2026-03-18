@@ -161,7 +161,6 @@ export interface ScrapedDataRecord {
   scrapRound?: number;
   scrapedAt?: string;
   isDuplicate?: boolean;
-  isDeleted?: boolean;
   scrapFrom?: string;
   scrapWebsite?: boolean;
   createdAt?: string;

@@ -8,6 +8,7 @@ const SessionStats = require('../models/SessionStats');
 const ScrapeTracking = require('../models/ScrapeTracking');
 const ScrapedData = require('../models/ScrapedData');
 const ScrapedDataDuplicate = require('../models/ScrapedDataDuplicate');
+const ScrapedDataDeleted = require('../models/ScrapedDataDeleted');
 const PincodeStatus = require('../models/PincodeStatus');
 const BusinessNiche = require('../models/BusinessNiche');
 const PinCode = require('../models/PinCode');
@@ -418,7 +419,7 @@ router.get('/categories/:category/subcategories', async (req, res) => {
     const { category } = req.params;
 
     const pipeline = [
-      { $match: { category, isDeleted: { $ne: true } } },
+      { $match: { category } },
       {
         $group: {
           _id: '$scrapSubCategory',
@@ -454,7 +455,7 @@ router.get('/categories/:category/records', async (req, res) => {
     const { page = 1, limit = 25, subCategory } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const filter = { category, isDeleted: { $ne: true } };
+    const filter = { category };
     if (subCategory) filter.scrapSubCategory = subCategory;
 
     const [data, total] = await Promise.all([
@@ -592,7 +593,7 @@ router.get('/pincodes', async (req, res) => {
     // Enrich with scraped data counts per pincode
     const pincodeValues = data.map((p) => String(p.Pincode));
     const scrapedCounts = await ScrapedData.aggregate([
-      { $match: { pincode: { $in: pincodeValues }, isDeleted: { $ne: true } } },
+      { $match: { pincode: { $in: pincodeValues } } },
       { $group: { _id: '$pincode', count: { $sum: 1 } } },
     ]);
     const countMap = {};
@@ -621,7 +622,6 @@ router.get('/scraped-pincodes', async (req, res) => {
 
     const matchStage = {
       pincode: { $ne: null, $exists: true, $ne: '' },
-      isDeleted: { $ne: true },
     };
 
     const pipeline = [
@@ -724,7 +724,7 @@ function buildScrapDbFilter(params) {
     minRating, maxRating, minReviews, maxReviews,
     scrapWebsite, scrapFrom,
   } = params;
-  const filter = { isDeleted: { $ne: true } };
+  const filter = {};
 
   if (search) {
     filter.$or = [
@@ -791,7 +791,7 @@ function buildScrapDbFilter(params) {
 router.get('/scrap-database/filters', async (req, res) => {
   try {
     const { scrapCategory } = req.query;
-    const baseFilter = { isDeleted: { $ne: true } };
+    const baseFilter = {};
     let subCatFilter;
     if (scrapCategory) {
       const arr = scrapCategory.split(',').map((s) => s.trim()).filter(Boolean);
@@ -907,17 +907,32 @@ router.get('/scrap-database', async (req, res) => {
 });
 
 // ── PATCH /api/admin/scrap-database/soft-delete ──
+// Hard deletes: moves records to Scraped-Data-Deleted, then removes from Scraped-Data.
 router.patch('/scrap-database/soft-delete', async (req, res) => {
   try {
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids array required' });
     }
-    const result = await ScrapedData.updateMany(
-      { _id: { $in: ids } },
-      { $set: { isDeleted: true } }
-    );
-    res.json({ success: true, modifiedCount: result.modifiedCount });
+    const BATCH = 500;
+    const deletedAt = new Date();
+    let deletedCount = 0;
+
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batchIds = ids.slice(i, i + BATCH);
+      const records = await ScrapedData.find({ _id: { $in: batchIds } }).lean();
+      if (records.length > 0) {
+        const archivedDocs = records.map((r) => {
+          const { _id, __v, isDeleted, ...rest } = r;
+          return { ...rest, originalId: String(_id), deletedAt };
+        });
+        await ScrapedDataDeleted.insertMany(archivedDocs, { ordered: false });
+        await ScrapedData.deleteMany({ _id: { $in: batchIds } });
+        deletedCount += records.length;
+      }
+    }
+
+    res.json({ success: true, deletedCount });
   } catch (err) {
     console.error('[admin/scrap-database/soft-delete] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -925,11 +940,28 @@ router.patch('/scrap-database/soft-delete', async (req, res) => {
 });
 
 // ── PATCH /api/admin/scrap-database/soft-delete-filter ──
+// Hard deletes: moves all records matching filter to Scraped-Data-Deleted.
 router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
   try {
     const filter = buildScrapDbFilter(req.body);
-    const result = await ScrapedData.updateMany(filter, { $set: { isDeleted: true } });
-    res.json({ success: true, modifiedCount: result.modifiedCount });
+    const BATCH = 500;
+    const deletedAt = new Date();
+    let deletedCount = 0;
+
+    while (true) {
+      const records = await ScrapedData.find(filter).limit(BATCH).lean();
+      if (records.length === 0) break;
+      const batchIds = records.map((r) => r._id);
+      const archivedDocs = records.map((r) => {
+        const { _id, __v, isDeleted, ...rest } = r;
+        return { ...rest, originalId: String(_id), deletedAt };
+      });
+      await ScrapedDataDeleted.insertMany(archivedDocs, { ordered: false });
+      await ScrapedData.deleteMany({ _id: { $in: batchIds } });
+      deletedCount += records.length;
+    }
+
+    res.json({ success: true, deletedCount });
   } catch (err) {
     console.error('[admin/scrap-database/soft-delete-filter] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -963,7 +995,7 @@ router.post('/scrap-database/from-website', async (req, res) => {
       return res.status(400).json({ error: 'records array required' });
     }
 
-    const docs = records.map((r) => ({ ...r, scrapFrom: 'website', isDuplicate: false, isDeleted: false }));
+    const docs = records.map((r) => ({ ...r, scrapFrom: 'website' }));
     const inserted = await ScrapedData.insertMany(docs, { ordered: false });
 
     // Mark source record as website-scraped
@@ -989,7 +1021,7 @@ router.get('/duplicates', async (req, res) => {
     const { page = 1, limit = 25, search } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const filter = { isDuplicate: true, isDeleted: { $ne: true } };
+    const filter = { isDuplicate: true };
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -1042,7 +1074,6 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
     const groups = await ScrapedData.aggregate([
       {
         $match: {
-          isDeleted: { $ne: true },
           phone:   { $nin: [null, ''] },
           name:    { $nin: [null, ''] },
           address: { $nin: [null, ''] },
@@ -1106,7 +1137,7 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
 async function recheckAllDuplicateFlags() {
   // Find all groups with count >= 2 by compound key
   const dupGroups = await ScrapedData.aggregate([
-    { $match: { isDeleted: { $ne: true } } },
+    { $match: {} },
     {
       $group: {
         _id: {
@@ -1127,7 +1158,7 @@ async function recheckAllDuplicateFlags() {
   const trueDupSet = new Set(trueDupIds.map(String));
 
   // Get all current ids
-  const allIds = (await ScrapedData.find({ isDeleted: { $ne: true } }, { _id: 1 }).lean())
+  const allIds = (await ScrapedData.find({}, { _id: 1 }).lean())
     .map((r) => r._id);
 
   const shouldBeFalse = allIds.filter((id) => !trueDupSet.has(String(id)));

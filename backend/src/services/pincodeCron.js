@@ -107,7 +107,6 @@ async function runPincodeStopCheck() {
   const activityAgg = await ScrapedData.aggregate([
     {
       $match: {
-        isDeleted: { $ne: true },
         pincode: { $exists: true, $nin: [null, ''] },
       },
     },
