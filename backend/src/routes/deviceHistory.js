@@ -3,6 +3,12 @@ const router = express.Router();
 const DeviceHistory = require('../models/DeviceHistory');
 const Device = require('../models/Device');
 
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || '';
+}
+
 // POST /api/device-history — receive batch of stat snapshots
 router.post('/', async (req, res) => {
   try {
@@ -25,6 +31,7 @@ router.post('/', async (req, res) => {
     const deviceUpdate = {
       lastSeenAt: new Date(),
       status: 'online',
+      ip: getClientIp(req),
     };
     if (latest) {
       deviceUpdate.latestStats = {

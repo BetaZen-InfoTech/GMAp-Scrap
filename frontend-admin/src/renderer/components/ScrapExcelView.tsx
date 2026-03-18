@@ -179,7 +179,7 @@ const ScrapExcelView: React.FC<ScrapExcelViewProps> = ({ records, selectedIds, o
                 if (val == null || val === '') {
                   display = '';
                 } else if (col.key === 'scrapedAt' && typeof val === 'string') {
-                  display = new Date(val).toLocaleDateString();
+                  display = new Date(val).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
                 } else {
                   display = String(val);
                 }

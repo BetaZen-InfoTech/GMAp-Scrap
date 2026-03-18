@@ -185,7 +185,32 @@ cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install && npx playwrig
 
 ---
 
-## 8. Monitor VPS resources
+## 8. Configure Firewall (UFW)
+
+Allow SSH and all other ports so the scraper can reach external APIs:
+
+```bash
+sudo apt-get install -y ufw
+
+# Allow SSH (port 22) — do this FIRST to avoid locking yourself out
+sudo ufw allow 22
+
+# Allow all other traffic (incoming + outgoing)
+sudo ufw default allow incoming
+sudo ufw default allow outgoing
+
+# Enable firewall
+sudo ufw enable
+
+# Verify status
+sudo ufw status verbose
+```
+
+> **Important:** Always run `sudo ufw allow 22` before `sudo ufw enable`, or you will lose SSH access.
+
+---
+
+## 9. Monitor VPS resources
 
 ### Live one-liner (CPU + RAM + Network speed + Total usage)
 

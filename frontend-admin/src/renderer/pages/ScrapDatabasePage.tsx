@@ -102,7 +102,7 @@ const ScrapDatabasePage: React.FC = () => {
   };
 
   const selectionCount = selectAllPages ? total : selectedIds.size;
-  const hasFilters = !!(filters.search || filters.category?.length || filters.scrapCategory?.length || filters.scrapSubCategory?.length || filters.pincode?.length || filters.missingPhone || filters.missingAddress || filters.missingWebsite || filters.missingEmail || filters.hasPhone || filters.hasAddress || filters.hasWebsite || filters.hasEmail || filters.minRating != null || filters.maxRating != null || filters.minReviews != null || filters.maxReviews != null);
+  const hasFilters = !!(filters.search || filters.category?.length || filters.scrapCategory?.length || filters.scrapSubCategory?.length || filters.pincode?.length || filters.missingPhone || filters.missingAddress || filters.missingWebsite || filters.missingEmail || filters.hasPhone || filters.hasAddress || filters.hasWebsite || filters.hasEmail || filters.minRating != null || filters.maxRating != null || filters.minReviews != null || filters.maxReviews != null || filters.scrapWebsite != null);
 
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
@@ -300,6 +300,25 @@ const ScrapDatabasePage: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Website scraped filter */}
+        <button
+          onClick={() => {
+            const next = filters.scrapWebsite === true ? false : filters.scrapWebsite === false ? undefined : true;
+            setFilters({ scrapWebsite: next });
+            setTimeout(() => fetchRecords(1), 0);
+          }}
+          className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all ${
+            filters.scrapWebsite === true
+              ? 'bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-700/60'
+              : filters.scrapWebsite === false
+              ? 'bg-orange-900/50 text-orange-300 ring-1 ring-orange-700/60'
+              : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-300'
+          }`}
+          title="Filter by website scrape status"
+        >
+          {filters.scrapWebsite === true ? 'Web Scraped' : filters.scrapWebsite === false ? 'Not Web Scraped' : 'Web Scrape'}
+        </button>
 
         {/* Page size */}
         <select

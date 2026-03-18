@@ -35,18 +35,18 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick }) => {
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="text-sm font-semibold text-white">
-            {device.nickname || device.hostname}
+            {device.nickname || device.ip || device.hostname}
           </h3>
           <p className="text-xs text-slate-500">
-            {device.nickname ? device.hostname + ' · ' : ''}{device.username} · {device.platform}
+            {device.ip ? device.ip + ' · ' : ''}{device.hostname} · {device.username}
           </p>
         </div>
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-          device.isActive
+          device.status === 'online'
             ? 'bg-green-500/20 text-green-400'
             : 'bg-red-500/20 text-red-400'
         }`}>
-          {device.isActive ? 'Active' : 'Inactive'}
+          {device.status === 'online' ? 'Online' : 'Offline'}
         </span>
       </div>
 

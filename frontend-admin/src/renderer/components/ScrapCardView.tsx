@@ -201,7 +201,7 @@ const ScrapCardView: React.FC<ScrapCardViewProps> = ({ records, selectedIds, onT
                 <div className="flex items-center gap-2">
                   {rec.scrapedAt && (
                     <span className="text-[9px] text-slate-500">
-                      {new Date(rec.scrapedAt).toLocaleDateString()}
+                      {new Date(rec.scrapedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                     </span>
                   )}
                   {rec.mapsUrl && (

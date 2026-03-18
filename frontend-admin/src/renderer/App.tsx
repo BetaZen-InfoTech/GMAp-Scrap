@@ -13,6 +13,9 @@ import CategoriesPage from './pages/CategoriesPage';
 import PincodeDetailsPage from './pages/PincodeDetailsPage';
 import ScrapedPincodesPage from './pages/ScrapedPincodesPage';
 import ScrapDatabasePage from './pages/ScrapDatabasePage';
+import DuplicatesPage from './pages/DuplicatesPage';
+import WebsiteScraperPage from './pages/WebsiteScraperPage';
+import JobsPage from './pages/JobsPage';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -83,6 +86,8 @@ const App: React.FC = () => {
         );
       case 'sessions':
         return <SessionsPage />;
+      case 'jobs':
+        return <JobsPage />;
       case 'categories':
         return <CategoriesPage />;
       case 'pincode-details':
@@ -91,6 +96,10 @@ const App: React.FC = () => {
         return <ScrapedPincodesPage />;
       case 'scrap-database':
         return <ScrapDatabasePage />;
+      case 'duplicates':
+        return <DuplicatesPage />;
+      case 'website-scraper':
+        return <WebsiteScraperPage />;
       default:
         return <DashboardPage />;
     }

@@ -7,6 +7,8 @@ const DeviceHistory = require('../models/DeviceHistory');
 const SessionStats = require('../models/SessionStats');
 const ScrapeTracking = require('../models/ScrapeTracking');
 const ScrapedData = require('../models/ScrapedData');
+const ScrapedDataDuplicate = require('../models/ScrapedDataDuplicate');
+const PincodeStatus = require('../models/PincodeStatus');
 const BusinessNiche = require('../models/BusinessNiche');
 const PinCode = require('../models/PinCode');
 const SearchStatus = require('../models/SearchStatus');
@@ -224,15 +226,47 @@ router.get('/sessions', async (req, res) => {
 });
 
 // ── GET /api/admin/jobs ──
-router.get('/jobs', async (req, res) => {
+router.get('/jobs', adminAuth, async (req, res) => {
   try {
-    const { deviceId, status } = req.query;
+    const { deviceId, status, page = 1, limit = 50 } = req.query;
     const filter = {};
     if (deviceId) filter.deviceId = deviceId;
     if (status) filter.status = status;
 
-    const jobs = await ScrapeTracking.find(filter).sort({ createdAt: -1 }).lean();
-    res.json(jobs);
+    const baseFilter = deviceId ? { deviceId } : {}; // for counts, ignore status filter
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const [jobs, total, statusAgg] = await Promise.all([
+      ScrapeTracking.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+      ScrapeTracking.countDocuments(filter),
+      // Always count all statuses (apply device filter but not status filter)
+      ScrapeTracking.aggregate([
+        { $match: baseFilter },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const statusCounts = { running: 0, paused: 0, completed: 0, stopped: 0, stop: 0 };
+    for (const s of statusAgg) {
+      if (s._id in statusCounts) statusCounts[s._id] = s.count;
+    }
+    // Merge old 'stopped' into 'stop' for display
+    statusCounts.stop += statusCounts.stopped;
+
+    // Attach device names
+    const deviceIds = [...new Set(jobs.map((j) => j.deviceId))];
+    const deviceDocs = await Device.find({ deviceId: { $in: deviceIds } })
+      .select('deviceId hostname nickname ip')
+      .lean();
+    const deviceMap = Object.fromEntries(
+      deviceDocs.map((d) => [d.deviceId, d.nickname || d.ip || d.hostname])
+    );
+    const enriched = jobs.map((j) => ({
+      ...j,
+      deviceName: deviceMap[j.deviceId] || j.deviceId,
+    }));
+
+    res.json({ data: enriched, total, page: Number(page), limit: Number(limit), statusCounts });
   } catch (err) {
     console.error('[admin/jobs] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -583,7 +617,7 @@ router.get('/pincodes', async (req, res) => {
 // ── GET /api/admin/scraped-pincodes ──
 router.get('/scraped-pincodes', async (req, res) => {
   try {
-    const { page = 1, limit = 50, search, state } = req.query;
+    const { page = 1, limit = 50, search, state, completionStatus } = req.query;
 
     const matchStage = {
       pincode: { $ne: null, $exists: true, $ne: '' },
@@ -622,8 +656,18 @@ router.get('/scraped-pincodes', async (req, res) => {
       if (!pincodeMap[p.Pincode]) pincodeMap[p.Pincode] = p;
     }
 
+    // Enrich with completion status from Pincode-Status collection
+    const pincodeStrings = aggregated.map((a) => String(a._id));
+    const statusDocs = await PincodeStatus.find(
+      { pincode: { $in: pincodeStrings } },
+      { pincode: 1, status: 1, completedRounds: 1, totalRounds: 1 }
+    ).lean();
+    const statusMap = {};
+    for (const s of statusDocs) statusMap[s.pincode] = s;
+
     let data = aggregated.map((a) => {
       const info = pincodeMap[Number(a._id)] || {};
+      const statusDoc = statusMap[String(a._id)] || {};
       return {
         pincode: a._id,
         district: info.District || '—',
@@ -634,6 +678,8 @@ router.get('/scraped-pincodes', async (req, res) => {
         subCategories: (a.subCategories || []).filter(Boolean),
         rounds: (a.rounds || []).filter((r) => r != null).sort(),
         devices: (a.devices || []).filter(Boolean),
+        completionStatus: statusDoc.status || 'running',
+        completedRounds: statusDoc.completedRounds || [],
       };
     });
 
@@ -654,6 +700,10 @@ router.get('/scraped-pincodes', async (req, res) => {
       }
       totalAgg = data.length;
     }
+    if (completionStatus && completionStatus !== 'all') {
+      data = data.filter((d) => d.completionStatus === completionStatus);
+      totalAgg = data.length;
+    }
 
     res.json({ data, total: totalAgg, page: Number(page), limit: Number(limit) });
   } catch (err) {
@@ -672,6 +722,7 @@ function buildScrapDbFilter(params) {
     missingPhone, missingAddress, missingWebsite, missingEmail,
     hasPhone, hasAddress, hasWebsite, hasEmail,
     minRating, maxRating, minReviews, maxReviews,
+    scrapWebsite, scrapFrom,
   } = params;
   const filter = { isDeleted: { $ne: true } };
 
@@ -725,6 +776,13 @@ function buildScrapDbFilter(params) {
     if (minReviews != null) filter.reviews.$gte = Number(minReviews);
     if (maxReviews != null) filter.reviews.$lte = Number(maxReviews);
   }
+
+  // scrapWebsite filter
+  if (scrapWebsite === 'true' || scrapWebsite === true) filter.scrapWebsite = true;
+  if (scrapWebsite === 'false' || scrapWebsite === false) filter.scrapWebsite = { $ne: true };
+
+  // scrapFrom filter
+  if (scrapFrom) filter.scrapFrom = scrapFrom;
 
   return filter;
 }
@@ -806,16 +864,40 @@ router.get('/scrap-database/export', async (req, res) => {
 // ── GET /api/admin/scrap-database ──
 router.get('/scrap-database', async (req, res) => {
   try {
-    const { page = 1, limit = 25, sortBy = 'createdAt', sortOrder = 'desc', ...filterParams } = req.query;
+    const { page = 1, limit = 25, sortBy = 'createdAt', sortOrder = 'desc', uniqueWebsite, ...filterParams } = req.query;
     const filter = buildScrapDbFilter(filterParams);
 
     const skip = (Number(page) - 1) * Number(limit);
     const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
-    const [data, total] = await Promise.all([
-      ScrapedData.find(filter).sort(sort).skip(skip).limit(Number(limit)).lean(),
-      ScrapedData.countDocuments(filter),
-    ]);
+    let data, total;
+
+    if (uniqueWebsite === 'true') {
+      // Deduplicate by website URL — one record per unique website
+      const [dataAgg, countAgg] = await Promise.all([
+        ScrapedData.aggregate([
+          { $match: { ...filter, website: { $nin: [null, ''] } } },
+          { $sort: sort },
+          { $group: { _id: '$website', doc: { $first: '$$ROOT' } } },
+          { $replaceRoot: { newRoot: '$doc' } },
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: Number(limit) },
+        ]),
+        ScrapedData.aggregate([
+          { $match: { ...filter, website: { $nin: [null, ''] } } },
+          { $group: { _id: '$website' } },
+          { $count: 'total' },
+        ]),
+      ]);
+      data = dataAgg;
+      total = countAgg[0]?.total || 0;
+    } else {
+      [data, total] = await Promise.all([
+        ScrapedData.find(filter).sort(sort).skip(skip).limit(Number(limit)).lean(),
+        ScrapedData.countDocuments(filter),
+      ]);
+    }
 
     res.json({ data, total, page: Number(page), limit: Number(limit) });
   } catch (err) {
@@ -854,6 +936,260 @@ router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
   }
 });
 
+// ── PATCH /api/admin/scrap-database/mark-website-scraped ──
+router.patch('/scrap-database/mark-website-scraped', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array required' });
+    }
+    const result = await ScrapedData.updateMany(
+      { _id: { $in: ids } },
+      { $set: { scrapWebsite: true } }
+    );
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error('[admin/scrap-database/mark-website-scraped] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/admin/scrap-database/from-website ──
+// Save new records scraped from a website (each with different phone, scrapFrom='website')
+router.post('/scrap-database/from-website', async (req, res) => {
+  try {
+    const { sourceId, records } = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: 'records array required' });
+    }
+
+    const docs = records.map((r) => ({ ...r, scrapFrom: 'website', isDuplicate: false, isDeleted: false }));
+    const inserted = await ScrapedData.insertMany(docs, { ordered: false });
+
+    // Mark source record as website-scraped
+    if (sourceId) {
+      await ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } });
+    }
+
+    res.status(201).json({ success: true, count: inserted.length });
+  } catch (err) {
+    console.error('[admin/scrap-database/from-website] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Page: Duplicates
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── GET /api/admin/duplicates ──
+// Returns paginated records with isDuplicate: true from Scraped-Data
+router.get('/duplicates', async (req, res) => {
+  try {
+    const { page = 1, limit = 25, search } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const filter = { isDuplicate: true, isDeleted: { $ne: true } };
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+        { website: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      ScrapedData.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+      ScrapedData.countDocuments(filter),
+    ]);
+
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/duplicates] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/admin/duplicates/analyze ──
+// Finds records where name + phone + website + address all match (exact duplicates).
+// Keeps the OLDEST record in Scraped-Data (isDuplicate set to false),
+// moves 2nd+ duplicates to Scraped-Data-Duplicate and removes them from Scraped-Data.
+// After moving, re-checks ALL isDuplicate flags in Scraped-Data.
+router.post('/duplicates/analyze', async (req, res) => {
+  try {
+    // Group by name + phone + website + address — only non-empty values
+    const pipeline = [
+      {
+        $match: {
+          isDeleted: { $ne: true },
+          name: { $nin: [null, ''] },
+          phone: { $nin: [null, ''] },
+          website: { $nin: [null, ''] },
+          address: { $nin: [null, ''] },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            name: '$name',
+            phone: '$phone',
+            website: '$website',
+            address: '$address',
+          },
+          // Push objects with _id + createdAt so we can sort and keep the oldest
+          docs: { $push: { id: '$_id', createdAt: '$createdAt' } },
+          count: { $sum: 1 },
+        },
+      },
+      { $match: { count: { $gte: 2 } } },
+    ];
+
+    const groups = await ScrapedData.aggregate(pipeline);
+
+    if (groups.length === 0) {
+      // No exact duplicates found — still re-check all isDuplicate flags
+      await recheckAllDuplicateFlags();
+      return res.json({ success: true, movedCount: 0, groupCount: 0 });
+    }
+
+    // For each group: sort by createdAt ASC, keep first (oldest), move the rest
+    const keepIds = [];      // IDs to keep in Scraped-Data (set isDuplicate: false)
+    const moveIds = [];      // IDs to move to Scraped-Data-Duplicate
+
+    for (const group of groups) {
+      // Sort ascending by createdAt — oldest first
+      const sorted = group.docs.slice().sort((a, b) => {
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      });
+      keepIds.push(sorted[0].id);
+      for (let i = 1; i < sorted.length; i++) {
+        moveIds.push(sorted[i].id);
+      }
+    }
+
+    // Fetch full records to move
+    const recordsToMove = await ScrapedData.find({ _id: { $in: moveIds } }).lean();
+
+    let movedCount = 0;
+    if (recordsToMove.length > 0) {
+      const now = new Date();
+      const dupDocs = recordsToMove.map((r) => {
+        const { _id, __v, ...rest } = r;
+        return { ...rest, originalId: String(_id), movedAt: now };
+      });
+
+      // Insert into Scraped-Data-Duplicate
+      await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
+
+      // Remove moved records from Scraped-Data
+      const deleteResult = await ScrapedData.deleteMany({ _id: { $in: moveIds } });
+      movedCount = deleteResult.deletedCount;
+    }
+
+    // Mark kept records as not duplicate
+    if (keepIds.length > 0) {
+      await ScrapedData.updateMany(
+        { _id: { $in: keepIds } },
+        { $set: { isDuplicate: false } }
+      );
+    }
+
+    // Re-check ALL isDuplicate flags across the entire Scraped-Data collection
+    const flagsUpdated = await recheckAllDuplicateFlags();
+
+    res.json({
+      success: true,
+      movedCount,
+      groupCount: groups.length,
+      flagsUpdated,
+    });
+  } catch (err) {
+    console.error('[admin/duplicates/analyze] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Helper: re-evaluate isDuplicate for all remaining records in Scraped-Data.
+// Uses the 5-field compound key: phone + rating + reviews + category + plusCode.
+// Sets isDuplicate: true if another record shares the same key, otherwise false.
+async function recheckAllDuplicateFlags() {
+  // Find all groups with count >= 2 by compound key
+  const dupGroups = await ScrapedData.aggregate([
+    { $match: { isDeleted: { $ne: true } } },
+    {
+      $group: {
+        _id: {
+          phone: '$phone',
+          rating: '$rating',
+          reviews: '$reviews',
+          category: '$category',
+          plusCode: '$plusCode',
+        },
+        ids: { $push: '$_id' },
+        count: { $sum: 1 },
+      },
+    },
+    { $match: { count: { $gte: 2 } } },
+  ]);
+
+  const trueDupIds = dupGroups.flatMap((g) => g.ids);
+  const trueDupSet = new Set(trueDupIds.map(String));
+
+  // Get all current ids
+  const allIds = (await ScrapedData.find({ isDeleted: { $ne: true } }, { _id: 1 }).lean())
+    .map((r) => r._id);
+
+  const shouldBeFalse = allIds.filter((id) => !trueDupSet.has(String(id)));
+  const shouldBeTrue = trueDupIds;
+
+  const [falseResult, trueResult] = await Promise.all([
+    shouldBeFalse.length > 0
+      ? ScrapedData.updateMany(
+          { _id: { $in: shouldBeFalse }, isDuplicate: { $ne: false } },
+          { $set: { isDuplicate: false } }
+        )
+      : { modifiedCount: 0 },
+    shouldBeTrue.length > 0
+      ? ScrapedData.updateMany(
+          { _id: { $in: shouldBeTrue }, isDuplicate: { $ne: true } },
+          { $set: { isDuplicate: true } }
+        )
+      : { modifiedCount: 0 },
+  ]);
+
+  return falseResult.modifiedCount + trueResult.modifiedCount;
+}
+
+// ── GET /api/admin/duplicates/archive ──
+// Returns paginated records from the Scraped-Data-Duplicate collection
+router.get('/duplicates/archive', async (req, res) => {
+  try {
+    const { page = 1, limit = 25, search } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const filter = {};
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+        { website: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      ScrapedDataDuplicate.find(filter).sort({ movedAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+      ScrapedDataDuplicate.countDocuments(filter),
+    ]);
+
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/duplicates/archive] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/admin/sessions/:sessionId/records ──
 router.get('/sessions/:sessionId/records', async (req, res) => {
   try {
@@ -868,6 +1204,36 @@ router.get('/sessions/:sessionId/records', async (req, res) => {
   } catch (err) {
     console.error('[admin/sessions/:sessionId/records] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/admin/cron/run/:name ──
+router.post('/cron/run/:name', adminAuth, async (req, res) => {
+  const { name } = req.params;
+  try {
+    const { runOfflineCheck } = require('../services/deviceCron');
+    const { runPincodeCompletionCheck, runPincodeStopCheck } = require('../services/pincodeCron');
+    const { runScrapeJobCheck } = require('../services/scrapeJobCron');
+
+    let result;
+    if (name === 'device-offline') {
+      result = await runOfflineCheck();
+      return res.json({ ok: true, cron: name, result: result || {} });
+    } else if (name === 'pincode-completion') {
+      result = await runPincodeCompletionCheck();
+      return res.json({ ok: true, cron: name, result });
+    } else if (name === 'pincode-stop') {
+      result = await runPincodeStopCheck();
+      return res.json({ ok: true, cron: name, result });
+    } else if (name === 'scrape-job-status') {
+      result = await runScrapeJobCheck();
+      return res.json({ ok: true, cron: name, result });
+    } else {
+      return res.status(404).json({ error: `Unknown cron: ${name}` });
+    }
+  } catch (err) {
+    console.error(`[admin/cron/run/${name}] Error:`, err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

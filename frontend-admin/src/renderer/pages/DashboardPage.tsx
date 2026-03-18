@@ -29,6 +29,13 @@ function toLocale(val: unknown): string {
 
 const DashboardPage: React.FC = () => {
   const { data, loading, fetchAnalytics } = useAnalyticsStore();
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchAnalytics();
+    setRefreshing(false);
+  };
 
   useEffect(() => {
     fetchAnalytics();
@@ -49,9 +56,25 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-white">Dashboard</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Overview of all scraping activity</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">Dashboard</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Overview of all scraping activity</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing || loading}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-300 disabled:opacity-50 transition-colors"
+        >
+          <svg
+            className={`w-4 h-4 ${refreshing || loading ? 'animate-spin' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh
+        </button>
       </div>
 
       {/* Stat Cards */}

@@ -73,8 +73,8 @@ const SessionTable: React.FC<SessionTableProps> = ({ sessions, showDevice = true
                 <td className="py-2.5 px-3 text-right text-yellow-400">{s.duplicateRecords}</td>
                 <td className="py-2.5 px-3 text-center">{statusBadge(s.status)}</td>
                 <td className="py-2.5 px-3 text-right text-slate-400">{formatDuration(s.durationMs)}</td>
-                <td className="py-2.5 px-3 text-right text-slate-500 text-xs">
-                  {new Date(s.createdAt).toLocaleDateString()}
+                <td className="py-2.5 px-3 text-right text-slate-500 text-xs whitespace-nowrap">
+                  {new Date(s.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                 </td>
               </tr>
             ))}

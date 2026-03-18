@@ -17,6 +17,9 @@ const electronAPI = {
 
   getApiBaseUrl: (): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_API_BASE_URL),
+
+  scrapeWebsite: (url: string, headless: boolean): Promise<{ success: boolean; phones: string[]; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCRAPE_WEBSITE, url, headless),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

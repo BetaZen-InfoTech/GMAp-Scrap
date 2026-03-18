@@ -8,13 +8,18 @@ const ExcelUpload = require('../models/ExcelUpload');
 const SessionStats = require('../models/SessionStats');
 const Device = require('../models/Device');
 
-/** Fire-and-forget: mark device as online + update lastSeenAt */
-function touchDevice(deviceId) {
+/** Fire-and-forget: mark device as online + update lastSeenAt + update IP */
+function touchDevice(deviceId, ip) {
   if (!deviceId) return;
-  Device.updateOne(
-    { deviceId },
-    { $set: { lastSeenAt: new Date(), status: 'online' } }
-  ).catch(() => {});
+  const update = { lastSeenAt: new Date(), status: 'online' };
+  if (ip) update.ip = ip;
+  Device.updateOne({ deviceId }, { $set: update }).catch(() => {});
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || '';
 }
 
 // ── Multer config for Excel uploads ──
@@ -74,7 +79,7 @@ router.post('/batch', async (req, res) => {
       return res.status(400).json({ error: 'records array is required and must not be empty' });
     }
 
-    touchDevice(deviceId);
+    touchDevice(deviceId, getClientIp(req));
 
     // ── Duplicate detection ──
     // Build $or conditions for all records to check existing duplicates
@@ -218,7 +223,7 @@ router.post('/session-stats', async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
-    touchDevice(req.body.deviceId);
+    touchDevice(req.body.deviceId, getClientIp(req));
 
     // Build $set only from defined fields
     const fields = [

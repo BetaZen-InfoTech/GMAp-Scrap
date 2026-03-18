@@ -22,6 +22,7 @@ export interface ScrapDbFilters {
   maxRating?: number;
   minReviews?: number;
   maxReviews?: number;
+  scrapWebsite?: boolean;
 }
 
 interface ScrapDatabaseStore {
@@ -73,6 +74,8 @@ function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
   if (filters.maxRating != null) params.maxRating = String(filters.maxRating);
   if (filters.minReviews != null) params.minReviews = String(filters.minReviews);
   if (filters.maxReviews != null) params.maxReviews = String(filters.maxReviews);
+  if (filters.scrapWebsite === true) params.scrapWebsite = 'true';
+  if (filters.scrapWebsite === false) params.scrapWebsite = 'false';
   return params;
 }
 

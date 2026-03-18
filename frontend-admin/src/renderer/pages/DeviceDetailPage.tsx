@@ -64,15 +64,15 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
         </button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-bold text-white">{d.nickname || d.hostname}</h2>
+            <h2 className="text-lg font-bold text-white">{d.nickname || d.ip || d.hostname}</h2>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              d.isActive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+              d.status === 'online' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
             }`}>
-              {d.isActive ? 'Active' : 'Inactive'}
+              {d.status === 'online' ? 'Online' : 'Offline'}
             </span>
           </div>
           <p className="text-sm text-slate-500">
-            {d.nickname ? `${d.hostname} · ` : ''}{d.username} &middot; {d.platform} {d.osVersion}
+            {d.ip ? `${d.ip} · ` : ''}{d.hostname} · {d.username} &middot; {d.platform} {d.osVersion}
           </p>
         </div>
       </div>
@@ -102,12 +102,13 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
             <h3 className="text-sm font-semibold text-slate-300 mb-4">Device Specs</h3>
             <div className="space-y-3 text-sm">
               {d.nickname && <Row label="Nickname" value={d.nickname} />}
+              {d.ip && <Row label="IP Address" value={d.ip} mono />}
               <Row label="CPU" value={`${d.cpuModel} (${d.cpuCores} cores)`} />
               <Row label="Memory" value={`${d.totalMemoryGB} GB`} />
               <Row label="Architecture" value={d.arch} />
               <Row label="Platform" value={`${d.platform} ${d.osVersion}`} />
               <Row label="Device ID" value={d.deviceId} mono />
-              <Row label="Registered" value={new Date(d.createdAt).toLocaleDateString()} />
+              <Row label="Registered" value={new Date(d.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} />
               <Row label="Last Seen" value={new Date(d.lastSeenAt).toLocaleString()} />
             </div>
           </div>

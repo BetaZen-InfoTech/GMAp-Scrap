@@ -47,7 +47,7 @@ const SessionsPage: React.FC = () => {
             <option value="">All Devices</option>
             {devices.map((d) => (
               <option key={d.deviceId} value={d.deviceId}>
-                {d.nickname || d.hostname}
+                {d.nickname || d.ip || d.hostname}
               </option>
             ))}
           </select>

@@ -8,6 +8,7 @@ export interface DeviceInfo {
   deviceId: string;
   nickname?: string;
   hostname: string;
+  ip?: string;
   username: string;
   platform: string;
   osVersion: string;
@@ -16,6 +17,7 @@ export interface DeviceInfo {
   cpuCores: number;
   totalMemoryGB: number;
   isActive: boolean;
+  status?: 'online' | 'offline';
   lastSeenAt: string;
   createdAt: string;
   latestStats?: StatSnapshot;
@@ -73,6 +75,7 @@ export interface ScrapeJob {
   _id: string;
   jobId: string;
   deviceId: string;
+  deviceName?: string;
   startPincode: number;
   endPincode: number;
   pincodeIndex: number;
@@ -126,6 +129,8 @@ export interface ScrapedPincodeRecord {
   subCategories: string[];
   rounds: number[];
   devices: string[];
+  completionStatus?: 'running' | 'completed' | 'stop';
+  completedRounds?: number[];
 }
 
 // --- Scraped Data Record (full) ---
@@ -155,7 +160,10 @@ export interface ScrapedDataRecord {
   scrapSubCategory?: string;
   scrapRound?: number;
   scrapedAt?: string;
+  isDuplicate?: boolean;
   isDeleted?: boolean;
+  scrapFrom?: string;
+  scrapWebsite?: boolean;
   createdAt?: string;
 }
 
@@ -190,4 +198,5 @@ export const IPC_CHANNELS = {
   AUTH_LOGIN: 'admin:auth-login',
   AUTH_LOGOUT: 'admin:auth-logout',
   GET_API_BASE_URL: 'admin:get-api-base-url',
+  SCRAPE_WEBSITE: 'admin:scrape-website',
 } as const;

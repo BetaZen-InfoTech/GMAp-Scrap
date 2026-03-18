@@ -1,29 +1,49 @@
 const Device = require('../models/Device');
 
-const OFFLINE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
-const CHECK_INTERVAL_MS    = 60 * 1000;       // run every 1 minute
+const OFFLINE_THRESHOLD_MS = 2.55 * 60 * 1000; // 2 min 33 sec
+const CHECK_INTERVAL_MS    = 3   * 60 * 1000;   // run every 3 minutes
 
 /**
- * Periodically mark devices as offline if they haven't called any API
- * within the last 10 minutes (based on lastSeenAt).
+ * Single offline-check run: marks online devices whose lastSeenAt
+ * is older than OFFLINE_THRESHOLD_MS as 'offline'.
  */
-function startDeviceOfflineCron() {
-  setInterval(async () => {
-    try {
-      const cutoff = new Date(Date.now() - OFFLINE_THRESHOLD_MS);
-      const result = await Device.updateMany(
-        { status: 'online', lastSeenAt: { $lt: cutoff } },
-        { $set: { status: 'offline' } }
-      );
-      if (result.modifiedCount > 0) {
-        console.log(`[DeviceCron] Marked ${result.modifiedCount} device(s) offline`);
-      }
-    } catch (err) {
-      console.error('[DeviceCron] Error:', err.message);
-    }
-  }, CHECK_INTERVAL_MS);
+async function runOfflineCheck() {
+  const cutoff = new Date(Date.now() - OFFLINE_THRESHOLD_MS);
 
-  console.log('[DeviceCron] Offline check running every 60s (threshold: 10 min)');
+  const result = await Device.updateMany(
+    { status: 'online', lastSeenAt: { $lt: cutoff } },
+    { $set: { status: 'offline' } }
+  );
+
+  if (result.modifiedCount > 0) {
+    console.log(
+      `[DeviceCron] ${new Date().toISOString()} — marked ${result.modifiedCount} device(s) offline (cutoff: ${cutoff.toISOString()})`
+    );
+  } else {
+    console.log(
+      `[DeviceCron] ${new Date().toISOString()} — check done, no devices went offline`
+    );
+  }
 }
 
-module.exports = { startDeviceOfflineCron };
+/**
+ * Starts the device offline cron.
+ * Runs IMMEDIATELY on startup, then every CHECK_INTERVAL_MS.
+ */
+function startDeviceOfflineCron() {
+  console.log('[DeviceCron] Starting — threshold: 2.55 min, interval: every 3 min');
+
+  // Run immediately (don't wait for first interval)
+  runOfflineCheck().catch((err) =>
+    console.error('[DeviceCron] Error on initial run:', err.message)
+  );
+
+  // Then run every 3 minutes
+  setInterval(() => {
+    runOfflineCheck().catch((err) =>
+      console.error('[DeviceCron] Error:', err.message)
+    );
+  }, CHECK_INTERVAL_MS);
+}
+
+module.exports = { startDeviceOfflineCron, runOfflineCheck };

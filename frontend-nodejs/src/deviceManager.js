@@ -24,6 +24,32 @@ function saveDevice(data) {
   fs.writeFileSync(DEVICE_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 
+// ── Network helpers ───────────────────────────────────────────────────────────
+
+function getDeviceIp() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const iface of Object.values(interfaces)) {
+      for (const entry of (iface || [])) {
+        if (!entry.internal && entry.family === 'IPv4') {
+          return entry.address;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function updateNickname(deviceId, nickname) {
+  try {
+    await axios.patch(
+      `${API_BASE_URL}/api/devices/${deviceId}/nickname`,
+      { nickname },
+      { timeout: 10000 }
+    );
+  } catch { /* non-fatal */ }
+}
+
 // ── System info (VPS-safe: every call wrapped in try/catch) ───────────────────
 
 function safeGet(fn, fallback = 'unknown') {
@@ -107,6 +133,8 @@ async function verifyDevice(deviceId) {
 async function ensureDevice(chalk, overrideNickname) {
   const existing = loadDevice();
 
+  const deviceIp = getDeviceIp();
+
   if (existing?.deviceId) {
     process.stdout.write(chalk.cyan(
       `  Device: ${chalk.bold(existing.nickname || existing.deviceId.substring(0, 8))} — verifying…  `
@@ -114,17 +142,22 @@ async function ensureDevice(chalk, overrideNickname) {
     const ok = await verifyDevice(existing.deviceId);
     if (ok) {
       console.log(chalk.green('✓ Verified'));
+      // Update nickname to current IP so admin panel shows the real IP
+      if (deviceIp) {
+        await updateNickname(existing.deviceId, deviceIp);
+        saveDevice({ ...existing, nickname: deviceIp });
+      }
       return existing.deviceId;
     }
 
-    // Verify failed → re-register silently using the SAME saved nickname
-    console.log(chalk.yellow('✗ Not found on server — re-registering with saved name…'));
-    const savedNickname = existing.nickname || overrideNickname || safeGet(() => os.hostname(), 'vps-host');
+    // Verify failed → re-register silently using IP (or saved name fallback)
+    console.log(chalk.yellow('✗ Not found on server — re-registering…'));
+    const savedNickname = deviceIp || existing.nickname || overrideNickname || safeGet(() => os.hostname(), 'vps-host');
     return _register(savedNickname, chalk);
   }
 
-  // First time — use CLI arg or hostname (no prompt)
-  const nickname = overrideNickname || safeGet(() => os.hostname(), 'vps-host');
+  // First time — use IP or CLI arg or hostname
+  const nickname = deviceIp || overrideNickname || safeGet(() => os.hostname(), 'vps-host');
   console.log(chalk.cyan(`\n  Device registration (one-time setup) — name: ${nickname}`));
   return _register(nickname, chalk);
 }

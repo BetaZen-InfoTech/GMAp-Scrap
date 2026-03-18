@@ -5,6 +5,12 @@ const Device = require('../models/Device');
 
 const REGISTRATION_PASSWORD = 'BetaZen@2023';
 
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || '';
+}
+
 // POST /api/devices/register
 router.post('/register', async (req, res) => {
   const { password, deviceInfo, nickname } = req.body;
@@ -29,6 +35,7 @@ router.post('/register', async (req, res) => {
       totalMemoryGB: deviceInfo?.totalMemoryGB,
       macAddresses: deviceInfo?.macAddresses || [],
       networkInterfaces: deviceInfo?.networkInterfaces || {},
+      ip: getClientIp(req),
       status: 'online',
       lastSeenAt: new Date(),
     });
@@ -58,6 +65,7 @@ router.post('/verify', async (req, res) => {
 
     device.lastSeenAt = new Date();
     device.status = 'online';
+    device.ip = getClientIp(req);
     await device.save();
 
     return res.json({ success: true, deviceId: device.deviceId, nickname: device.nickname || '' });

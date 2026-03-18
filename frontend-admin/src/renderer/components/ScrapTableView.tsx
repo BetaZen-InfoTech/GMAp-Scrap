@@ -96,7 +96,7 @@ const ScrapTableView: React.FC<ScrapTableViewProps> = ({ records, selectedIds, o
                   {rec.reviews != null ? rec.reviews.toLocaleString() : '—'}
                 </td>
                 <td className="px-3 py-3 text-slate-500 whitespace-nowrap text-xs">
-                  {rec.scrapedAt ? new Date(rec.scrapedAt).toLocaleDateString() : '—'}
+                  {rec.scrapedAt ? new Date(rec.scrapedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                 </td>
               </tr>
             ))}

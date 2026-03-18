@@ -20,8 +20,8 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick }) => {
     return <Spinner message="Loading devices..." />;
   }
 
-  const activeDevices = devices.filter((d) => d.isActive);
-  const inactiveDevices = devices.filter((d) => !d.isActive);
+  const activeDevices = devices.filter((d) => d.status === 'online');
+  const inactiveDevices = devices.filter((d) => d.status !== 'online');
 
   return (
     <div className="space-y-6">

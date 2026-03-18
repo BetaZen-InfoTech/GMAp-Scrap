@@ -6,6 +6,8 @@ const { Server } = require( 'socket.io' );
 const connectDB = require( './config/db' );
 const { setupChangeStreams } = require( './services/changeStreams' );
 const { startDeviceOfflineCron } = require( './services/deviceCron' );
+const { startPincodeCompletionCron } = require( './services/pincodeCron' );
+const { startScrapeJobCron } = require( './services/scrapeJobCron' );
 
 const app = express();
 const server = http.createServer( app );
@@ -38,6 +40,8 @@ connectDB().then( () =>
 {
   setupChangeStreams( io );
   startDeviceOfflineCron();
+  startPincodeCompletionCron();
+  startScrapeJobCron();
 } );
 
 // Middleware

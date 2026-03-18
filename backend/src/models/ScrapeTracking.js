@@ -13,7 +13,7 @@ const scrapeTrackingSchema = new mongoose.Schema(
     completedSearches: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ['running', 'paused', 'completed', 'stopped'],
+      enum: ['running', 'paused', 'completed', 'stopped', 'stop'],
       default: 'running',
     },
   },

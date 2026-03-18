@@ -5,6 +5,7 @@ import type { ScrapedPincodeRecord } from '../../shared/types';
 interface ScrapedPincodeFilters {
   search?: string;
   state?: string;
+  completionStatus?: 'all' | 'running' | 'completed' | 'stop';
 }
 
 interface ScrapedPincodeStore {
@@ -35,6 +36,8 @@ export const useScrapedPincodeStore = create<ScrapedPincodeStore>((set, get) => 
       const params: Record<string, unknown> = { page, limit };
       if (filters.search) params.search = filters.search;
       if (filters.state) params.state = filters.state;
+      if (filters.completionStatus && filters.completionStatus !== 'all')
+        params.completionStatus = filters.completionStatus;
 
       const res = await api.get('/api/admin/scraped-pincodes', { params });
       set({ pincodes: res.data.data, total: res.data.total, page, loading: false });

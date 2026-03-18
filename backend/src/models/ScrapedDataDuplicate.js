@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
 
-const scrapedDataSchema = new mongoose.Schema(
+const scrapedDataDuplicateSchema = new mongoose.Schema(
   {
-    sessionId: { type: String, required: true, index: true },
+    // Original fields (same as ScrapedData)
+    sessionId: { type: String, index: true },
     deviceId: { type: String, index: true },
     batchNumber: { type: Number },
     name: { type: String },
@@ -26,21 +27,16 @@ const scrapedDataSchema = new mongoose.Schema(
     scrapSubCategory: { type: String },
     scrapRound: { type: Number },
     scrapedAt: { type: String },
-    isDuplicate: { type: Boolean, default: false, index: true },
-    isDeleted: { type: Boolean, default: false, index: true },
-    scrapFrom: { type: String, default: 'google-maps' },
-    scrapWebsite: { type: Boolean, default: false, index: true },
+    isDuplicate: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false },
+    // Extra: when/why it was moved
+    movedAt: { type: Date, default: Date.now },
+    originalId: { type: String }, // original _id from Scraped-Data
   },
   {
-    collection: 'Scraped-Data',
+    collection: 'Scraped-Data-Duplicate',
     timestamps: true,
   }
 );
 
-// Compound index for duplicate detection: phone + rating + reviews + category + plusCode
-scrapedDataSchema.index(
-  { phone: 1, rating: 1, reviews: 1, category: 1, plusCode: 1 },
-  { name: 'duplicate_check_idx' }
-);
-
-module.exports = mongoose.model('ScrapedData', scrapedDataSchema);
+module.exports = mongoose.model('ScrapedDataDuplicate', scrapedDataDuplicateSchema);

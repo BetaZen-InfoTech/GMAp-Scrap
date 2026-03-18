@@ -1,8 +1,10 @@
-import { ipcMain } from 'electron';
+import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../shared/types';
 import { getSettings, saveSettings } from './store';
 import axios from 'axios';
 import { getApiBaseUrl } from './config';
+import * as https from 'https';
+import * as http from 'http';
 
 export function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async () => getSettings());
@@ -36,4 +38,107 @@ export function setupIpcHandlers(): void {
     saveSettings({ authToken: '' });
     return { success: true };
   });
+
+  ipcMain.handle(IPC_CHANNELS.SCRAPE_WEBSITE, async (_, url: string, headless = false) => {
+    try {
+      const text = headless ? await fetchUrlHeadless(url) : await fetchUrl(url);
+      const phones = extractPhones(text);
+      return { success: true, phones };
+    } catch (err: unknown) {
+      return { success: false, phones: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+}
+
+function fetchUrl(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 15000,
+    };
+    const req = lib.get(options, (res) => {
+      // Follow one redirect
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+        fetchUrl(res.headers.location).then(resolve).catch(reject);
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+  });
+}
+
+function fetchUrlHeadless(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { javascript: true, nodeIntegration: false, contextIsolation: true },
+    });
+
+    const timeout = setTimeout(() => {
+      if (!win.isDestroyed()) win.destroy();
+      reject(new Error('Headless fetch timed out (30s)'));
+    }, 30000);
+
+    win.loadURL(url).catch((e) => {
+      clearTimeout(timeout);
+      if (!win.isDestroyed()) win.destroy();
+      reject(e);
+    });
+
+    win.webContents.on('did-finish-load', async () => {
+      clearTimeout(timeout);
+      try {
+        const text = await win.webContents.executeJavaScript(
+          'document.body ? document.body.innerText : ""'
+        );
+        if (!win.isDestroyed()) win.destroy();
+        resolve(String(text));
+      } catch (e) {
+        if (!win.isDestroyed()) win.destroy();
+        reject(e);
+      }
+    });
+
+    win.webContents.on('did-fail-load', (_, _code, desc) => {
+      clearTimeout(timeout);
+      if (!win.isDestroyed()) win.destroy();
+      reject(new Error(`Page load failed: ${desc}`));
+    });
+  });
+}
+
+function extractPhones(html: string): string[] {
+  // Strip HTML tags for cleaner extraction
+  const text = html.replace(/<[^>]+>/g, ' ');
+  const patterns = [
+    // Indian mobile: 6-9 followed by 9 digits (with optional spaces/dashes)
+    /(?<!\d)(?:\+91[\s-]?)?[6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4}(?!\d)/g,
+    // Generic 10-digit
+    /(?<!\d)\d{5}[\s-]?\d{5}(?!\d)/g,
+    // Landline with STD: 2-4 digit code + 6-8 digit number
+    /(?<!\d)0\d{2,4}[\s-]?\d{6,8}(?!\d)/g,
+  ];
+  const found = new Set<string>();
+  for (const pattern of patterns) {
+    const matches = text.match(pattern) || [];
+    for (const m of matches) {
+      const clean = m.replace(/[\s-]/g, '');
+      if (clean.length >= 10 && clean.length <= 13) {
+        found.add(clean);
+      }
+    }
+  }
+  return Array.from(found).slice(0, 20); // max 20 phones per page
 }
