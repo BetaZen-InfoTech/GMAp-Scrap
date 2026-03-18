@@ -30,6 +30,10 @@ interface DuplicatesStore {
   analyzing: boolean;
   analyzeResult: AnalyzeResult | null;
 
+  // Delete by phone+name+address
+  deleting: boolean;
+  deleteResult: AnalyzeResult | null;
+
   // Active tab
   activeTab: DuplicatesTab;
 
@@ -41,6 +45,8 @@ interface DuplicatesStore {
   setTab: (tab: DuplicatesTab) => void;
   runAnalysis: () => Promise<void>;
   clearAnalyzeResult: () => void;
+  runDeleteByPNA: () => Promise<void>;
+  clearDeleteResult: () => void;
 }
 
 export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
@@ -59,6 +65,9 @@ export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
 
   analyzing: false,
   analyzeResult: null,
+
+  deleting: false,
+  deleteResult: null,
 
   activeTab: 'flagged',
 
@@ -107,4 +116,18 @@ export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
   },
 
   clearAnalyzeResult: () => set({ analyzeResult: null }),
+
+  runDeleteByPNA: async () => {
+    set({ deleting: true, deleteResult: null });
+    try {
+      const res = await api.post('/api/admin/duplicates/delete-phone-name-address');
+      set({ deleteResult: res.data, deleting: false });
+      const { fetchRecords, fetchArchive } = get();
+      await Promise.all([fetchRecords(1), fetchArchive(1)]);
+    } catch {
+      set({ deleting: false });
+    }
+  },
+
+  clearDeleteResult: () => set({ deleteResult: null }),
 }));

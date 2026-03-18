@@ -95,13 +95,15 @@ const DuplicatesPage: React.FC = () => {
   const {
     records, total, page, limit, loading, search,
     archiveRecords, archiveTotal, archivePage, archiveLoading, archiveSearch,
-    analyzing, analyzeResult, activeTab,
+    analyzing, analyzeResult, deleting, deleteResult, activeTab,
     fetchRecords, fetchArchive,
     setSearch, setArchiveSearch, setLimit, setTab,
     runAnalysis, clearAnalyzeResult,
+    runDeleteByPNA, clearDeleteResult,
   } = useDuplicatesStore();
 
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [archiveSearchInput, setArchiveSearchInput] = useState('');
 
@@ -125,6 +127,11 @@ const DuplicatesPage: React.FC = () => {
     await runAnalysis();
   };
 
+  const handleDeleteConfirm = async () => {
+    setShowDeleteConfirm(false);
+    await runDeleteByPNA();
+  };
+
   return (
     <div className="p-6 space-y-6 min-h-0">
 
@@ -143,30 +150,56 @@ const DuplicatesPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Analyze button */}
-        <button
-          onClick={() => setShowConfirm(true)}
-          disabled={analyzing}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-orange-900/30"
-        >
-          {analyzing ? (
-            <>
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Analyzing...
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              Analyze Duplicates
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Delete by Phone+Name+Address button */}
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            disabled={deleting || analyzing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-red-900/30"
+          >
+            {deleting ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Deleting...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Duplicates
+              </>
+            )}
+          </button>
+
+          {/* Analyze button */}
+          <button
+            onClick={() => setShowConfirm(true)}
+            disabled={analyzing || deleting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-orange-900/30"
+          >
+            {analyzing ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Analyzing...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Analyze Duplicates
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Analysis result banner */}
@@ -188,6 +221,32 @@ const DuplicatesPage: React.FC = () => {
             </div>
           </div>
           <button onClick={clearAnalyzeResult} className="text-slate-500 hover:text-slate-300 transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Delete result banner */}
+      {deleteResult && (
+        <div className="flex items-center justify-between bg-red-500/10 border border-red-500/30 rounded-xl px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="text-sm text-red-300 font-semibold">Delete complete</p>
+              <p className="text-xs text-red-400/70 mt-0.5">
+                Found <strong>{deleteResult.groupCount}</strong> duplicate groups (Phone + Name + Address) &mdash; moved{' '}
+                <strong>{deleteResult.movedCount}</strong> records to <span className="font-mono">Scraped-Data-Duplicate</span>
+                {deleteResult.flagsUpdated > 0 && (
+                  <> &mdash; updated <strong>{deleteResult.flagsUpdated}</strong> <span className="font-mono">isDuplicate</span> flags</>
+                )}
+              </p>
+            </div>
+          </div>
+          <button onClick={clearDeleteResult} className="text-slate-500 hover:text-slate-300 transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -376,6 +435,47 @@ const DuplicatesPage: React.FC = () => {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Delete by Phone+Name+Address confirm modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-red-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                <svg className="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white">Delete Duplicates by Phone + Name + Address?</h2>
+                <p className="text-sm text-slate-400 mt-1 leading-relaxed">
+                  Finds records where <strong className="text-slate-200">phone + name + address</strong> all match (case-insensitive).
+                  The <strong className="text-slate-200">oldest record</strong> is kept in{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data</span>; all others are{' '}
+                  <strong className="text-red-300">moved</strong> to{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span>.
+                  Afterwards, all <span className="font-mono text-slate-300">isDuplicate</span> flags are re-evaluated.
+                </p>
+                <p className="text-xs text-slate-500 mt-2">This action cannot be undone.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors"
+              >
+                Yes, Delete & Archive
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -1110,6 +1110,83 @@ router.post('/duplicates/analyze', async (req, res) => {
   }
 });
 
+// ── POST /api/admin/duplicates/delete-phone-name-address ──
+// Finds records where phone + name + address all match (case-insensitive, trimmed).
+// Keeps the OLDEST record in Scraped-Data, moves 2nd+ duplicates to Scraped-Data-Duplicate.
+// After moving, re-checks ALL isDuplicate flags in Scraped-Data.
+router.post('/duplicates/delete-phone-name-address', async (req, res) => {
+  try {
+    const groups = await ScrapedData.aggregate([
+      {
+        $match: {
+          isDeleted: { $ne: true },
+          phone:   { $nin: [null, ''] },
+          name:    { $nin: [null, ''] },
+          address: { $nin: [null, ''] },
+        },
+      },
+      { $sort: { _id: 1 } }, // oldest first
+      {
+        $group: {
+          _id: {
+            phone:   { $toLower: { $trim: { input: '$phone' } } },
+            name:    { $toLower: { $trim: { input: '$name' } } },
+            address: { $toLower: { $trim: { input: '$address' } } },
+          },
+          docs: { $push: { id: '$_id', createdAt: '$createdAt' } },
+          count: { $sum: 1 },
+        },
+      },
+      { $match: { count: { $gte: 2 } } },
+    ], { allowDiskUse: true });
+
+    if (groups.length === 0) {
+      const flagsUpdated = await recheckAllDuplicateFlags();
+      return res.json({ success: true, movedCount: 0, groupCount: 0, flagsUpdated });
+    }
+
+    const keepIds = [];
+    const moveIds = [];
+
+    for (const group of groups) {
+      const sorted = group.docs.slice().sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+      keepIds.push(sorted[0].id);
+      for (let i = 1; i < sorted.length; i++) moveIds.push(sorted[i].id);
+    }
+
+    // Fetch full records in batches and archive to Scraped-Data-Duplicate
+    const BATCH = 500;
+    let movedCount = 0;
+    const now = new Date();
+
+    for (let i = 0; i < moveIds.length; i += BATCH) {
+      const batchIds = moveIds.slice(i, i + BATCH);
+      const recordsToMove = await ScrapedData.find({ _id: { $in: batchIds } }).lean();
+      if (recordsToMove.length > 0) {
+        const dupDocs = recordsToMove.map((r) => {
+          const { _id, __v, ...rest } = r;
+          return { ...rest, originalId: String(_id), movedAt: now };
+        });
+        await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
+        const del = await ScrapedData.deleteMany({ _id: { $in: batchIds } });
+        movedCount += del.deletedCount;
+      }
+    }
+
+    // Mark kept records as not duplicate
+    if (keepIds.length > 0) {
+      await ScrapedData.updateMany({ _id: { $in: keepIds } }, { $set: { isDuplicate: false } });
+    }
+
+    const flagsUpdated = await recheckAllDuplicateFlags();
+
+    res.json({ success: true, movedCount, groupCount: groups.length, flagsUpdated });
+  } catch (err) {
+    console.error('[admin/duplicates/delete-phone-name-address] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Helper: re-evaluate isDuplicate for all remaining records in Scraped-Data.
 // Uses the 5-field compound key: phone + rating + reviews + category + plusCode.
 // Sets isDuplicate: true if another record shares the same key, otherwise false.
