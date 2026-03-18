@@ -28,7 +28,7 @@ const scrapedDataSchema = new mongoose.Schema(
     scrapedAt: { type: String },
     isDuplicate: { type: Boolean, default: false, index: true },
     isDeleted: { type: Boolean, default: false, index: true },
-    scrapFrom: { type: String, default: 'google-maps' },
+    scrapFrom: { type: String, default: 'G-Map' },
     scrapWebsite: { type: Boolean, default: false, index: true },
   },
   {

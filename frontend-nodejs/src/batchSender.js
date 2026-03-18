@@ -21,6 +21,7 @@ async function sendBatch(records, batchNumber, sessionId, keyword, pincode, devi
     scrapCategory:    scrapCategory || undefined,
     scrapSubCategory: scrapSubCategory || undefined,
     round:            round || undefined,
+    scrapFrom:        'G-Map',
     records,
   };
 

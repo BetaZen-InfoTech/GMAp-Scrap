@@ -58,6 +58,7 @@ export async function sendBatch(
     scrapCategory: scrapCategory || undefined,
     scrapSubCategory: scrapSubCategory || undefined,
     round: round || undefined,
+    scrapFrom: 'G-Map',
     records,
   };
 

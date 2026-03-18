@@ -138,6 +138,7 @@ router.post('/batch', async (req, res) => {
         scrapSubCategory: r.scrapSubCategory || batchScrapSubCategory || undefined,
         scrapRound: batchRound || undefined,
         scrapedAt: r.timestamp || timestamp,
+        scrapFrom: 'G-Map',
       };
 
       if (existingKeys.has(key)) {
