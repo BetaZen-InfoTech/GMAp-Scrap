@@ -293,10 +293,8 @@ const DuplicatesPage: React.FC = () => {
               <p className="text-sm text-red-300 font-semibold">Delete complete</p>
               <p className="text-xs text-red-400/70 mt-0.5">
                 Found <strong>{deleteResult.groupCount}</strong> duplicate groups (Phone + Name + Address) &mdash; moved{' '}
-                <strong>{deleteResult.movedCount}</strong> records to <span className="font-mono">Scraped-Data-Duplicate</span>
-                {deleteResult.flagsUpdated > 0 && (
-                  <> &mdash; updated <strong>{deleteResult.flagsUpdated}</strong> <span className="font-mono">isDuplicate</span> flags</>
-                )}
+                <strong>{deleteResult.movedCount}</strong> records to <span className="font-mono">Scraped-Data-Duplicate</span>.
+                All <span className="font-mono">isDuplicate</span> fields removed.
               </p>
             </div>
           </div>

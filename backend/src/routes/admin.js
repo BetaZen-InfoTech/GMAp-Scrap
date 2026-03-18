@@ -1030,13 +1030,13 @@ router.post('/duplicates/analyze', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/delete-phone-name-address ──
-// Step 1: Unset isDuplicate field from ALL records in Scraped-Data.
+// Step 1: Unset isDuplicate field from ALL records in Scraped-Data (permanently removed).
 // Step 2: Finds records where phone + name + address all match (case-insensitive, trimmed).
 //         Keeps the OLDEST record in Scraped-Data, moves 2nd+ duplicates to Scraped-Data-Duplicate.
-// After moving, re-checks ALL isDuplicate flags in Scraped-Data.
+// isDuplicate is NOT re-added after this operation.
 router.post('/duplicates/delete-phone-name-address', async (req, res) => {
   try {
-    // Step 1: Clear isDuplicate flag from all records before deduplication
+    // Step 1: Permanently remove isDuplicate field from all records
     await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
 
     const groups = await ScrapedData.aggregate([
@@ -1063,24 +1063,20 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
       { $match: { count: { $gte: 2 } } },
     ], { allowDiskUse: true });
 
-    const BATCH = 500;
-    const now = new Date();
-
     if (groups.length === 0) {
-      const flagsUpdated = await recheckAllDuplicateFlags();
-      return res.json({ success: true, movedCount: 0, groupCount: 0, flagsUpdated });
+      return res.json({ success: true, movedCount: 0, groupCount: 0 });
     }
 
-    const keepIds = [];
     const moveIds = [];
 
     for (const group of groups) {
       const sorted = group.docs.slice().sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-      keepIds.push(sorted[0].id);
       for (let i = 1; i < sorted.length; i++) moveIds.push(sorted[i].id);
     }
 
     // Fetch full records in batches and archive to Scraped-Data-Duplicate
+    const BATCH = 500;
+    const now = new Date();
     let movedCount = 0;
 
     for (let i = 0; i < moveIds.length; i += BATCH) {
@@ -1097,14 +1093,7 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
       }
     }
 
-    // Mark kept records as not duplicate
-    if (keepIds.length > 0) {
-      await ScrapedData.updateMany({ _id: { $in: keepIds } }, { $set: { isDuplicate: false } });
-    }
-
-    const flagsUpdated = await recheckAllDuplicateFlags();
-
-    res.json({ success: true, movedCount, groupCount: groups.length, flagsUpdated });
+    res.json({ success: true, movedCount, groupCount: groups.length });
   } catch (err) {
     console.error('[admin/duplicates/delete-phone-name-address] Error:', err.message);
     res.status(500).json({ error: 'Server error' });

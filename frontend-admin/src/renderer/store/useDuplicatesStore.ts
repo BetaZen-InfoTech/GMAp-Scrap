@@ -13,7 +13,6 @@ interface AnalyzeResult {
 interface DeleteResult {
   movedCount: number;
   groupCount: number;
-  flagsUpdated: number;
 }
 
 interface DuplicatesStore {
