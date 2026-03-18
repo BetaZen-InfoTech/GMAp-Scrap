@@ -537,9 +537,12 @@ async function main() {
       }
     }
 
-    for (const pincodeInfo of pincodes) {
+    for (let pi = 0; pi < pincodes.length; pi++) {
+      const pincodeInfo = pincodes[pi];
       for (let round = 1; round <= 3; round++) {
-        for (const niche of niches) {
+        for (let ni = 0; ni < niches.length; ni++) {
+          const niche = niches[ni];
+          const nicheProgressIdx = (round - 1) * niches.length + ni;
 
           if (!pincodeInfo.Pincode || !niche.SubCategory || !niche.Category) continue;
 
@@ -567,7 +570,7 @@ async function main() {
               category: niche.Category, subCategory: niche.SubCategory, round,
             });
             jobCompletedCount++;
-            updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'running' });
+            updateJobProgress(jobId, { pincodeIndex: pi, nicheIndex: nicheProgressIdx, completedSearches: jobCompletedCount, status: 'running' });
             continue;
           }
 
@@ -599,7 +602,7 @@ async function main() {
               category: niche.Category, subCategory: niche.SubCategory,
               round, sessionId: result.sessionId,
             });
-            updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'running' });
+            updateJobProgress(jobId, { pincodeIndex: pi, nicheIndex: nicheProgressIdx, completedSearches: jobCompletedCount, status: 'running' });
           } catch (err) {
             print(chalk.red(`  ${tag} ✗ Error: ${err.message}`));
           }

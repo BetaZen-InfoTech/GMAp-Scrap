@@ -260,15 +260,9 @@ const JobsPage: React.FC = () => {
                     const pct = j.totalSearches > 0
                       ? Math.round((j.completedSearches / j.totalSearches) * 100)
                       : 0;
-                    // Estimate current pincode from completedSearches
                     const totalPincodes = Math.max(j.endPincode - j.startPincode + 1, 1);
+                    const currentPincode = j.startPincode + j.pincodeIndex;
                     const searchesPerPincode = j.totalSearches > 0 ? j.totalSearches / totalPincodes : 1;
-                    const estPincodeOffset = Math.min(
-                      Math.floor(j.completedSearches / searchesPerPincode),
-                      totalPincodes - 1
-                    );
-                    const currentPincode = j.startPincode + estPincodeOffset;
-                    const searchesInCurrentPincode = Math.round(j.completedSearches % searchesPerPincode);
                     const searchesPerPincodeRound = Math.round(searchesPerPincode);
                     return (
                       <tr key={j._id} className="hover:bg-slate-800/30 transition-colors">
@@ -306,7 +300,7 @@ const JobsPage: React.FC = () => {
                         <td className="px-4 py-3 text-center whitespace-nowrap">
                           <div className="text-xs font-semibold text-slate-200">{currentPincode}</div>
                           <div className="text-[10px] text-slate-500">
-                            {estPincodeOffset + 1}/{totalPincodes} · {searchesInCurrentPincode}/{searchesPerPincodeRound}
+                            {j.pincodeIndex + 1}/{totalPincodes} · {j.nicheIndex}/{searchesPerPincodeRound}
                           </div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
