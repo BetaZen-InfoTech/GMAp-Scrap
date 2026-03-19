@@ -61,18 +61,23 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   districts: [],
 
   fetchPincodes: async (page = 1) => {
+    const { filters, limit } = get();
+    // Require a state to be selected — avoids loading entire pincode dataset
+    if (!filters.state) {
+      set({ pincodes: [], total: 0, page: 1, counts: { running: 0, completed: 0, stop: 0, pending: 0 } });
+      return;
+    }
     set({ loading: true });
     try {
-      const { filters, limit } = get();
       const params: Record<string, string> = {
+        state: filters.state,
         page:  String(page),
         limit: String(limit),
       };
-      if (filters.state)              params.state    = filters.state;
-      if (filters.district)           params.district = filters.district;
+      if (filters.district)            params.district     = filters.district;
       if (filters.statuses.length > 0) params.statusFilter = filters.statuses.join(',');
 
-      const { data } = await api.get('/api/pincodes/status', { params });
+      const { data } = await api.get('/api/admin/pincodes/coming-status', { params });
       set({
         pincodes: data.pincodes,
         total:    data.total,
@@ -86,10 +91,11 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
     }
   },
 
+  // Uses the existing admin /pincodes/filters endpoint (proven to work)
   fetchStates: async () => {
     try {
-      const { data } = await api.get('/api/pincodes/states');
-      set({ states: data });
+      const { data } = await api.get('/api/admin/pincodes/filters');
+      set({ states: data.states || [] });
     } catch (err) {
       console.error('[useComingPincodeStore] fetchStates error:', err);
     }
@@ -98,8 +104,8 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   fetchDistricts: async (state: string) => {
     try {
       const params = state ? { state } : {};
-      const { data } = await api.get('/api/pincodes/districts', { params });
-      set({ districts: data });
+      const { data } = await api.get('/api/admin/pincodes/filters', { params });
+      set({ districts: data.districts || [] });
     } catch (err) {
       console.error('[useComingPincodeStore] fetchDistricts error:', err);
     }
@@ -110,6 +116,7 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   },
 
   clearFilters: () => {
-    set({ filters: { ...DEFAULT_FILTERS }, districts: [] });
+    set({ filters: { ...DEFAULT_FILTERS }, districts: [], pincodes: [], total: 0,
+          counts: { running: 0, completed: 0, stop: 0, pending: 0 } });
   },
 }));

@@ -534,6 +534,78 @@ router.delete('/categories/:category/niches/:nicheId', async (req, res) => {
 // Page: Pincode Details (All)
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ── GET /api/admin/pincodes/coming-status ──
+// Joins PinCode-Dataset with Pincode-Status; missing pincodes = "pending".
+// Requires `state` query param (avoids loading entire 30k+ dataset at once).
+router.get('/pincodes/coming-status', async (req, res) => {
+  try {
+    const { state, district, statusFilter, page: pageQ, limit: limitQ } = req.query;
+    const page  = Math.max(1, parseInt(pageQ,  10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(limitQ, 10) || 50));
+
+    if (!state) {
+      return res.json({ pincodes: [], total: 0, page, limit, counts: { running: 0, completed: 0, stop: 0, pending: 0 } });
+    }
+
+    const statusFilters = statusFilter
+      ? statusFilter.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
+    const pinFilter = { StateName: state };
+    if (district) pinFilter.District = district;
+
+    const rawPincodes = await PinCode.find(
+      pinFilter, { Pincode: 1, District: 1, StateName: 1, _id: 0 }
+    ).sort({ Pincode: 1 }).lean();
+
+    const seen = new Set();
+    const uniquePincodes = [];
+    for (const p of rawPincodes) {
+      if (!seen.has(p.Pincode)) { seen.add(p.Pincode); uniquePincodes.push(p); }
+    }
+
+    const pincodeStrs = uniquePincodes.map(p => String(p.Pincode));
+    const statusDocs  = await PincodeStatus.find(
+      { pincode: { $in: pincodeStrs } },
+      { pincode: 1, status: 1, completedRounds: 1, totalNiches: 1,
+        completedSearches: 1, lastActivity: 1, lastRunAt: 1, updatedAt: 1 }
+    ).lean();
+
+    const statusMap = {};
+    for (const s of statusDocs) statusMap[s.pincode] = s;
+
+    let merged = uniquePincodes.map(p => {
+      const st = statusMap[String(p.Pincode)];
+      return {
+        pincode:           p.Pincode,
+        district:          p.District  || null,
+        stateName:         p.StateName || null,
+        status:            st?.status  || 'pending',
+        completedRounds:   st?.completedRounds   || [],
+        completedSearches: st?.completedSearches || 0,
+        totalNiches:       st?.totalNiches       || 0,
+        lastActivity:      st?.lastActivity      || null,
+        lastRunAt:         st?.lastRunAt         || null,
+        updatedAt:         st?.updatedAt         || null,
+      };
+    });
+
+    if (statusFilters.length > 0) {
+      merged = merged.filter(p => statusFilters.includes(p.status));
+    }
+
+    const counts = { running: 0, completed: 0, stop: 0, pending: 0 };
+    for (const p of merged) counts[p.status] = (counts[p.status] || 0) + 1;
+
+    const total    = merged.length;
+    const pincodes = merged.slice((page - 1) * limit, page * limit);
+    res.json({ pincodes, total, page, limit, counts });
+  } catch (err) {
+    console.error('[admin/pincodes/coming-status] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/admin/pincodes/filters ──
 router.get('/pincodes/filters', async (req, res) => {
   try {
