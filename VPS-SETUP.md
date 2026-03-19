@@ -143,8 +143,12 @@ PM2 keeps the scraper running 24/7 and auto-restarts on crash or VPS reboot.
 ### Install PM2
 
 ```bash
-sudo npm install -g pm2
+npm install -g pm2
 ```
+
+> **No `sudo` here.** Since Node.js is installed via NVM (not system apt),
+> `sudo npm` would use the system Node (if any) and fail or install to the wrong location.
+> NVM's global installs don't need sudo.
 
 ### Start a scraper instance
 
@@ -247,6 +251,10 @@ pm2 logs                   # verify they resumed
 > Otherwise, PM2 will restore the old process list on next reboot.
 
 #### Troubleshooting startup hook
+
+> **NVM note:** `pm2 startup` detects the currently active Node.js binary path (from NVM)
+> and bakes it into the generated sudo command. Make sure NVM's node is active
+> (`nvm use 22`) **before** running `pm2 startup`, so the correct path is used.
 
 **If `pm2 startup` doesn't work** (some VPS providers):
 
@@ -365,12 +373,21 @@ Ping: 3.24 ms
 
 Add the speedtest to your shell profile so it runs automatically each time you log in:
 
+**If you installed `speedtest-cli` (Python, apt):**
+
 ```bash
 echo 'echo "--- Speed Test ---" && speedtest-cli --simple' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-`--simple` shows only ping/download/upload (faster, no progress dots):
+**If you installed `speedtest` (Ookla CLI):**
+
+```bash
+echo 'echo "--- Speed Test ---" && speedtest' >> ~/.bashrc
+source ~/.bashrc
+```
+
+`--simple` (speedtest-cli only) shows only ping/download/upload — faster, no progress dots:
 
 ```
 Ping: 3.24 ms
@@ -378,7 +395,8 @@ Download: 842.35 Mbit/s
 Upload: 521.10 Mbit/s
 ```
 
-> To remove it later: edit `~/.bashrc` and delete the line containing `speedtest-cli`.
+> On Ubuntu, SSH login sources `~/.bashrc` via `~/.profile`, so this runs on every SSH session.
+> To remove it later: edit `~/.bashrc` and delete the line containing `speedtest`.
 
 ### Other useful tools
 
