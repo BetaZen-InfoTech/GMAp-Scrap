@@ -66,12 +66,17 @@ router.patch('/:jobId', async (req, res) => {
     }
 
     const doc = await ScrapeTracking.findOneAndUpdate(
-      { jobId: req.params.jobId },
+      { jobId: req.params.jobId, status: { $ne: 'completed' } },
       { $set: update },
       { new: true }
     );
 
-    if (!doc) return res.status(404).json({ error: 'Job not found' });
+    if (!doc) {
+      // Could be not found OR already completed — return current doc
+      const existing = await ScrapeTracking.findOne({ jobId: req.params.jobId }).lean();
+      if (!existing) return res.status(404).json({ error: 'Job not found' });
+      return res.json(existing);
+    }
     res.json(doc);
   } catch (err) {
     console.error('[scrape-tracking PATCH] Error:', err.message);

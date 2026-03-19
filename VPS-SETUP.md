@@ -170,12 +170,86 @@ pm2 delete scraper-1      # remove from pm2
 
 ### Auto-start on VPS reboot
 
+After a server reboot, PM2 can automatically restart all your scraper processes. This requires a one-time setup.
+
+#### Quick setup (run once)
+
 ```bash
-pm2 startup               # generates startup script (run the command it prints)
-pm2 save                   # save current process list
+# 1. Generate startup script — this prints a sudo command, copy and run it
+pm2 startup
+
+# 2. Run the printed command (example, yours will differ):
+#    sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
+
+# 3. Save current process list so PM2 knows what to restore after reboot
+pm2 save
 ```
 
-After this, all pm2 processes will auto-start when the VPS reboots.
+That's it. After any future reboot, PM2 will auto-restore all saved processes.
+
+#### Step-by-step explanation
+
+**Step 1:** Generate the startup script:
+
+```bash
+pm2 startup
+```
+
+This prints a command like:
+
+```
+[PM2] To setup the Startup Script, copy/paste the following command:
+sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
+```
+
+**Step 2:** Copy and run the printed command exactly as shown (with sudo).
+
+**Step 3:** Save the current process list so PM2 knows what to restart:
+
+```bash
+pm2 save
+```
+
+#### Verify it works
+
+```bash
+sudo reboot                # reboot the VPS
+# SSH back in after ~1 min
+pm2 status                 # all scrapers should be running
+pm2 logs                   # verify they resumed
+```
+
+> **Important:** Run `pm2 save` every time you add, remove, or change PM2 processes.
+> Otherwise, PM2 will restore the old process list on next reboot.
+
+#### Troubleshooting startup hook
+
+**If `pm2 startup` doesn't work** (some VPS providers):
+
+```bash
+# Remove old startup hook
+pm2 unstartup systemd
+
+# Regenerate
+pm2 startup systemd
+# Run the printed sudo command
+pm2 save
+```
+
+**If processes don't come back after reboot:**
+
+```bash
+# Check if the systemd service exists
+systemctl status pm2-$(whoami)
+
+# If not active, re-run the setup
+pm2 startup
+# Run the printed sudo command
+pm2 save
+
+# Verify the service is enabled
+systemctl is-enabled pm2-$(whoami)
+```
 
 ### Update code and restart
 
