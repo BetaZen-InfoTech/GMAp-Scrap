@@ -2,10 +2,30 @@ const SearchStatus  = require('../models/SearchStatus');
 const BusinessNiche = require('../models/BusinessNiche');
 const PincodeStatus = require('../models/PincodeStatus');
 const ScrapedData   = require('../models/ScrapedData');
+const PinCode       = require('../models/PinCode');
 
 const COMPLETION_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 const STOP_INTERVAL_MS       = 3 * 60 * 1000; // every 3 minutes
 const STOP_THRESHOLD_MS      = 3 * 60 * 1000; // no data for 3 min → stop
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helper: batch-fetch stateName + district from PinCode-Dataset
+// ──────────────────────────────────────────────────────────────────────────────
+async function buildPincodeLocationMap(pincodeNumbers) {
+  if (!pincodeNumbers || pincodeNumbers.length === 0) return {};
+  const docs = await PinCode.find(
+    { Pincode: { $in: pincodeNumbers } },
+    { Pincode: 1, District: 1, StateName: 1, _id: 0 }
+  ).lean();
+  const map = {};
+  for (const d of docs) {
+    // Keep first occurrence per pincode
+    if (!map[d.Pincode]) {
+      map[d.Pincode] = { stateName: d.StateName || null, district: d.District || null };
+    }
+  }
+  return map;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // CHECK 1: Pincode completion (all niches done for all rounds → "completed")
@@ -45,6 +65,10 @@ async function runPincodeCompletionCheck() {
     return { updated: 0, completed: 0, running: 0 };
   }
 
+  // Batch-fetch location data for all pincodes in this batch
+  const pincodeNumbers = roundStats.map(item => Number(item._id)).filter(Boolean);
+  const locationMap = await buildPincodeLocationMap(pincodeNumbers);
+
   const now = new Date();
   const bulkOps = [];
   let completedCount = 0;
@@ -52,6 +76,8 @@ async function runPincodeCompletionCheck() {
 
   for (const item of roundStats) {
     const pincode = String(item._id);
+    const loc = locationMap[parseInt(pincode)] || {};
+
     const completedRounds = item.rounds
       .filter((r) => r.completedCount >= totalNiches)
       .map((r) => r.round)
@@ -71,13 +97,17 @@ async function runPincodeCompletionCheck() {
         update: {
           $set: {
             pincode,
+            stateName:         loc.stateName || null,
+            district:          loc.district  || null,
             status,
             completedRounds,
-            totalRounds: item.rounds.length,
+            totalRounds:       item.rounds.length,
             totalNiches,
             completedSearches: item.totalCompleted,
-            updatedAt: now,
+            updatedAt:         now,
           },
+          // lastRunAt is set only on insert (first time cron sees this pincode)
+          $setOnInsert: { lastRunAt: now },
         },
         upsert: true,
       },

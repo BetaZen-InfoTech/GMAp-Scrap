@@ -16,6 +16,7 @@ import ScrapDatabasePage from './pages/ScrapDatabasePage';
 import DuplicatesPage from './pages/DuplicatesPage';
 import WebsiteScraperPage from './pages/WebsiteScraperPage';
 import JobsPage from './pages/JobsPage';
+import ComingPincodesPage from './pages/ComingPincodesPage';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
@@ -100,6 +101,8 @@ const App: React.FC = () => {
         return <DuplicatesPage />;
       case 'website-scraper':
         return <WebsiteScraperPage />;
+      case 'coming-pincodes':
+        return <ComingPincodesPage />;
       default:
         return <DashboardPage />;
     }

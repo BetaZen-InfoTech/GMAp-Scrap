@@ -6,10 +6,14 @@ const PAGE_TITLES: Record<Route, string> = {
   devices: 'Devices',
   'device-detail': 'Device Detail',
   sessions: 'Sessions',
+  jobs: 'Jobs',
   categories: 'Categories',
   'pincode-details': 'Pincode Details',
   'scraped-pincodes': 'Scraped Pincodes',
   'scrap-database': 'Scrap Database',
+  duplicates: 'Duplicates',
+  'website-scraper': 'Website Scraper',
+  'coming-pincodes': 'Coming Pincodes',
 };
 
 interface LayoutProps {
