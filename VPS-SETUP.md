@@ -302,6 +302,60 @@ This shows a live updating line like:
 CPU: 23% | RAM: 1.2G/4.0G | Net: ↓123456789 ↑987654 | Today: 2.5 GB
 ```
 
+### Speed test (after login)
+
+Run a quick internet speed test to verify the VPS network performance:
+
+```bash
+# Install speedtest CLI (one-time)
+sudo apt-get install -y curl
+curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
+sudo apt-get install -y speedtest
+
+# Run speedtest
+speedtest
+```
+
+Or use the Python-based `speedtest-cli` (no repo setup needed):
+
+```bash
+# Install
+sudo apt-get install -y speedtest-cli
+
+# Run
+speedtest-cli
+```
+
+Sample output:
+```
+Testing download speed................
+Download: 842.35 Mbit/s
+Testing upload speed......
+Upload: 521.10 Mbit/s
+Ping: 3.24 ms
+```
+
+> Run this right after SSH login to quickly check if the VPS network is healthy before starting scrapers.
+
+#### Auto-run speedtest on every SSH login
+
+Add the speedtest to your shell profile so it runs automatically each time you log in:
+
+```bash
+echo 'echo "--- Speed Test ---" && speedtest-cli --simple' >> ~/.bashrc
+source ~/.bashrc
+```
+
+`--simple` shows only ping/download/upload (faster, no progress dots):
+
+```
+Ping: 3.24 ms
+Download: 842.35 Mbit/s
+Upload: 521.10 Mbit/s
+```
+
+> To remove it later: edit `~/.bashrc` and delete the line containing `speedtest-cli`.
+
 ### Other useful tools
 
 ```bash
