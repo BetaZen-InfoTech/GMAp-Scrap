@@ -10,11 +10,35 @@
 
 ## 1. Install Node.js (v22+)
 
+Use **NVM** (Node Version Manager) — more reliable than the NodeSource apt repo which sometimes fails on certain VPS providers.
+
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# Install NVM
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+
+# Reload shell so nvm command is available
+source ~/.bashrc
+
+# Install Node.js v22
+nvm install 22
+nvm use 22
+nvm alias default 22
+
+# Verify
 node -v   # should show v22.x+
 npm -v
+```
+
+> **Why NVM?** The NodeSource apt repo (`deb.nodesource.com`) sometimes fails with
+> `does not have a Release file` on certain VPS providers. NVM installs Node.js directly
+> without touching apt repos, so it always works.
+
+**If you already installed the wrong version via apt** (e.g. Node 18):
+
+```bash
+sudo apt-get remove -y nodejs
+sudo apt-get autoremove -y
+# Then follow the NVM steps above
 ```
 
 ## 2. Clone the repo
@@ -385,6 +409,9 @@ sudo apt-get install -y htop nload vnstat glances
 | High memory usage | Reduce `parallelTabs` in `src/config.js` (default 5) |
 | Scraper skips all keywords | Already completed on backend; this is normal |
 | PM2 process keeps restarting | Check `pm2 logs scraper-1` for the error |
+| NodeSource repo: `does not have a Release file` | Use NVM instead — see Step 1 |
+| `node -v` shows v18 after install | Wrong version from apt; uninstall and use NVM |
+| `nvm: command not found` after install | Run `source ~/.bashrc` then retry |
 
 ## Key config tweaks
 
