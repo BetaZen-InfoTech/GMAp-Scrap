@@ -253,6 +253,7 @@ const ComingPincodesPage: React.FC = () => {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-900 z-10">
                   <tr className="border-b border-slate-800">
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12">#</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Pincode</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">District</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">State</th>
@@ -263,8 +264,9 @@ const ComingPincodesPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {pincodes.map(p => (
+                  {pincodes.map((p, idx) => (
                     <tr key={p.pincode} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-3 text-center text-xs text-slate-500 font-mono">{(page - 1) * limit + idx + 1}</td>
                       <td className="px-4 py-3">
                         <span className="font-mono text-sm font-semibold text-white">{p.pincode}</span>
                       </td>
