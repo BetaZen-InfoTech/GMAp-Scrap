@@ -78,7 +78,7 @@ const StatChip: React.FC<StatChipProps> = ({ label, count, dotClass, borderClass
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const ComingPincodesPage: React.FC = () => {
   const {
-    pincodes, total, page, limit, loading, counts, filters,
+    pincodes, total, page, limit, loading, error, counts, filters,
     states, districts,
     fetchPincodes, fetchStates, fetchDistricts,
     setFilters, clearFilters,
@@ -94,17 +94,15 @@ const ComingPincodesPage: React.FC = () => {
     setFilters({ state, district: '' });
     if (state) {
       fetchDistricts(state);
-      setTimeout(() => fetchPincodes(1), 0);
+      fetchPincodes(1, state, '', filters.statuses);
     } else {
-      // No state selected — clear results
-      setFilters({ state: '', district: '' });
-      useComingPincodeStore.getState().clearFilters();
+      clearFilters();
     }
   };
 
   const handleDistrictChange = (district: string) => {
     setFilters({ district });
-    setTimeout(() => fetchPincodes(1), 0);
+    fetchPincodes(1, filters.state, district, filters.statuses);
   };
 
   // Toggle a status in the multi-select
@@ -114,12 +112,11 @@ const ComingPincodesPage: React.FC = () => {
       ? current.filter(x => x !== s)
       : [...current, s];
     setFilters({ statuses: next });
-    setTimeout(() => fetchPincodes(1), 0);
+    fetchPincodes(1, filters.state, filters.district, next);
   };
 
   const handleClear = () => {
     clearFilters();
-    setTimeout(() => fetchPincodes(1), 0);
   };
 
   const hasFilters = filters.state || filters.district || filters.statuses.length > 0;
@@ -141,7 +138,7 @@ const ComingPincodesPage: React.FC = () => {
           <p className="text-sm text-slate-500 mt-0.5">{total.toLocaleString()} pincodes</p>
         </div>
         <button
-          onClick={() => fetchPincodes(page)}
+          onClick={() => fetchPincodes(page, filters.state, filters.district, filters.statuses)}
           disabled={loading}
           className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
         >
@@ -222,6 +219,13 @@ const ComingPincodesPage: React.FC = () => {
         )}
       </div>
 
+      {/* ── Error banner ── */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
       {/* ── Table ── */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex-1 flex flex-col min-h-0">
         {loading && pincodes.length === 0 ? (
@@ -300,7 +304,7 @@ const ComingPincodesPage: React.FC = () => {
               </table>
             </div>
             <div className="border-t border-slate-800 px-4 py-2">
-              <Pagination page={page} total={total} limit={limit} onPageChange={p => fetchPincodes(p)} />
+              <Pagination page={page} total={total} limit={limit} onPageChange={p => fetchPincodes(p, filters.state, filters.district, filters.statuses)} />
             </div>
           </>
         )}

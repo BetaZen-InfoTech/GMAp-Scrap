@@ -142,11 +142,6 @@ async function ensureDevice(chalk, overrideNickname) {
     const ok = await verifyDevice(existing.deviceId);
     if (ok) {
       console.log(chalk.green('✓ Verified'));
-      // Update nickname to current IP so admin panel shows the real IP
-      if (deviceIp) {
-        await updateNickname(existing.deviceId, deviceIp);
-        saveDevice({ ...existing, nickname: deviceIp });
-      }
       return existing.deviceId;
     }
 

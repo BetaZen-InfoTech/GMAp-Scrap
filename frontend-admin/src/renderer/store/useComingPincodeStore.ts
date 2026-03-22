@@ -23,10 +23,10 @@ export interface PincodeCounts {
   pending:   number;
 }
 
-interface Filters {
+export interface Filters {
   state:    string;
   district: string;
-  statuses: PincodeRowStatus[]; // empty = all
+  statuses: PincodeRowStatus[];
 }
 
 interface ComingPincodeState {
@@ -35,12 +35,14 @@ interface ComingPincodeState {
   page:      number;
   limit:     number;
   loading:   boolean;
+  error:     string | null;
   counts:    PincodeCounts;
   filters:   Filters;
   states:    string[];
   districts: string[];
 
-  fetchPincodes:  (page?: number) => Promise<void>;
+  // Pass state/district directly to avoid any store-read timing issues
+  fetchPincodes:  (page: number, state: string, district?: string, statuses?: PincodeRowStatus[]) => Promise<void>;
   fetchStates:    () => Promise<void>;
   fetchDistricts: (state: string) => Promise<void>;
   setFilters:     (f: Partial<Filters>) => void;
@@ -48,6 +50,7 @@ interface ComingPincodeState {
 }
 
 const DEFAULT_FILTERS: Filters = { state: '', district: '', statuses: [] };
+const EMPTY_COUNTS: PincodeCounts = { running: 0, completed: 0, stop: 0, pending: 0 };
 
 export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   pincodes:  [],
@@ -55,43 +58,45 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   page:      1,
   limit:     50,
   loading:   false,
-  counts:    { running: 0, completed: 0, stop: 0, pending: 0 },
+  error:     null,
+  counts:    { ...EMPTY_COUNTS },
   filters:   { ...DEFAULT_FILTERS },
   states:    [],
   districts: [],
 
-  fetchPincodes: async (page = 1) => {
-    const { filters, limit } = get();
-    // Require a state to be selected — avoids loading entire pincode dataset
-    if (!filters.state) {
-      set({ pincodes: [], total: 0, page: 1, counts: { running: 0, completed: 0, stop: 0, pending: 0 } });
+  fetchPincodes: async (page, state, district, statuses) => {
+    if (!state) {
+      set({ pincodes: [], total: 0, page: 1, counts: { ...EMPTY_COUNTS }, error: null });
       return;
     }
-    set({ loading: true });
+
+    set({ loading: true, error: null });
     try {
+      const { limit } = get();
       const params: Record<string, string> = {
-        state: filters.state,
+        state,
         page:  String(page),
         limit: String(limit),
       };
-      if (filters.district)            params.district     = filters.district;
-      if (filters.statuses.length > 0) params.statusFilter = filters.statuses.join(',');
+      if (district)                params.district     = district;
+      if (statuses && statuses.length > 0) params.statusFilter = statuses.join(',');
 
       const { data } = await api.get('/api/admin/pincodes/coming-status', { params });
       set({
-        pincodes: data.pincodes,
-        total:    data.total,
-        page:     data.page,
-        counts:   data.counts,
+        pincodes: data.pincodes  ?? [],
+        total:    data.total     ?? 0,
+        page:     data.page      ?? page,
+        counts:   data.counts    ?? { ...EMPTY_COUNTS },
         loading:  false,
+        error:    null,
       });
-    } catch (err) {
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load pincodes';
       console.error('[useComingPincodeStore] fetchPincodes error:', err);
-      set({ loading: false });
+      set({ loading: false, error: msg });
     }
   },
 
-  // Uses the existing admin /pincodes/filters endpoint (proven to work)
   fetchStates: async () => {
     try {
       const { data } = await api.get('/api/admin/pincodes/filters');
@@ -116,7 +121,13 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   },
 
   clearFilters: () => {
-    set({ filters: { ...DEFAULT_FILTERS }, districts: [], pincodes: [], total: 0,
-          counts: { running: 0, completed: 0, stop: 0, pending: 0 } });
+    set({
+      filters:   { ...DEFAULT_FILTERS },
+      districts: [],
+      pincodes:  [],
+      total:     0,
+      counts:    { ...EMPTY_COUNTS },
+      error:     null,
+    });
   },
 }));

@@ -14,7 +14,8 @@ const deviceSchema = new mongoose.Schema(
     totalMemoryGB: { type: Number },
     macAddresses: [{ type: String }],
     networkInterfaces: { type: mongoose.Schema.Types.Mixed },
-    ip: { type: String, trim: true, default: '' },
+    ip: { type: String, trim: true, default: '' },        // first registration IP
+    ips: [{ type: String, trim: true }],                    // all unique IPs (accumulated)
     isActive: { type: Boolean, default: true },
     status: { type: String, enum: ['online', 'offline'], default: 'offline' },
     lastSeenAt: { type: Date, default: Date.now },

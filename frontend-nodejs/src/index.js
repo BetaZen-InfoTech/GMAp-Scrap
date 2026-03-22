@@ -520,6 +520,12 @@ async function main() {
     const { chunkIdx, pincodes, chunkStart, chunkEnd, totalSearches, jobId, completedJobSearches } = jobDef;
     let jobCompletedCount = jobDef.jobCompletedCount;
     const tag = `[Job ${chunkIdx + 1}/${totalJobs}]`;
+    const jobStartTime = Date.now();
+
+    // Per-job stats
+    let totalRecords  = 0;
+    let totalErrors   = 0;
+    let totalSkipped  = 0;
 
     print(chalk.bold.cyan(
       `\n${'═'.repeat(60)}\n` +
@@ -557,6 +563,7 @@ async function main() {
           const searchKey = `${pincodeInfo.Pincode}|${niche.Category}|${niche.SubCategory}|${round}`;
           if (completedJobSearches.has(searchKey)) {
             skippedCount++;
+            totalSkipped++;
             continue;
           }
 
@@ -564,6 +571,7 @@ async function main() {
           const alreadyDone = await isAlreadyScraped(keyword, round);
           if (alreadyDone) {
             skippedCount++;
+            totalSkipped++;
             markSearchComplete(jobId, {
               deviceId, pincode: pincodeInfo.Pincode,
               district: pincodeInfo.District, stateName: pincodeInfo.StateName,
@@ -592,6 +600,7 @@ async function main() {
               niche.Category, niche.SubCategory,
               { district: pincodeInfo.District, stateName: pincodeInfo.StateName, round, jobId }
             );
+            totalRecords += result.totalScraped;
             print(chalk.bold.green(`  ${tag} ✓ Completed  (${result.totalScraped} records)`));
             completedCache.add(`${keyword}|R${round}`);
 
@@ -604,6 +613,7 @@ async function main() {
             });
             updateJobProgress(jobId, { pincodeIndex: pi, nicheIndex: nicheProgressIdx, completedSearches: jobCompletedCount, status: 'running' });
           } catch (err) {
+            totalErrors++;
             print(chalk.red(`  ${tag} ✗ Error: ${err.message}`));
           }
 
@@ -616,23 +626,63 @@ async function main() {
 
     // ── Mark job completed ──────────────────────────────────────────────
     updateJobProgress(jobId, { completedSearches: jobCompletedCount, status: 'completed' });
+    const jobDurationMs = Date.now() - jobStartTime;
     print(chalk.bold.green(`  ${tag} ✓ Job completed (${jobCompletedCount} searches)`));
+
+    return { totalSearches, totalRecords, totalSkipped, totalErrors, jobCompletedCount, jobDurationMs, chunkStart, chunkEnd };
   }
 
   // Launch all jobs in parallel
-  await Promise.all(jobDefs.map(jobDef => executeJob(jobDef)));
+  const jobResults = await Promise.all(jobDefs.map(jobDef => executeJob(jobDef)));
 
   // ── Done ──────────────────────────────────────────────────────────────────
   liveMonitor.stop();
   liveMonitor = null;
 
-  const jobsText = totalJobs > 1 ? `${totalJobs} jobs finished` : 'Job finished';
+  // Aggregate stats across all jobs
+  const sumRecords   = jobResults.reduce((s, r) => s + r.totalRecords, 0);
+  const sumSkipped   = jobResults.reduce((s, r) => s + r.totalSkipped, 0);
+  const sumErrors    = jobResults.reduce((s, r) => s + r.totalErrors, 0);
+  const sumSearches  = jobResults.reduce((s, r) => s + r.jobCompletedCount, 0);
+  const maxDuration  = Math.max(...jobResults.map(r => r.jobDurationMs));
+
+  function formatDuration(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
   const endW = 52;
   const endPad = (s) => s + ' '.repeat(Math.max(0, endW - s.length));
+  const endTime = new Date().toLocaleString('en-IN');
+
   console.log('');
   console.log(chalk.bold.green(`  ╔${'═'.repeat(endW)}╗`));
-  console.log(chalk.bold.green('  ║') + chalk.bold.white(endPad('          All scraping completed!')) + chalk.bold.green('║'));
-  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`          ${jobsText}`)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.bold.white(endPad('        ✓  ALL SCRAPING COMPLETED!  ✓')) + chalk.bold.green('║'));
+  console.log(chalk.bold.green(`  ╠${'═'.repeat(endW)}╣`));
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`   Jobs       : ${totalJobs}`)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`   Searches   : ${sumSearches} completed`)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`   Records    : ${sumRecords} scraped`)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`   Skipped    : ${sumSkipped} (already done)`)) + chalk.bold.green('║'));
+  if (sumErrors > 0) {
+    console.log(chalk.bold.green('  ║') + chalk.yellow(endPad(`   Errors     : ${sumErrors}`)) + chalk.bold.green('║'));
+  }
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`   Duration   : ${formatDuration(maxDuration)}`)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(endPad(`   Finished   : ${endTime}`)) + chalk.bold.green('║'));
+
+  // Per-job breakdown (only if multi-job)
+  if (totalJobs > 1) {
+    console.log(chalk.bold.green(`  ╠${'═'.repeat(endW)}╣`));
+    for (const r of jobResults) {
+      const line = `   Pin ${r.chunkStart}→${r.chunkEnd}  ${r.totalRecords} rec  ${formatDuration(r.jobDurationMs)}`;
+      console.log(chalk.bold.green('  ║') + chalk.white(endPad(line)) + chalk.bold.green('║'));
+    }
+  }
+
   console.log(chalk.bold.green(`  ╚${'═'.repeat(endW)}╝`));
   console.log('');
 

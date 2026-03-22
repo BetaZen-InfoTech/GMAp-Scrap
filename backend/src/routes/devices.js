@@ -36,6 +36,7 @@ router.post('/register', async (req, res) => {
       macAddresses: deviceInfo?.macAddresses || [],
       networkInterfaces: deviceInfo?.networkInterfaces || {},
       ip: getClientIp(req),
+      ips: [getClientIp(req)].filter(Boolean),
       status: 'online',
       lastSeenAt: new Date(),
     });
@@ -65,7 +66,13 @@ router.post('/verify', async (req, res) => {
 
     device.lastSeenAt = new Date();
     device.status = 'online';
-    device.ip = getClientIp(req);
+
+    // Merge new IP into ips array (keep all unique IPs)
+    const currentIp = getClientIp(req);
+    if (currentIp && !device.ips.includes(currentIp)) {
+      device.ips.push(currentIp);
+    }
+
     await device.save();
 
     return res.json({ success: true, deviceId: device.deviceId, nickname: device.nickname || '' });
