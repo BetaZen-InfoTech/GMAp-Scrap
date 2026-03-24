@@ -93,9 +93,10 @@ export class ScrapeJobManager {
     const settings = getSettings();
     const base = getApiBaseUrl();
 
-    // Fetch pincodes in range
+    // Fetch pincodes in range (max 100 per job)
+    const PINCODES_PER_JOB = 100;
     const pincodeRes = await axios.get<PincodeInfo[]>(
-      `${base}/api/pincodes/range?start=${startPincode}&end=${endPincode}`,
+      `${base}/api/pincodes/range?start=${startPincode}&end=${endPincode}&limit=${PINCODES_PER_JOB}`,
     );
     const pincodes = pincodeRes.data;
     if (!pincodes.length) {

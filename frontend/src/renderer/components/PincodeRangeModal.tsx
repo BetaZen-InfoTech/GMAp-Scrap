@@ -45,7 +45,8 @@ const PincodeRangeModal: React.FC<PincodeRangeModalProps> = ({ open, onClose, on
     startNum <= 999999 &&
     endNum >= startNum;
 
-  const estimatedPincodes = validRange ? Math.max(1, endNum - startNum + 1) : 0;
+  const PINCODES_PER_JOB = 100;
+  const estimatedPincodes = validRange ? Math.min(Math.max(1, endNum - startNum + 1), PINCODES_PER_JOB) : 0;
   const displayNicheCount = nicheCount ?? '…';
   const estimatedSearches = nicheCount != null ? estimatedPincodes * nicheCount * ROUNDS : null;
 
@@ -147,7 +148,7 @@ const PincodeRangeModal: React.FC<PincodeRangeModalProps> = ({ open, onClose, on
                 </span> total searches
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                Actual count may differ based on unique pincodes found in the database.
+                Max {PINCODES_PER_JOB} pincodes per job. Actual count may differ based on unique pincodes in the database.
               </p>
             </div>
           )}
