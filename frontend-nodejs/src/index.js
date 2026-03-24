@@ -3,12 +3,12 @@
  *
  * Usage:
  *   npm start -- "hostname" startPincode endPincode   (range mode — single job)
- *   npm start -- "hostname" startPincode N            (multi-job — N jobs × 5 pincodes each)
+ *   npm start -- "hostname" startPincode N            (multi-job — N jobs × 100 pincodes each)
  *
  * Examples:
  *   npm start -- "DEMO PC 1" 700061 700062   → range mode, pincodes 700061–700062
- *   npm start -- "DEMO PC 1" 700061 5        → 5 jobs × 5 pincodes = 25 pincodes
- *   npm start -- "DEMO PC 1" 700061 15       → 15 jobs × 5 pincodes = 75 pincodes
+ *   npm start -- "DEMO PC 1" 700061 5        → 5 jobs × 100 pincodes = 500 pincodes
+ *   npm start -- "DEMO PC 1" 700061 15       → 15 jobs × 100 pincodes = 1500 pincodes
  *
  * Multiple instances can run independently (different pincode ranges).
  */
@@ -376,7 +376,7 @@ async function main() {
     endPincode   = parseInt(argEnd,   10);
     rl.close();
     if (parseInt(argEnd, 10) < 1000) {
-      console.log(chalk.cyan(`  Using CLI args: start=${startPincode}, ${endPincode} jobs × 5 pincodes`));
+      console.log(chalk.cyan(`  Using CLI args: start=${startPincode}, ${endPincode} jobs × 100 pincodes`));
     } else {
       console.log(chalk.cyan(`  Using CLI args: ${startPincode} → ${endPincode}`));
     }
@@ -397,10 +397,10 @@ async function main() {
   // ── Detect mode ─────────────────────────────────────────────────────────
   // If 3rd arg is a valid 6-digit pincode → range mode (single job)
   // If 3rd arg is small number (< 1000) → multi-job mode
-  //   3rd arg = number of jobs, each job gets 5 pincodes
-  //   e.g. 700061 5  → 5 jobs × 5 pincodes = 25 pincodes total
-  //   e.g. 700061 15 → 15 jobs × 5 pincodes = 75 pincodes total
-  const PINCODES_PER_JOB = 5;
+  //   3rd arg = number of jobs, each job gets 100 pincodes
+  //   e.g. 700061 5  → 5 jobs × 100 pincodes = 500 pincodes total
+  //   e.g. 700061 15 → 15 jobs × 100 pincodes = 1500 pincodes total
+  const PINCODES_PER_JOB = 100;
   const isMultiJobMode = endPincode < 1000;
   const numberOfJobs   = isMultiJobMode ? endPincode : 0;
   const totalNeeded    = isMultiJobMode ? numberOfJobs * PINCODES_PER_JOB : 0;
@@ -432,10 +432,10 @@ async function main() {
     process.exit(0);
   }
 
-  // ── Split into jobs (multi-job: 5 pincodes per job) ────────────────────
+  // ── Split into jobs (multi-job: 100 pincodes per job) ───────────────────
   const pincodeChunks = [];
   if (isMultiJobMode) {
-    // Take only the first totalNeeded pincodes, split into jobs of 5
+    // Take only the first totalNeeded pincodes, split into jobs of 100
     const needed = allPincodes.slice(0, totalNeeded);
     for (let i = 0; i < needed.length; i += PINCODES_PER_JOB) {
       pincodeChunks.push(needed.slice(i, i + PINCODES_PER_JOB));
