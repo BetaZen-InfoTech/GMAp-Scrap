@@ -19,6 +19,7 @@ interface SessionStore {
   filters: SessionFilters;
 
   fetchSessions: (page?: number) => Promise<void>;
+  setLimit: (limit: number) => void;
   setFilters: (filters: Partial<SessionFilters>) => void;
 }
 
@@ -42,5 +43,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
+  setLimit: (limit) => set({ limit }),
   setFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
 }));

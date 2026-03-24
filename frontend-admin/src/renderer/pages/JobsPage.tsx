@@ -125,7 +125,7 @@ const CronCard: React.FC<CronCardProps> = ({ name, label, description, interval 
 
 // ─── Main Page ───────────────────────────────────────────────────
 const JobsPage: React.FC = () => {
-  const { jobs, total, page, limit, loading, filters, statusCounts, fetchJobs, setFilters, clearFilters } = useJobsStore();
+  const { jobs, total, page, limit, loading, filters, statusCounts, fetchJobs, setLimit, setFilters, clearFilters } = useJobsStore();
   const { devices, fetchDevices } = useDeviceStore();
 
   useEffect(() => {
@@ -316,7 +316,7 @@ const JobsPage: React.FC = () => {
               </table>
             </div>
             <div className="border-t border-slate-800 px-4 py-2">
-              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchJobs(p)} />
+              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchJobs(p)} onLimitChange={(l) => { setLimit(l); setTimeout(() => fetchJobs(1), 0); }} />
             </div>
           </>
         )}

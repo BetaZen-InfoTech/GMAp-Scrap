@@ -173,7 +173,7 @@ const ScrapDatabasePage: React.FC = () => {
           value={filters.search || ''}
           onChange={(e) => setFilters({ search: e.target.value })}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="Search name, keyword, address..."
+          placeholder="Search name, phone, email, website..."
           className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-56"
         />
         <MultiSelect
@@ -403,7 +403,7 @@ const ScrapDatabasePage: React.FC = () => {
               <ScrapExcelView records={records} selectedIds={selectedIds} onToggleSelect={toggleSelect} />
             )}
             <div className="border-t border-slate-800 px-4 py-2 shrink-0">
-              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchRecords(p)} />
+              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchRecords(p)} onLimitChange={(l) => { setLimit(l); setTimeout(() => fetchRecords(1), 0); }} />
             </div>
           </>
         )}

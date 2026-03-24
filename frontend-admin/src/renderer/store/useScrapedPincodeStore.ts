@@ -17,6 +17,7 @@ interface ScrapedPincodeStore {
   filters: ScrapedPincodeFilters;
 
   fetchPincodes: (page?: number) => Promise<void>;
+  setLimit: (limit: number) => void;
   setFilters: (filters: Partial<ScrapedPincodeFilters>) => void;
   clearFilters: () => void;
 }
@@ -46,6 +47,7 @@ export const useScrapedPincodeStore = create<ScrapedPincodeStore>((set, get) => 
     }
   },
 
+  setLimit: (limit) => set({ limit }),
   setFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
   clearFilters: () => set({ filters: {} }),
 }));

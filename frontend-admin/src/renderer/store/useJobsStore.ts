@@ -25,6 +25,7 @@ interface JobsStore {
   statusCounts: StatusCounts;
 
   fetchJobs: (page?: number) => Promise<void>;
+  setLimit: (limit: number) => void;
   setFilters: (f: Partial<JobFilters>) => void;
   clearFilters: () => void;
 }
@@ -58,6 +59,7 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
     }
   },
 
+  setLimit: (limit) => set({ limit }),
   setFilters: (f) => set((s) => ({ filters: { ...s.filters, ...f } })),
   clearFilters: () => set({ filters: {} }),
 }));

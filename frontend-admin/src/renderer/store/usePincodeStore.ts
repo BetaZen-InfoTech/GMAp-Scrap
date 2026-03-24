@@ -19,6 +19,7 @@ interface PincodeStore {
 
   fetchPincodes: (page?: number) => Promise<void>;
   fetchFilterOptions: (states?: string[]) => Promise<void>;
+  setLimit: (limit: number) => void;
   setFilters: (filters: Partial<PincodeFilters>) => void;
   clearFilters: () => void;
 }
@@ -59,6 +60,7 @@ export const usePincodeStore = create<PincodeStore>((set, get) => ({
     }
   },
 
+  setLimit: (limit) => set({ limit }),
   setFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
   clearFilters: () => set({ filters: {} }),
 }));

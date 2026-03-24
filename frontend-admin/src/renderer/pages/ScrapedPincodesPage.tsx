@@ -13,7 +13,7 @@ const STATUS_OPTIONS = [
 const ScrapedPincodesPage: React.FC = () => {
   const {
     pincodes, total, page, limit, loading,
-    filters, fetchPincodes, setFilters, clearFilters,
+    filters, fetchPincodes, setLimit, setFilters, clearFilters,
   } = useScrapedPincodeStore();
 
   useEffect(() => {
@@ -187,7 +187,7 @@ const ScrapedPincodesPage: React.FC = () => {
               </table>
             </div>
             <div className="border-t border-slate-800 px-4 py-2">
-              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchPincodes(p)} />
+              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchPincodes(p)} onLimitChange={(l) => { setLimit(l); setTimeout(() => fetchPincodes(1), 0); }} />
             </div>
           </>
         )}

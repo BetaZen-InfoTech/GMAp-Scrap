@@ -8,7 +8,7 @@ const PincodeDetailsPage: React.FC = () => {
   const {
     pincodes, total, page, limit, loading,
     filters, filterOptions,
-    fetchPincodes, fetchFilterOptions, setFilters, clearFilters,
+    fetchPincodes, fetchFilterOptions, setLimit, setFilters, clearFilters,
   } = usePincodeStore();
 
   useEffect(() => {
@@ -139,7 +139,7 @@ const PincodeDetailsPage: React.FC = () => {
               </table>
             </div>
             <div className="border-t border-slate-800 px-4 py-2">
-              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchPincodes(p)} />
+              <Pagination page={page} total={total} limit={limit} onPageChange={(p) => fetchPincodes(p)} onLimitChange={(l) => { setLimit(l); setTimeout(() => fetchPincodes(1), 0); }} />
             </div>
           </>
         )}

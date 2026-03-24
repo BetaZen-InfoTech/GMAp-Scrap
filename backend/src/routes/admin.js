@@ -801,6 +801,9 @@ function buildScrapDbFilter(params) {
       { nameEnglish: { $regex: search, $options: 'i' } },
       { scrapKeyword: { $regex: search, $options: 'i' } },
       { address: { $regex: search, $options: 'i' } },
+      { phone: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { website: { $regex: search, $options: 'i' } },
     ];
   }
   if (category) {

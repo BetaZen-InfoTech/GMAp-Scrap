@@ -6,7 +6,7 @@ import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
 
 const SessionsPage: React.FC = () => {
-  const { sessions, total, page, limit, loading, filters, fetchSessions, setFilters } = useSessionStore();
+  const { sessions, total, page, limit, loading, filters, fetchSessions, setLimit, setFilters } = useSessionStore();
   const { devices, fetchDevices } = useDeviceStore();
 
   const [localKeyword, setLocalKeyword] = useState(filters.keyword || '');
@@ -131,6 +131,7 @@ const SessionsPage: React.FC = () => {
             total={total}
             limit={limit}
             onPageChange={(p) => fetchSessions(p)}
+            onLimitChange={(l) => { setLimit(l); setTimeout(() => fetchSessions(1), 0); }}
           />
         </div>
       )}
