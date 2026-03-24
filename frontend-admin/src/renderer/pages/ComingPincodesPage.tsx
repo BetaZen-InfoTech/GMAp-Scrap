@@ -84,9 +84,10 @@ const ComingPincodesPage: React.FC = () => {
     setFilters, clearFilters,
   } = useComingPincodeStore();
 
-  // Load states on mount; don't auto-fetch pincodes (requires state selection first)
+  // Load states and all pincodes on mount
   useEffect(() => {
     fetchStates();
+    fetchPincodes(1, '', '', []);
   }, []);
 
   // When state filter changes, reload districts and reset district filter
@@ -94,10 +95,8 @@ const ComingPincodesPage: React.FC = () => {
     setFilters({ state, district: '' });
     if (state) {
       fetchDistricts(state);
-      fetchPincodes(1, state, '', filters.statuses);
-    } else {
-      clearFilters();
     }
+    fetchPincodes(1, state, '', filters.statuses);
   };
 
   const handleDistrictChange = (district: string) => {
@@ -234,18 +233,7 @@ const ComingPincodesPage: React.FC = () => {
           </div>
         ) : pincodes.length === 0 ? (
           <div className="p-12 flex flex-col items-center gap-3 text-center">
-            {!filters.state ? (
-              <>
-                <svg className="w-10 h-10 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <p className="text-slate-400 text-sm font-medium">Select a state to view pincodes</p>
-                <p className="text-slate-600 text-xs">Use the state dropdown above to filter by state</p>
-              </>
-            ) : (
-              <p className="text-slate-500 text-sm">No pincodes match the selected filters.</p>
-            )}
+            <p className="text-slate-500 text-sm">No pincodes match the selected filters.</p>
           </div>
         ) : (
           <>

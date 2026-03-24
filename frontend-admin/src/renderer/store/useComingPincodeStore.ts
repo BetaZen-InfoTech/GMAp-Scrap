@@ -65,19 +65,14 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
   districts: [],
 
   fetchPincodes: async (page, state, district, statuses) => {
-    if (!state) {
-      set({ pincodes: [], total: 0, page: 1, counts: { ...EMPTY_COUNTS }, error: null });
-      return;
-    }
-
     set({ loading: true, error: null });
     try {
       const { limit } = get();
       const params: Record<string, string> = {
-        state,
         page:  String(page),
         limit: String(limit),
       };
+      if (state)                   params.state        = state;
       if (district)                params.district     = district;
       if (statuses && statuses.length > 0) params.statusFilter = statuses.join(',');
 

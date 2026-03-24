@@ -543,16 +543,13 @@ router.get('/pincodes/coming-status', async (req, res) => {
     const page  = Math.max(1, parseInt(pageQ,  10) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(limitQ, 10) || 50));
 
-    if (!state) {
-      return res.json({ pincodes: [], total: 0, page, limit, counts: { running: 0, completed: 0, stop: 0, pending: 0 } });
-    }
-
     const statusFilters = statusFilter
       ? statusFilter.split(',').map(s => s.trim()).filter(Boolean)
       : [];
 
-    const pinFilter = { StateName: state };
-    if (district) pinFilter.District = district;
+    const pinFilter = {};
+    if (state)    pinFilter.StateName = state;
+    if (district) pinFilter.District  = district;
 
     const rawPincodes = await PinCode.find(
       pinFilter, { Pincode: 1, District: 1, StateName: 1, _id: 0 }
