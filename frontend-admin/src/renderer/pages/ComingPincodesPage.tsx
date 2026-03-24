@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useComingPincodeStore, PincodeRowStatus } from '../store/useComingPincodeStore';
 import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
@@ -81,8 +81,13 @@ const ComingPincodesPage: React.FC = () => {
     pincodes, total, page, limit, loading, error, counts, filters,
     states, districts,
     fetchPincodes, fetchStates, fetchDistricts,
-    setFilters, clearFilters,
+    setLimit, setFilters, clearFilters,
   } = useComingPincodeStore();
+
+  const [jumpPage, setJumpPage] = useState('');
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  const PAGE_SIZES = [10, 25, 50, 100, 250, 500, 750, 1000];
 
   // Load states and all pincodes on mount
   useEffect(() => {
@@ -116,6 +121,22 @@ const ComingPincodesPage: React.FC = () => {
 
   const handleClear = () => {
     clearFilters();
+    fetchPincodes(1, '', '', []);
+  };
+
+  const handlePageSizeChange = (newLimit: number) => {
+    setLimit(newLimit);
+    // Need to re-fetch with new limit — store will use the updated limit
+    // But fetchPincodes reads limit from store, and setLimit is sync, so fetch after
+    setTimeout(() => fetchPincodes(1, filters.state, filters.district, filters.statuses), 0);
+  };
+
+  const handleJumpToPage = () => {
+    const p = parseInt(jumpPage, 10);
+    if (p >= 1 && p <= totalPages) {
+      fetchPincodes(p, filters.state, filters.district, filters.statuses);
+      setJumpPage('');
+    }
   };
 
   const hasFilters = filters.state || filters.district || filters.statuses.length > 0;
@@ -293,8 +314,51 @@ const ComingPincodesPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-slate-800 px-4 py-2">
+            <div className="border-t border-slate-800 px-4 py-2 flex items-center justify-between gap-4">
+              {/* Left: page size + showing info */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">Show</span>
+                  <select
+                    value={limit}
+                    onChange={e => handlePageSizeChange(Number(e.target.value))}
+                    className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {PAGE_SIZES.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-slate-500">per page</span>
+                </div>
+                <span className="text-xs text-slate-500">
+                  Showing {((page - 1) * limit) + 1}–{Math.min(page * limit, total)} of {total.toLocaleString()}
+                </span>
+              </div>
+
+              {/* Center: pagination */}
               <Pagination page={page} total={total} limit={limit} onPageChange={p => fetchPincodes(p, filters.state, filters.district, filters.statuses)} />
+
+              {/* Right: jump to page */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500">Go to</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={jumpPage}
+                  onChange={e => setJumpPage(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleJumpToPage()}
+                  placeholder={String(page)}
+                  className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white w-16 focus:outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <button
+                  onClick={handleJumpToPage}
+                  className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 transition-colors"
+                >
+                  Go
+                </button>
+                <span className="text-xs text-slate-600">/ {totalPages}</span>
+              </div>
             </div>
           </>
         )}

@@ -45,6 +45,7 @@ interface ComingPincodeState {
   fetchPincodes:  (page: number, state: string, district?: string, statuses?: PincodeRowStatus[]) => Promise<void>;
   fetchStates:    () => Promise<void>;
   fetchDistricts: (state: string) => Promise<void>;
+  setLimit:       (limit: number) => void;
   setFilters:     (f: Partial<Filters>) => void;
   clearFilters:   () => void;
 }
@@ -109,6 +110,10 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
     } catch (err) {
       console.error('[useComingPincodeStore] fetchDistricts error:', err);
     }
+  },
+
+  setLimit: (limit) => {
+    set({ limit });
   },
 
   setFilters: (f) => {

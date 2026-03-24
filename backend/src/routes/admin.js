@@ -541,7 +541,7 @@ router.get('/pincodes/coming-status', async (req, res) => {
   try {
     const { state, district, statusFilter, page: pageQ, limit: limitQ } = req.query;
     const page  = Math.max(1, parseInt(pageQ,  10) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(limitQ, 10) || 50));
+    const limit = Math.min(1000, Math.max(1, parseInt(limitQ, 10) || 50));
 
     const statusFilters = statusFilter
       ? statusFilter.split(',').map(s => s.trim()).filter(Boolean)
