@@ -3,6 +3,27 @@ const router = express.Router();
 const ScrapeTracking = require('../models/ScrapeTracking');
 const SearchStatus = require('../models/SearchStatus');
 
+// POST /api/scrape-tracking/completed-searches-global — get all completed searches (across all jobs)
+// Body: { pincodes: [700001, 700002, ...] } — filter by pincodes for efficiency
+router.post('/completed-searches-global', async (req, res) => {
+  try {
+    const { pincodes } = req.body;
+    const filter = { status: 'completed' };
+    if (Array.isArray(pincodes) && pincodes.length > 0) {
+      filter.pincode = { $in: pincodes };
+    }
+    // Return both rounds (new) and round (old) so CLI can handle both formats
+    const docs = await SearchStatus.find(
+      filter,
+      { pincode: 1, category: 1, subCategory: 1, rounds: 1, round: 1, _id: 0 }
+    ).lean();
+    res.json(docs);
+  } catch (err) {
+    console.error('[completed-searches-global POST] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // POST /api/scrape-tracking — create new job tracking doc
 router.post('/', async (req, res) => {
   try {
@@ -85,11 +106,12 @@ router.patch('/:jobId', async (req, res) => {
 });
 
 // GET /api/scrape-tracking/:jobId/completed-searches — get all completed searches for a job
+// Returns docs with rounds array — CLI expands them into individual search keys
 router.get('/:jobId/completed-searches', async (req, res) => {
   try {
     const docs = await SearchStatus.find(
       { jobId: req.params.jobId, status: 'completed' },
-      { pincode: 1, category: 1, subCategory: 1, round: 1, _id: 0 }
+      { pincode: 1, category: 1, subCategory: 1, rounds: 1, _id: 0 }
     ).lean();
     res.json(docs);
   } catch (err) {
@@ -99,6 +121,7 @@ router.get('/:jobId/completed-searches', async (req, res) => {
 });
 
 // POST /api/scrape-tracking/:jobId/search-complete — mark a single search as completed
+// Single doc per (pincode, category, subCategory) — rounds tracked as array [1,2,3]
 router.post('/:jobId/search-complete', async (req, res) => {
   try {
     const { deviceId, pincode, district, stateName, category, subCategory, round, sessionId } = req.body;
@@ -109,20 +132,20 @@ router.post('/:jobId/search-complete', async (req, res) => {
 
     const doc = await SearchStatus.findOneAndUpdate(
       {
-        jobId: req.params.jobId,
         pincode,
         category,
         subCategory,
-        round,
       },
       {
         $set: {
+          jobId: req.params.jobId,
           deviceId,
           district,
           stateName,
           sessionId,
           status: 'completed',
         },
+        $addToSet: { rounds: round },
       },
       { upsert: true, new: true }
     );

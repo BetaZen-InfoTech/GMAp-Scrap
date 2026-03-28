@@ -37,12 +37,26 @@ async function runPincodeCompletionCheck() {
     return { updated: 0, completed: 0, running: 0 };
   }
 
-  // Aggregate: for each (pincode, round) → count of completed searches
+  // Aggregate: for each pincode → count completed niches per round
+  // Handles both new format (rounds: [1,2,3]) and old format (round: 1)
   const roundStats = await SearchStatus.aggregate([
     { $match: { status: 'completed' } },
+    // Normalize: merge old `round` field into `rounds` array if rounds is empty/missing
+    {
+      $addFields: {
+        _rounds: {
+          $cond: {
+            if: { $and: [{ $isArray: '$rounds' }, { $gt: [{ $size: '$rounds' }, 0] }] },
+            then: '$rounds',
+            else: { $cond: { if: { $ifNull: ['$round', false] }, then: ['$round'], else: [] } },
+          },
+        },
+      },
+    },
+    { $unwind: '$_rounds' },
     {
       $group: {
-        _id: { pincode: '$pincode', round: '$round' },
+        _id: { pincode: '$pincode', round: '$_rounds' },
         completedCount: { $sum: 1 },
       },
     },
@@ -83,9 +97,10 @@ async function runPincodeCompletionCheck() {
       .map((r) => r.round)
       .sort((a, b) => a - b);
 
+    // All 3 rounds must exist AND each must have all niches completed
     const allRoundsDone =
-      item.rounds.length > 0 &&
-      item.rounds.every((r) => r.completedCount >= totalNiches);
+      completedRounds.length >= 3 &&
+      [1, 2, 3].every((r) => completedRounds.includes(r));
 
     const status = allRoundsDone ? 'completed' : 'running';
     if (allRoundsDone) completedCount++;

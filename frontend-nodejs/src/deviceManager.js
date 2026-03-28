@@ -82,26 +82,6 @@ function buildDeviceInfo() {
   };
 }
 
-// ── Registration ──────────────────────────────────────────────────────────────
-
-async function registerDevice(nickname) {
-  const res = await axios.post(
-    `${API_BASE_URL}/api/devices/register`,
-    {
-      password:   REG_PASSWORD,
-      nickname:   String(nickname).trim(),
-      deviceInfo: buildDeviceInfo(),
-    },
-    { timeout: 15000 }
-  );
-
-  if (!res.data?.success || !res.data?.deviceId) {
-    throw new Error(res.data?.error || 'Registration failed');
-  }
-
-  return res.data.deviceId;
-}
-
 async function verifyDevice(deviceId) {
   try {
     const res = await axios.post(
@@ -159,17 +139,37 @@ async function ensureDevice(chalk, overrideNickname) {
 
 async function _register(nickname, chalk) {
   try {
-    const deviceId = await registerDevice(nickname);
+    const res = await axios.post(
+      `${API_BASE_URL}/api/devices/register`,
+      {
+        password:   REG_PASSWORD,
+        nickname:   String(nickname).trim(),
+        deviceInfo: buildDeviceInfo(),
+      },
+      { timeout: 15000 }
+    );
+
+    if (!res.data?.success || !res.data?.deviceId) {
+      throw new Error(res.data?.error || 'Registration failed');
+    }
+
+    const deviceId = res.data.deviceId;
     saveDevice({
       deviceId,
       nickname,
       registeredAt: new Date().toISOString(),
       host: safeGet(() => os.hostname(), 'unknown'),
     });
-    console.log(chalk.green(`  ✓ Registered as "${nickname}"  (ID: ${deviceId.substring(0, 8)}…)`));
+
+    if (res.data.existing) {
+      console.log(chalk.cyan(`  ✓ IP already registered — using device "${res.data.message}" (ID: ${deviceId.substring(0, 8)}…)`));
+    } else {
+      console.log(chalk.green(`  ✓ Registered as "${nickname}"  (ID: ${deviceId.substring(0, 8)}…)`));
+    }
     return deviceId;
   } catch (err) {
-    console.log(chalk.yellow(`  ⚠ Registration failed: ${err.message}`));
+    const msg = err.response?.data?.error || err.message;
+    console.log(chalk.yellow(`  ⚠ Registration failed: ${msg}`));
     console.log(chalk.yellow('  Continuing without a device ID'));
     return null;
   }

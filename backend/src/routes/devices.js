@@ -20,6 +20,30 @@ router.post('/register', async (req, res) => {
   }
 
   try {
+    // One IP = one device — if already registered, return existing deviceId
+    const clientIp = getClientIp(req);
+    if (clientIp) {
+      const existing = await Device.findOne({
+        isActive: true,
+        $or: [{ ip: clientIp }, { ips: clientIp }],
+      });
+      if (existing) {
+        // Update nickname if provided
+        if (nickname?.trim() && nickname.trim() !== existing.nickname) {
+          existing.nickname = nickname.trim();
+        }
+        existing.lastSeenAt = new Date();
+        existing.status = 'online';
+        await existing.save();
+        return res.json({
+          success: true,
+          deviceId: existing.deviceId,
+          existing: true,
+          message: `IP already registered — using device: ${existing.nickname || existing.deviceId.slice(0, 8)}`,
+        });
+      }
+    }
+
     const deviceId = crypto.randomUUID();
 
     const device = new Device({

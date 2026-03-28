@@ -68,3 +68,7 @@ server.listen( PORT, () =>
 {
   console.log( `[Backend] Running on port ${ PORT } | state: ${ APP_STATE } | env: ${ process.env.NODE_ENV }` );
 } );
+
+// Allow long-running admin requests (dedup etc.) — 10 min
+server.timeout = 600000;
+server.keepAliveTimeout = 600000;

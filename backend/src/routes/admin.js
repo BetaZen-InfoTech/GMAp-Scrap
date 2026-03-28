@@ -1041,17 +1041,36 @@ router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
 });
 
 // ── PATCH /api/admin/scrap-database/mark-website-scraped ──
+// Marks ALL records with the same website URL as scraped (not just the given ids)
 router.patch('/scrap-database/mark-website-scraped', async (req, res) => {
   try {
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids array required' });
     }
-    const result = await ScrapedData.updateMany(
-      { _id: { $in: ids } },
-      { $set: { scrapWebsite: true } }
-    );
-    res.json({ success: true, modifiedCount: result.modifiedCount });
+
+    // Get website URLs for the given ids
+    const docs = await ScrapedData.find({ _id: { $in: ids } }, { website: 1 }).lean();
+    const urls = [...new Set(docs.map((d) => d.website).filter(Boolean))];
+
+    let modifiedCount = 0;
+    if (urls.length > 0) {
+      // Mark ALL records with these website URLs as scraped
+      const result = await ScrapedData.updateMany(
+        { website: { $in: urls } },
+        { $set: { scrapWebsite: true } }
+      );
+      modifiedCount = result.modifiedCount;
+    } else {
+      // Fallback: mark just the given ids
+      const result = await ScrapedData.updateMany(
+        { _id: { $in: ids } },
+        { $set: { scrapWebsite: true } }
+      );
+      modifiedCount = result.modifiedCount;
+    }
+
+    res.json({ success: true, modifiedCount });
   } catch (err) {
     console.error('[admin/scrap-database/mark-website-scraped] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -1067,12 +1086,21 @@ router.post('/scrap-database/from-website', async (req, res) => {
       return res.status(400).json({ error: 'records array required' });
     }
 
-    const docs = records.map((r) => ({ ...r, scrapFrom: 'website' }));
+    // New records from website get both scrapFrom and scrapWebsite flags
+    const docs = records.map((r) => ({ ...r, scrapFrom: 'website', scrapWebsite: true }));
     const inserted = await ScrapedData.insertMany(docs, { ordered: false });
 
-    // Mark source record as website-scraped
+    // Mark ALL records with the same website URL as scraped
     if (sourceId) {
-      await ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } });
+      const source = await ScrapedData.findById(sourceId, { website: 1 }).lean();
+      if (source?.website) {
+        await ScrapedData.updateMany(
+          { website: source.website },
+          { $set: { scrapWebsite: true } }
+        );
+      } else {
+        await ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } });
+      }
     }
 
     res.status(201).json({ success: true, count: inserted.length });
@@ -1357,6 +1385,84 @@ router.post('/cron/run/:name', adminAuth, async (req, res) => {
     }
   } catch (err) {
     console.error(`[admin/cron/run/${name}] Error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/admin/search-status/dedup ── remove duplicate Search-Status entries
+// Keeps the first (oldest) entry per (category, subCategory, pincode), merges rounds, deletes the rest
+router.delete('/search-status/dedup', adminAuth, async (req, res) => {
+  try {
+    const startTime = Date.now();
+    console.log('[search-status/dedup] Starting — fetching duplicate groups via cursor (100 at a time)...');
+
+    // Group by (category, subCategory, pincode) — new schema has no round field
+    const cursor = SearchStatus.aggregate([
+      {
+        $group: {
+          _id: { category: '$category', subCategory: '$subCategory', pincode: '$pincode' },
+          keepId: { $min: '$_id' },
+          allRounds: { $push: '$rounds' },
+          count: { $sum: 1 },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+    ]).allowDiskUse(true).option({ maxTimeMS: 300000 }).cursor({ batchSize: 100 });
+
+    let groupsAffected = 0;
+    let deletedCount = 0;
+    let batch = [];
+
+    async function processBatch(groups) {
+      for (const g of groups) {
+        // Merge all rounds arrays into the kept doc
+        const mergedRounds = [...new Set(g.allRounds.flat())].sort((a, b) => a - b);
+        await SearchStatus.updateOne(
+          { _id: g.keepId },
+          { $set: { rounds: mergedRounds } }
+        );
+        // Delete all other docs in this group
+        const result = await SearchStatus.deleteMany({
+          category: g._id.category,
+          subCategory: g._id.subCategory,
+          pincode: g._id.pincode,
+          _id: { $ne: g.keepId },
+        });
+        deletedCount += result.deletedCount;
+      }
+    }
+
+    for await (const group of cursor) {
+      batch.push(group);
+      groupsAffected++;
+
+      if (batch.length >= 100) {
+        await processBatch(batch);
+        console.log(`[search-status/dedup] Processed ${groupsAffected} groups — deleted ${deletedCount} so far`);
+        batch = [];
+      }
+    }
+
+    if (batch.length > 0) {
+      await processBatch(batch);
+      console.log(`[search-status/dedup] Processed ${groupsAffected} groups — deleted ${deletedCount} so far`);
+    }
+
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (deletedCount === 0) {
+      console.log(`[search-status/dedup] No duplicates found (${totalTime}s)`);
+      return res.json({ message: 'No duplicates found', deletedCount: 0, groupsAffected: 0 });
+    }
+
+    console.log(`[search-status/dedup] Done. Deleted ${deletedCount} duplicates across ${groupsAffected} groups in ${totalTime}s`);
+    res.json({
+      message: `Deleted ${deletedCount} duplicate Search-Status entries`,
+      deletedCount,
+      groupsAffected,
+    });
+  } catch (err) {
+    console.error('[search-status/dedup] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -123,6 +123,63 @@ const CronCard: React.FC<CronCardProps> = ({ name, label, description, interval 
   );
 };
 
+// ─── Admin Action Card ──────────────────────────────────────────
+interface ActionCardProps {
+  label: string;
+  description: string;
+  buttonLabel?: string;
+  buttonColor?: string;
+  onRun: () => Promise<string>;
+}
+
+const ActionCard: React.FC<ActionCardProps> = ({ label, description, buttonLabel = 'Run', buttonColor = 'bg-red-600 hover:bg-red-500', onRun }) => {
+  const [running, setRunning] = useState(false);
+  const [result, setResult]   = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
+
+  const trigger = async () => {
+    setRunning(true);
+    setResult(null);
+    setError(null);
+    try {
+      const msg = await onRun();
+      setResult(msg);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start justify-between gap-4">
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-semibold text-white">{label}</span>
+        <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+        {result && <p className="text-xs text-emerald-400 mt-1.5 font-medium">{result}</p>}
+        {error && <p className="text-xs text-red-400 mt-1.5">{error}</p>}
+      </div>
+      <button
+        onClick={trigger}
+        disabled={running}
+        className={`shrink-0 flex items-center gap-1.5 ${buttonColor} disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors`}
+      >
+        {running ? (
+          <>
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            Running…
+          </>
+        ) : (
+          buttonLabel
+        )}
+      </button>
+    </div>
+  );
+};
+
 // ─── Main Page ───────────────────────────────────────────────────
 const JobsPage: React.FC = () => {
   const { jobs, total, page, limit, loading, filters, statusCounts, fetchJobs, setLimit, setFilters, clearFilters } = useJobsStore();
@@ -134,7 +191,7 @@ const JobsPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex flex-col gap-5 h-full min-h-0">
+    <div className="flex flex-col gap-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -200,6 +257,25 @@ const JobsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Admin Actions */}
+      <div>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Admin Actions</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <ActionCard
+            label="Search-Status Dedup"
+            description="Delete duplicate Search-Status entries matching same category, subCategory & pincode. Merges rounds, keeps oldest."
+            buttonLabel="Delete Duplicates"
+            buttonColor="bg-red-600 hover:bg-red-500"
+            onRun={async () => {
+              const res = await api.delete('/api/admin/search-status/dedup', { timeout: 300000 });
+              const d = res.data;
+              if (d.deletedCount === 0) return 'No duplicates found';
+              return `Deleted ${d.deletedCount} duplicates across ${d.groupsAffected} groups`;
+            }}
+          />
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <select
@@ -234,7 +310,7 @@ const JobsPage: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex-1 flex flex-col min-h-0">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
         {loading && jobs.length === 0 ? (
           <div className="p-8 flex justify-center"><Spinner message="Loading jobs..." /></div>
         ) : jobs.length === 0 ? (

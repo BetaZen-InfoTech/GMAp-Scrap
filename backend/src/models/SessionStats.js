@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const sessionStatsSchema = new mongoose.Schema(
   {
-    sessionId: { type: String, required: true },
+    sessionId: { type: String },
     jobId: { type: String, index: true },
     deviceId: { type: String, index: true },
     keyword: { type: String },
@@ -11,7 +11,8 @@ const sessionStatsSchema = new mongoose.Schema(
     stateName: { type: String },
     category: { type: String },
     subCategory: { type: String },
-    round: { type: Number },
+    // Tracks which rounds are completed — e.g. [1], [1,2], [1,2,3]
+    rounds: { type: [Number], default: [] },
     totalRecords: { type: Number, default: 0 },
     insertedRecords: { type: Number, default: 0 },
     duplicateRecords: { type: Number, default: 0 },
@@ -28,10 +29,10 @@ const sessionStatsSchema = new mongoose.Schema(
   }
 );
 
-// Unique per session
-sessionStatsSchema.index({ sessionId: 1 }, { unique: true });
-
-// Index for keyword-based completion check (used before each session)
-sessionStatsSchema.index({ keyword: 1, status: 1 }, { name: 'keyword_status_idx' });
+// One entry per (pincode + category + subCategory) — rounds tracked as array
+sessionStatsSchema.index(
+  { pincode: 1, category: 1, subCategory: 1 },
+  { unique: true, partialFilterExpression: { pincode: { $exists: true }, category: { $exists: true }, subCategory: { $exists: true } } }
+);
 
 module.exports = mongoose.model('SessionStats', sessionStatsSchema);

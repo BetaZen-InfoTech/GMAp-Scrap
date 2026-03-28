@@ -2,14 +2,15 @@ const mongoose = require('mongoose');
 
 const searchStatusSchema = new mongoose.Schema(
   {
-    jobId: { type: String, required: true, index: true },
+    jobId: { type: String, index: true },
     deviceId: { type: String },
     pincode: { type: Number, required: true },
     district: { type: String },
     stateName: { type: String },
     category: { type: String, required: true },
     subCategory: { type: String, required: true },
-    round: { type: Number, required: true },
+    // Tracks which rounds are completed — e.g. [1], [1,2], [1,2,3]
+    rounds: { type: [Number], default: [] },
     status: {
       type: String,
       enum: ['completed', 'error'],
@@ -23,9 +24,10 @@ const searchStatusSchema = new mongoose.Schema(
   }
 );
 
-// Compound unique index: one entry per (job + pincode + niche + round)
+// Compound unique index: one entry per (pincode + category + subCategory)
+// No jobId or round in the index — single doc tracks all rounds
 searchStatusSchema.index(
-  { jobId: 1, pincode: 1, subCategory: 1, category: 1, round: 1 },
+  { pincode: 1, category: 1, subCategory: 1 },
   { unique: true }
 );
 

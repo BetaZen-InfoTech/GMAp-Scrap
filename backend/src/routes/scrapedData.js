@@ -214,37 +214,47 @@ router.post('/excel', upload.single('file'), async (req, res) => {
 });
 
 // POST /api/scraped-data/session-stats — save or update session statistics
-// Only $set fields that are actually provided (not undefined) so partial
-// updates from different callers don't overwrite each other's data.
+// Single doc per (pincode, category, subCategory) — rounds tracked as array
+// Stats are accumulated ($inc) across rounds
 router.post('/session-stats', async (req, res) => {
   try {
-    const { sessionId } = req.body;
+    const { pincode, category, subCategory, round } = req.body;
 
-    if (!sessionId) {
-      return res.status(400).json({ error: 'sessionId is required' });
+    if (pincode == null || !category || !subCategory) {
+      return res.status(400).json({ error: 'pincode, category, subCategory are required' });
     }
 
     touchDevice(req.body.deviceId, getClientIp(req));
 
-    // Build $set only from defined fields
-    const fields = [
-      'jobId', 'deviceId', 'keyword',
+    const $set = {};
+    const setFields = [
+      'sessionId', 'jobId', 'deviceId', 'keyword',
       'pincode', 'district', 'stateName',
-      'category', 'subCategory', 'round',
-      'totalRecords', 'insertedRecords', 'duplicateRecords',
-      'batchesSent', 'excelUploaded', 'status',
+      'category', 'subCategory',
+      'excelUploaded', 'status',
       'startedAt', 'completedAt', 'durationMs',
     ];
-    const $set = {};
-    for (const key of fields) {
+    for (const key of setFields) {
       if (req.body[key] !== undefined) {
         $set[key] = req.body[key];
       }
     }
 
+    const $inc = {};
+    const incFields = ['totalRecords', 'insertedRecords', 'duplicateRecords', 'batchesSent'];
+    for (const key of incFields) {
+      if (req.body[key] !== undefined && req.body[key] > 0) {
+        $inc[key] = req.body[key];
+      }
+    }
+
+    const update = { $set };
+    if (Object.keys($inc).length > 0) update.$inc = $inc;
+    if (round != null) update.$addToSet = { rounds: round };
+
     const doc = await SessionStats.findOneAndUpdate(
-      { sessionId },
-      { $set },
+      { pincode, category, subCategory },
+      update,
       { upsert: true, new: true }
     );
 
@@ -256,15 +266,23 @@ router.post('/session-stats', async (req, res) => {
 });
 
 // GET /api/scraped-data/session-stats/check-completed — check if a search is already completed
-// Query params: keyword (required), round (optional — needed when keyword is same across rounds)
+// Query params: pincode, category, subCategory (required), round (optional)
 router.get('/session-stats/check-completed', async (req, res) => {
   try {
-    const { keyword, round } = req.query;
-    if (!keyword) {
-      return res.status(400).json({ error: 'keyword is required' });
+    const { pincode, category, subCategory, round, keyword } = req.query;
+
+    let filter;
+    if (pincode && category && subCategory) {
+      filter = { pincode: Number(pincode), category: String(category), subCategory: String(subCategory), status: 'completed' };
+      if (round != null) filter.rounds = Number(round);
+    } else if (keyword) {
+      // Fallback for legacy callers
+      filter = { keyword: String(keyword), status: 'completed' };
+      if (round != null) filter.rounds = Number(round);
+    } else {
+      return res.status(400).json({ error: 'pincode+category+subCategory or keyword is required' });
     }
-    const filter = { keyword: String(keyword), status: 'completed' };
-    if (round != null) filter.round = Number(round);
+
     const doc = await SessionStats.findOne(filter).lean();
     res.json({ completed: !!doc });
   } catch (err) {
@@ -278,7 +296,7 @@ router.get('/session-stats/completed/:jobId', async (req, res) => {
   try {
     const stats = await SessionStats.find(
       { jobId: req.params.jobId, status: 'completed' },
-      { pincode: 1, category: 1, subCategory: 1, round: 1, keyword: 1 }
+      { pincode: 1, category: 1, subCategory: 1, rounds: 1, keyword: 1 }
     ).lean();
     res.json(stats);
   } catch (err) {
