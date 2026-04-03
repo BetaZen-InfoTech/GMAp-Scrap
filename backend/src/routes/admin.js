@@ -573,12 +573,18 @@ router.get('/pincodes/coming-status', async (req, res) => {
 
     let merged = uniquePincodes.map(p => {
       const st = statusMap[String(p.Pincode)];
+      const completedRounds = st?.completedRounds || [];
+      // Only truly "completed" if rounds 1, 2, 3 are ALL done
+      let status = st?.status || 'pending';
+      if (status === 'completed' && !(completedRounds.length >= 3 && [1,2,3].every(r => completedRounds.includes(r)))) {
+        status = 'running';
+      }
       return {
         pincode:           p.Pincode,
         district:          p.District  || null,
         stateName:         p.StateName || null,
-        status:            st?.status  || 'pending',
-        completedRounds:   st?.completedRounds   || [],
+        status,
+        completedRounds,
         completedSearches: st?.completedSearches || 0,
         totalNiches:       st?.totalNiches       || 0,
         lastActivity:      st?.lastActivity      || null,
@@ -747,7 +753,7 @@ router.get('/scraped-pincodes', async (req, res) => {
         subCategories: (a.subCategories || []).filter(Boolean),
         rounds: (a.rounds || []).filter((r) => r != null).sort(),
         devices: (a.devices || []).filter(Boolean),
-        completionStatus: statusDoc.status || 'running',
+        completionStatus: (statusDoc.status === 'completed' && !((statusDoc.completedRounds || []).length >= 3 && [1,2,3].every(r => (statusDoc.completedRounds || []).includes(r)))) ? 'running' : (statusDoc.status || 'running'),
         completedRounds: statusDoc.completedRounds || [],
       };
     });
