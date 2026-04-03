@@ -534,7 +534,8 @@ async function main() {
   if (jobDefs.length === 0) {
     console.log(chalk.bold.green('\n  All jobs already completed — nothing to do.\n'));
     await printStats('Final');
-    process.exit(0);
+    waitIdle();
+    return;
   }
 
   if (jobDefs.length > 1) {
@@ -700,7 +701,15 @@ async function main() {
   console.log('');
 
   await printStats('Final');
-  process.exit(0);
+  waitIdle();
+}
+
+// ── Wait idle — keep process alive for PM2, no restart ───────────────────────
+
+function waitIdle() {
+  console.log(chalk.gray('\n  Process idle — all work done. Waiting for manual stop (pm2 delete / Ctrl+C).\n'));
+  // Keep alive with a long interval — PM2 sees "online", no restart
+  setInterval(() => {}, 60 * 60 * 1000);
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

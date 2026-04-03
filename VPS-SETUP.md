@@ -110,14 +110,14 @@ npm start -- "PC NAME" START-PIN END-PIN
 npm start -- "VPS-1" 700001 700010
 ```
 
-**Multi-job mode** — run N parallel jobs, each with 5 pincodes (auto-split):
+**Multi-job mode** — run N parallel jobs, each with 100 pincodes (auto-split):
 
 ```bash
 npm start -- "PC NAME" START-PIN NUMBER-OF-JOBS
 ```
 
 ```bash
-# Example: 10 parallel jobs × 5 pincodes = 50 pincodes starting from 700001
+# Example: 10 parallel jobs x 100 pincodes = 1000 pincodes starting from 700001
 npm start -- "VPS-1" 700001 10
 ```
 
@@ -125,7 +125,7 @@ npm start -- "VPS-1" 700001 10
 > If >= 1000, it's treated as an end pincode.
 >
 > All jobs run **in parallel** (not sequentially). A built-in CPU throttle
-> pauses sessions when CPU exceeds 90% and resumes when it drops back down.
+> pauses sessions when CPU exceeds 75% and resumes when it drops back down.
 
 ### Interactive mode (manual)
 
@@ -134,26 +134,39 @@ npm start
 # Will ask for nickname, start pincode, end pincode / number of jobs
 ```
 
+### Important behavior
+
+- **One IP = one device.** Each VPS registers once. If already registered, it reuses the existing device ID automatically.
+- **Resume support.** If the scraper stops and you restart with the same pincode range, it skips already-completed searches.
+- **No restart loop.** After all pincodes are scraped, the process exits cleanly. Running the same command again will print "All jobs already completed" and exit immediately.
+- **Rounds 1, 2, 3** are tracked in a single database entry per (pincode, category, subCategory). No duplicate entries.
+
 ---
 
-## 7. Auto-restart with PM2 (recommended)
+## 7. Running with PM2
 
-PM2 keeps the scraper running 24/7 and auto-restarts on crash or VPS reboot.
+PM2 manages your scraper processes — live logs, auto-restart on crash, survives SSH disconnect.
 
-### Install PM2
+After all jobs complete, the scraper stays idle (no restart, no exit). Delete it manually when done.
+
+### Install PM2 (one-time)
 
 ```bash
 npm install -g pm2
 ```
 
-> **No `sudo` here.** Since Node.js is installed via NVM (not system apt),
-> `sudo npm` would use the system Node (if any) and fail or install to the wrong location.
-> NVM's global installs don't need sudo.
+> **No `sudo`.** NVM's global installs don't need sudo.
 
-### Start a scraper instance
+### Start a scraper
 
 ```bash
 cd ~/GMAp-Scrap/frontend-nodejs
+```
+
+**Multi-job mode** (N jobs x 100 pincodes each):
+
+```bash
+pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 10
 ```
 
 **Range mode** (single job, all pincodes in range):
@@ -162,132 +175,62 @@ cd ~/GMAp-Scrap/frontend-nodejs
 pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 700050
 ```
 
-**Multi-job mode** (N parallel jobs × 5 pincodes each):
+### View live logs
+
+```bash
+pm2 logs scraper-1           # live logs for one scraper
+pm2 logs                     # live logs for all scrapers
+```
+
+Press `Ctrl+C` to stop viewing (scraper keeps running).
+
+### Run multiple scrapers (different pincode ranges)
 
 ```bash
 pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 10
-#                                                            ^^ 10 parallel jobs = 50 pincodes
+pm2 start npm --name "scraper-2" -- start -- "VPS-1" 800001 10
+pm2 start npm --name "scraper-3" -- start -- "VPS-1" 900001 10
 ```
 
-### Run multiple instances
-
-```bash
-# Range mode examples
-pm2 start npm --name "scraper-1" -- start -- "VPS-1" 110001 200000
-pm2 start npm --name "scraper-2" -- start -- "VPS-2" 200001 300000
-
-# Multi-job mode examples
-pm2 start npm --name "scraper-3" -- start -- "VPS-3" 300001 10
-pm2 start npm --name "scraper-4" -- start -- "VPS-4" 400001 15
-```
-
-Each instance gets its own device nickname and pincode range/jobs.
+> All instances share the same device ID (one IP = one device).
+> Each gets a different pincode range so they don't overlap.
 
 ### PM2 commands
 
 ```bash
-pm2 status               # see all instances
-pm2 logs                  # live logs (all instances)
-pm2 logs scraper-1        # logs for one instance
-pm2 restart scraper-1     # restart one instance
-pm2 restart all           # restart all
-pm2 stop scraper-1        # stop one
-pm2 stop all              # stop all
-pm2 delete scraper-1      # remove from pm2
+pm2 status               # see all scrapers + status
+pm2 logs                 # live logs (all)
+pm2 logs scraper-1       # live logs (one)
+pm2 delete scraper-1     # remove one scraper
+pm2 delete all           # remove all scrapers
 ```
 
-### Auto-start on VPS reboot
+### After completion
 
-After a server reboot, PM2 can automatically restart all your scraper processes. This requires a one-time setup.
+When all jobs finish, `pm2 status` shows the scraper as `online` (idle, not restarting).
 
-#### Quick setup (run once)
+```
+┌────┬──────────┬──────┬───────┐
+│ id │ name     │ mode │ status│
+├────┼──────────┼──────┼───────┤
+│ 0  │scraper-1 │ fork │online │  ← idle, all done
+└────┴──────────┴──────┴───────┘
+```
+
+Clean up when done:
 
 ```bash
-# 1. Generate startup script — this prints a sudo command, copy and run it
-pm2 startup
-
-# 2. Run the printed command (example, yours will differ):
-#    sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
-
-# 3. Save current process list so PM2 knows what to restore after reboot
-pm2 save
-```
-
-That's it. After any future reboot, PM2 will auto-restore all saved processes.
-
-#### Step-by-step explanation
-
-**Step 1:** Generate the startup script:
-
-```bash
-pm2 startup
-```
-
-This prints a command like:
-
-```
-[PM2] To setup the Startup Script, copy/paste the following command:
-sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
-```
-
-**Step 2:** Copy and run the printed command exactly as shown (with sudo).
-
-**Step 3:** Save the current process list so PM2 knows what to restart:
-
-```bash
-pm2 save
-```
-
-#### Verify it works
-
-```bash
-sudo reboot                # reboot the VPS
-# SSH back in after ~1 min
-pm2 status                 # all scrapers should be running
-pm2 logs                   # verify they resumed
-```
-
-> **Important:** Run `pm2 save` every time you add, remove, or change PM2 processes.
-> Otherwise, PM2 will restore the old process list on next reboot.
-
-#### Troubleshooting startup hook
-
-> **NVM note:** `pm2 startup` detects the currently active Node.js binary path (from NVM)
-> and bakes it into the generated sudo command. Make sure NVM's node is active
-> (`nvm use 22`) **before** running `pm2 startup`, so the correct path is used.
-
-**If `pm2 startup` doesn't work** (some VPS providers):
-
-```bash
-# Remove old startup hook
-pm2 unstartup systemd
-
-# Regenerate
-pm2 startup systemd
-# Run the printed sudo command
-pm2 save
-```
-
-**If processes don't come back after reboot:**
-
-```bash
-# Check if the systemd service exists
-systemctl status pm2-$(whoami)
-
-# If not active, re-run the setup
-pm2 startup
-# Run the printed sudo command
-pm2 save
-
-# Verify the service is enabled
-systemctl is-enabled pm2-$(whoami)
+pm2 delete scraper-1     # remove one
+pm2 delete all           # remove all
 ```
 
 ### Update code and restart
 
 ```bash
-cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install && npx playwright install chromium && npx playwright install-deps chromium && pm2 restart all
+cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install && npx playwright install chromium && npx playwright install-deps chromium
 ```
+
+Then start new scraper instances. Old completed jobs will be skipped automatically.
 
 ---
 
@@ -358,45 +301,12 @@ sudo apt-get install -y speedtest-cli
 speedtest-cli
 ```
 
-Sample output:
-```
-Testing download speed................
-Download: 842.35 Mbit/s
-Testing upload speed......
-Upload: 521.10 Mbit/s
-Ping: 3.24 ms
-```
-
-> Run this right after SSH login to quickly check if the VPS network is healthy before starting scrapers.
-
 #### Auto-run speedtest on every SSH login
-
-Add the speedtest to your shell profile so it runs automatically each time you log in:
-
-**If you installed `speedtest-cli` (Python, apt):**
 
 ```bash
 echo 'echo "--- Speed Test ---" && speedtest-cli --simple' >> ~/.bashrc
 source ~/.bashrc
 ```
-
-**If you installed `speedtest` (Ookla CLI):**
-
-```bash
-echo 'echo "--- Speed Test ---" && speedtest' >> ~/.bashrc
-source ~/.bashrc
-```
-
-`--simple` (speedtest-cli only) shows only ping/download/upload — faster, no progress dots:
-
-```
-Ping: 3.24 ms
-Download: 842.35 Mbit/s
-Upload: 521.10 Mbit/s
-```
-
-> On Ubuntu, SSH login sources `~/.bashrc` via `~/.profile`, so this runs on every SSH session.
-> To remove it later: edit `~/.bashrc` and delete the line containing `speedtest`.
 
 ### Other useful tools
 
@@ -422,11 +332,12 @@ sudo apt-get install -y htop nload vnstat glances
 |---------|----------|
 | `Chromium not installed` | Run `npx playwright install chromium` |
 | Playwright crashes with missing libs | Run `npx playwright install-deps chromium` |
-| `API error: connect ECONNREFUSED` | Check `.env` has the correct `API_BASE_URL` |
+| `API error: connect ECONNREFUSED` | Check `.env` has the correct API URL |
 | `EACCES: permission denied` | Don't run as root, or fix: `chown -R $USER:$USER .` |
 | High memory usage | Reduce `parallelTabs` in `src/config.js` (default 5) |
-| Scraper skips all keywords | Already completed on backend; this is normal |
-| PM2 process keeps restarting | Check `pm2 logs scraper-1` for the error |
+| Scraper skips all keywords | Already completed — this is normal |
+| "All jobs already completed" | All pincodes in that range are done. Use a new range. |
+| "IP already registered" | Normal — reuses existing device. No action needed. |
 | NodeSource repo: `does not have a Release file` | Use NVM instead — see Step 1 |
 | `node -v` shows v18 after install | Wrong version from apt; uninstall and use NVM |
 | `nvm: command not found` after install | Run `source ~/.bashrc` then retry |
