@@ -183,7 +183,10 @@ async function fetchCompletedSearchesGlobal(pincodes) {
 function buildCompletedSet(docs) {
   const set = new Set();
   for (const doc of docs) {
-    const rounds = doc.rounds || (doc.round != null ? [doc.round] : []);
+    // Merge both old `round` field and new `rounds` array
+    const roundsArr = Array.isArray(doc.rounds) ? doc.rounds : [];
+    if (doc.round != null && !roundsArr.includes(doc.round)) roundsArr.push(doc.round);
+    const rounds = roundsArr.length > 0 ? roundsArr : [];
     for (const r of rounds) {
       set.add(`${doc.pincode}|${doc.category}|${doc.subCategory}|${r}`);
     }

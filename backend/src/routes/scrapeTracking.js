@@ -130,23 +130,31 @@ router.post('/:jobId/search-complete', async (req, res) => {
       return res.status(400).json({ error: 'pincode, category, subCategory, round are required' });
     }
 
+    // Find existing doc — may have old `round` field that needs migrating
+    const existing = await SearchStatus.findOne({ pincode, category, subCategory }).lean();
+
+    const updateOps = {
+      $set: {
+        jobId: req.params.jobId,
+        deviceId,
+        district,
+        stateName,
+        sessionId,
+        status: 'completed',
+      },
+      $addToSet: { rounds: round },
+      $unset: { round: '' },
+    };
+
+    // Migrate old `round` field into `rounds` array
+    if (existing?.round != null && (!existing.rounds || !existing.rounds.includes(existing.round))) {
+      // Use $addToSet with $each to add both old round and new round
+      updateOps.$addToSet = { rounds: { $each: [existing.round, round] } };
+    }
+
     const doc = await SearchStatus.findOneAndUpdate(
-      {
-        pincode,
-        category,
-        subCategory,
-      },
-      {
-        $set: {
-          jobId: req.params.jobId,
-          deviceId,
-          district,
-          stateName,
-          sessionId,
-          status: 'completed',
-        },
-        $addToSet: { rounds: round },
-      },
+      { pincode, category, subCategory },
+      updateOps,
       { upsert: true, new: true }
     );
 

@@ -41,15 +41,15 @@ async function runPincodeCompletionCheck() {
   // Handles both new format (rounds: [1,2,3]) and old format (round: 1)
   const roundStats = await SearchStatus.aggregate([
     { $match: { status: 'completed' } },
-    // Normalize: merge old `round` field into `rounds` array if rounds is empty/missing
+    // Normalize: merge old `round` field AND `rounds` array into one unified array
+    // Handles: rounds=[1,2], round=1 (old), rounds=[2]+round=1 (mixed), etc.
     {
       $addFields: {
         _rounds: {
-          $cond: {
-            if: { $and: [{ $isArray: '$rounds' }, { $gt: [{ $size: '$rounds' }, 0] }] },
-            then: '$rounds',
-            else: { $cond: { if: { $ifNull: ['$round', false] }, then: ['$round'], else: [] } },
-          },
+          $setUnion: [
+            { $cond: { if: { $and: [{ $isArray: '$rounds' }, { $gt: [{ $size: '$rounds' }, 0] }] }, then: '$rounds', else: [] } },
+            { $cond: { if: { $ifNull: ['$round', false] }, then: ['$round'], else: [] } },
+          ],
         },
       },
     },
