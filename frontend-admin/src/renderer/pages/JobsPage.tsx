@@ -338,8 +338,7 @@ const JobsPage: React.FC = () => {
                       : 0;
                     const totalPincodes = Math.max(j.endPincode - j.startPincode + 1, 1);
                     const currentPincode = j.startPincode + j.pincodeIndex;
-                    const searchesPerPincode = j.totalSearches > 0 ? j.totalSearches / totalPincodes : 1;
-                    const searchesPerPincodeRound = Math.round(searchesPerPincode);
+                    const nichesPerRound = j.totalSearches > 0 ? Math.round(j.totalSearches / totalPincodes / 3) : 0;
                     return (
                       <tr key={j._id} className="hover:bg-slate-800/30 transition-colors">
                         <td className="px-4 py-3">
@@ -376,7 +375,7 @@ const JobsPage: React.FC = () => {
                         <td className="px-4 py-3 text-center whitespace-nowrap">
                           <div className="text-xs font-semibold text-slate-200">{currentPincode}</div>
                           <div className="text-[10px] text-slate-500">
-                            {j.pincodeIndex + 1}/{totalPincodes} · {j.nicheIndex}/{searchesPerPincodeRound}
+                            Pin {j.pincodeIndex + 1}/{totalPincodes} · Niche {j.nicheIndex + 1}/{nichesPerRound}
                           </div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">

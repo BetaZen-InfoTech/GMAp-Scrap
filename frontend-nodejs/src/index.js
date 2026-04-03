@@ -628,7 +628,7 @@ async function main() {
               category: niche.Category, subCategory: niche.SubCategory,
               round, sessionId: result.sessionId,
             });
-            updateJobProgress(jobId, { pincodeIndex: pi, nicheIndex: nicheProgressIdx, completedSearches: jobCompletedCount, status: 'running' });
+            updateJobProgress(jobId, { pincodeIndex: pi, nicheIndex: ni, round, completedSearches: jobCompletedCount, status: 'running' });
           } catch (err) {
             totalErrors++;
             print(chalk.red(`  ${tag} ✗ Error: ${err.message}`));
