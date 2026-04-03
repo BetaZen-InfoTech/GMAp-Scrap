@@ -269,7 +269,7 @@ const ComingPincodesPage: React.FC = () => {
                           <div className="flex flex-col items-center gap-0.5">
                             <span className="text-xs font-semibold text-slate-200">
                               {p.completedSearches}
-                              {p.totalNiches > 0 && <span className="text-slate-500 font-normal">/{p.totalNiches * Math.max(p.completedRounds.length || 1, 1)}</span>}
+                              {p.totalNiches > 0 && <span className="text-slate-500 font-normal">/{p.totalNiches * 3}</span>}
                             </span>
                             {p.completedRounds.length > 0 && (
                               <span className="text-[10px] text-slate-500">
