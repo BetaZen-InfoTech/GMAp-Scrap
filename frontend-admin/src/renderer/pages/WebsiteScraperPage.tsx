@@ -215,6 +215,8 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
     }
 
     setScraping(false);
+    // Auto-refresh list after scraping to remove scraped URLs
+    fetchRecords(1);
   };
 
   const fieldBtn = (label: string, hk: keyof WSFilters, mk: keyof WSFilters) => {

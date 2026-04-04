@@ -952,19 +952,42 @@ router.get('/scrap-database', async (req, res) => {
 
     if (uniqueWebsite === 'true') {
       // Deduplicate by website URL — one record per unique website
+      // For scrapWebsite filter: check if ANY record with that URL is scraped/not-scraped
+      const baseFilter = { ...filter };
+      const scrapWebsiteFilter = baseFilter.scrapWebsite;
+      delete baseFilter.scrapWebsite; // remove from per-record filter
+
+      const pipeline = [
+        { $match: { ...baseFilter, website: { $nin: [null, ''] } } },
+        { $sort: sort },
+        {
+          $group: {
+            _id: '$website',
+            doc: { $first: '$$ROOT' },
+            hasScraped: { $max: { $cond: [{ $eq: ['$scrapWebsite', true] }, 1, 0] } },
+          },
+        },
+      ];
+
+      // Apply scrapWebsite filter AFTER grouping — per URL, not per record
+      if (scrapWebsiteFilter === true) {
+        // "scraped" = at least one record with this URL was scraped
+        pipeline.push({ $match: { hasScraped: 1 } });
+      } else if (scrapWebsiteFilter != null && scrapWebsiteFilter !== true) {
+        // "not scraped" = NO record with this URL was scraped
+        pipeline.push({ $match: { hasScraped: 0 } });
+      }
+
       const [dataAgg, countAgg] = await Promise.all([
         ScrapedData.aggregate([
-          { $match: { ...filter, website: { $nin: [null, ''] } } },
-          { $sort: sort },
-          { $group: { _id: '$website', doc: { $first: '$$ROOT' } } },
+          ...pipeline,
           { $replaceRoot: { newRoot: '$doc' } },
           { $sort: sort },
           { $skip: skip },
           { $limit: Number(limit) },
         ]),
         ScrapedData.aggregate([
-          { $match: { ...filter, website: { $nin: [null, ''] } } },
-          { $group: { _id: '$website' } },
+          ...pipeline,
           { $count: 'total' },
         ]),
       ]);
