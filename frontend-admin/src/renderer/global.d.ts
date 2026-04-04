@@ -8,7 +8,7 @@ declare global {
       login: (password: string) => Promise<{ success: boolean; token?: string; error?: string }>;
       logout: () => Promise<{ success: boolean }>;
       getApiBaseUrl: () => Promise<string>;
-      scrapeWebsite: (url: string, headless: boolean) => Promise<{ success: boolean; phones: string[]; error?: string }>;
+      scrapeWebsite: (url: string, headless: boolean) => Promise<{ success: boolean; phones: string[]; emails: string[]; error?: string }>;
     };
   }
 }

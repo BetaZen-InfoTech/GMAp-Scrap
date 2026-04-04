@@ -10,6 +10,7 @@ interface ScrapeProgress {
   total: number;
   done: number;
   newPhones: number;
+  newEmails: number;
   newRecords: number;
   errors: number;
   log: string[];
@@ -127,7 +128,7 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
     if (targets.length === 0) return;
     abortRef.current = false;
     setScraping(true);
-    setProgress({ total: targets.length, done: 0, newPhones: 0, newRecords: 0, errors: 0, log: [] });
+    setProgress({ total: targets.length, done: 0, newPhones: 0, newEmails: 0, newRecords: 0, errors: 0, log: [] });
 
     for (let i = 0; i < targets.length; i++) {
       if (abortRef.current) break;
@@ -142,18 +143,26 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
       try {
         const result = await window.electronAPI.scrapeWebsite(url, headless);
 
-        if (!result.success || result.phones.length === 0) {
+        const phones = result.success ? result.phones : [];
+        const emails = result.success ? (result.emails || []) : [];
+
+        if (phones.length === 0 && emails.length === 0) {
           await api.patch('/api/admin/scrap-database/mark-website-scraped', { ids: [record._id] });
-          setProgress((p) => p ? { ...p, done: p.done + 1, log: [`[${i + 1}/${targets.length}] No phones: ${record.name}`, ...p.log].slice(0, 100) } : p);
+          setProgress((p) => p ? { ...p, done: p.done + 1, log: [`[${i + 1}/${targets.length}] Nothing found: ${record.name}`, ...p.log].slice(0, 100) } : p);
           setRecords((prev) => prev.map((r) => r._id === record._id ? { ...r, scrapWebsite: true } : r));
           continue;
         }
 
         const existingPhone = (record.phone || '').replace(/[\s-]/g, '');
-        const newPhones = result.phones.filter((ph) => ph !== existingPhone && ph.length >= 10);
+        const existingEmail = (record.email || '').toLowerCase().trim();
+        const newPhones = phones.filter((ph) => ph !== existingPhone && ph.length >= 10);
+        const newEmails = emails.filter((em) => em !== existingEmail && em.length > 0);
 
-        if (newPhones.length > 0) {
-          const newDocs = newPhones.map((ph) => ({
+        const allNewDocs: Record<string, unknown>[] = [];
+
+        // Create a record for each new phone
+        for (const ph of newPhones) {
+          allNewDocs.push({
             sessionId: record.sessionId, deviceId: record.deviceId,
             name: record.name, nameEnglish: record.nameEnglish, nameLocal: record.nameLocal,
             address: record.address, phone: ph, email: record.email, website: record.website,
@@ -162,12 +171,38 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
             latitude: record.latitude, longitude: record.longitude, mapsUrl: record.mapsUrl,
             scrapKeyword: record.scrapKeyword, scrapCategory: record.scrapCategory,
             scrapSubCategory: record.scrapSubCategory, scrapRound: record.scrapRound,
-          }));
-          await api.post('/api/admin/scrap-database/from-website', { sourceId: record._id, records: newDocs });
-          setProgress((p) => p ? { ...p, done: p.done + 1, newPhones: p.newPhones + newPhones.length, newRecords: p.newRecords + newPhones.length, log: [`[${i + 1}/${targets.length}] +${newPhones.length} phones: ${record.name}`, ...p.log].slice(0, 100) } : p);
+          });
+        }
+
+        // Create a record for each new email
+        for (const em of newEmails) {
+          allNewDocs.push({
+            sessionId: record.sessionId, deviceId: record.deviceId,
+            name: record.name, nameEnglish: record.nameEnglish, nameLocal: record.nameLocal,
+            address: record.address, phone: record.phone, email: em, website: record.website,
+            rating: record.rating, reviews: record.reviews, category: record.category,
+            pincode: record.pincode, plusCode: record.plusCode, photoUrl: record.photoUrl,
+            latitude: record.latitude, longitude: record.longitude, mapsUrl: record.mapsUrl,
+            scrapKeyword: record.scrapKeyword, scrapCategory: record.scrapCategory,
+            scrapSubCategory: record.scrapSubCategory, scrapRound: record.scrapRound,
+          });
+        }
+
+        if (allNewDocs.length > 0) {
+          await api.post('/api/admin/scrap-database/from-website', { sourceId: record._id, records: allNewDocs });
+          const parts: string[] = [];
+          if (newPhones.length > 0) parts.push(`+${newPhones.length} phones`);
+          if (newEmails.length > 0) parts.push(`+${newEmails.length} emails`);
+          setProgress((p) => p ? {
+            ...p, done: p.done + 1,
+            newPhones: p.newPhones + newPhones.length,
+            newEmails: p.newEmails + newEmails.length,
+            newRecords: p.newRecords + allNewDocs.length,
+            log: [`[${i + 1}/${targets.length}] ${parts.join(', ')}: ${record.name}`, ...p.log].slice(0, 100),
+          } : p);
         } else {
           await api.patch('/api/admin/scrap-database/mark-website-scraped', { ids: [record._id] });
-          setProgress((p) => p ? { ...p, done: p.done + 1, log: [`[${i + 1}/${targets.length}] Same phone: ${record.name}`, ...p.log].slice(0, 100) } : p);
+          setProgress((p) => p ? { ...p, done: p.done + 1, log: [`[${i + 1}/${targets.length}] Same data: ${record.name}`, ...p.log].slice(0, 100) } : p);
         }
         setRecords((prev) => prev.map((r) => r._id === record._id ? { ...r, scrapWebsite: true } : r));
       } catch (err: unknown) {
@@ -271,6 +306,7 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
             <div className="flex gap-4 text-xs">
               <span className="text-emerald-400">+{progress.newRecords} records</span>
               <span className="text-blue-400">{progress.newPhones} phones</span>
+              <span className="text-purple-400">{progress.newEmails} emails</span>
               {progress.errors > 0 && <span className="text-red-400">{progress.errors} errors</span>}
             </div>
           </div>

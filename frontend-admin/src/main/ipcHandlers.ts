@@ -43,9 +43,10 @@ export function setupIpcHandlers(): void {
     try {
       const text = headless ? await fetchUrlHeadless(url) : await fetchUrl(url);
       const phones = extractPhones(text);
-      return { success: true, phones };
+      const emails = extractEmails(text);
+      return { success: true, phones, emails };
     } catch (err: unknown) {
-      return { success: false, phones: [], error: err instanceof Error ? err.message : String(err) };
+      return { success: false, phones: [], emails: [], error: err instanceof Error ? err.message : String(err) };
     }
   });
 }
@@ -117,6 +118,23 @@ function fetchUrlHeadless(url: string): Promise<string> {
       reject(new Error(`Page load failed: ${desc}`));
     });
   });
+}
+
+function extractEmails(html: string): string[] {
+  const text = html.replace(/<[^>]+>/g, ' ');
+  const pattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const found = new Set<string>();
+  const matches = text.match(pattern) || [];
+  for (const m of matches) {
+    const clean = m.toLowerCase().trim();
+    // Skip common false positives
+    if (clean.endsWith('.png') || clean.endsWith('.jpg') || clean.endsWith('.gif') ||
+        clean.endsWith('.svg') || clean.endsWith('.webp') || clean.endsWith('.css') ||
+        clean.endsWith('.js') || clean.includes('example.com') ||
+        clean.includes('sentry.io') || clean.includes('wixpress.com')) continue;
+    found.add(clean);
+  }
+  return Array.from(found).slice(0, 20);
 }
 
 function extractPhones(html: string): string[] {
