@@ -174,12 +174,12 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
           });
         }
 
-        // Each new email → separate record
+        // Each new email → separate record (no phone to avoid duplicate detection)
         for (const em of newEmails) {
           allNewDocs.push({
             sessionId: record.sessionId, deviceId: record.deviceId,
             name: record.name, nameEnglish: record.nameEnglish, nameLocal: record.nameLocal,
-            address: record.address, phone: record.phone, email: em, website: record.website,
+            address: record.address, phone: '', email: em, website: record.website,
             rating: record.rating, reviews: record.reviews, category: record.category,
             pincode: record.pincode, plusCode: record.plusCode, photoUrl: record.photoUrl,
             latitude: record.latitude, longitude: record.longitude, mapsUrl: record.mapsUrl,
