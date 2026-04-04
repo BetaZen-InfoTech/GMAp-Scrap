@@ -1084,32 +1084,35 @@ router.patch('/scrap-database/mark-website-scraped', async (req, res) => {
 });
 
 // ── POST /api/admin/scrap-database/from-website ──
-// Save new records scraped from a website (each with different phone, scrapFrom='website')
+// Save new phone records scraped from a website, optionally update source email
 router.post('/scrap-database/from-website', async (req, res) => {
   try {
-    const { sourceId, records } = req.body;
-    if (!Array.isArray(records) || records.length === 0) {
-      return res.status(400).json({ error: 'records array required' });
+    const { sourceId, records, updateSourceEmail } = req.body;
+
+    let insertedCount = 0;
+    if (Array.isArray(records) && records.length > 0) {
+      const docs = records.map((r) => ({ ...r, scrapFrom: 'website', scrapWebsite: true }));
+      const inserted = await ScrapedData.insertMany(docs, { ordered: false });
+      insertedCount = inserted.length;
     }
 
-    // New records from website get both scrapFrom and scrapWebsite flags
-    const docs = records.map((r) => ({ ...r, scrapFrom: 'website', scrapWebsite: true }));
-    const inserted = await ScrapedData.insertMany(docs, { ordered: false });
-
-    // Mark ALL records with the same website URL as scraped
+    // Mark ALL records with the same website URL as scraped + update email if found
     if (sourceId) {
       const source = await ScrapedData.findById(sourceId, { website: 1 }).lean();
+      const updateFields = { scrapWebsite: true };
+      if (updateSourceEmail) updateFields.email = updateSourceEmail;
+
       if (source?.website) {
         await ScrapedData.updateMany(
           { website: source.website },
-          { $set: { scrapWebsite: true } }
+          { $set: updateFields }
         );
       } else {
-        await ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } });
+        await ScrapedData.updateOne({ _id: sourceId }, { $set: updateFields });
       }
     }
 
-    res.status(201).json({ success: true, count: inserted.length });
+    res.status(201).json({ success: true, count: insertedCount });
   } catch (err) {
     console.error('[admin/scrap-database/from-website] Error:', err.message);
     res.status(500).json({ error: 'Server error' });

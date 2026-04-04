@@ -157,47 +157,49 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
         const existingEmail = (record.email || '').toLowerCase().trim();
         const newPhones = phones.filter((ph) => ph !== existingPhone && ph.length >= 10);
         const newEmails = emails.filter((em) => em !== existingEmail && em.length > 0);
+        // Use first found email for all new phone records
+        const bestEmail = newEmails[0] || record.email || '';
 
-        const allNewDocs: Record<string, unknown>[] = [];
+        // Only create records for new phones — emails are attached to phone records
+        const newDocs = newPhones.map((ph) => ({
+          sessionId: record.sessionId, deviceId: record.deviceId,
+          name: record.name, nameEnglish: record.nameEnglish, nameLocal: record.nameLocal,
+          address: record.address, phone: ph, email: bestEmail, website: record.website,
+          rating: record.rating, reviews: record.reviews, category: record.category,
+          pincode: record.pincode, plusCode: record.plusCode, photoUrl: record.photoUrl,
+          latitude: record.latitude, longitude: record.longitude, mapsUrl: record.mapsUrl,
+          scrapKeyword: record.scrapKeyword, scrapCategory: record.scrapCategory,
+          scrapSubCategory: record.scrapSubCategory, scrapRound: record.scrapRound,
+        }));
 
-        // Create a record for each new phone
-        for (const ph of newPhones) {
-          allNewDocs.push({
-            sessionId: record.sessionId, deviceId: record.deviceId,
-            name: record.name, nameEnglish: record.nameEnglish, nameLocal: record.nameLocal,
-            address: record.address, phone: ph, email: record.email, website: record.website,
-            rating: record.rating, reviews: record.reviews, category: record.category,
-            pincode: record.pincode, plusCode: record.plusCode, photoUrl: record.photoUrl,
-            latitude: record.latitude, longitude: record.longitude, mapsUrl: record.mapsUrl,
-            scrapKeyword: record.scrapKeyword, scrapCategory: record.scrapCategory,
-            scrapSubCategory: record.scrapSubCategory, scrapRound: record.scrapRound,
+        const parts: string[] = [];
+        if (newPhones.length > 0) parts.push(`+${newPhones.length} phones`);
+        if (newEmails.length > 0) parts.push(`+${newEmails.length} emails`);
+
+        if (newDocs.length > 0) {
+          await api.post('/api/admin/scrap-database/from-website', {
+            sourceId: record._id,
+            records: newDocs,
+            // Update source record's email if we found a new one
+            updateSourceEmail: newEmails.length > 0 ? bestEmail : undefined,
           });
-        }
-
-        // Create a record for each new email
-        for (const em of newEmails) {
-          allNewDocs.push({
-            sessionId: record.sessionId, deviceId: record.deviceId,
-            name: record.name, nameEnglish: record.nameEnglish, nameLocal: record.nameLocal,
-            address: record.address, phone: record.phone, email: em, website: record.website,
-            rating: record.rating, reviews: record.reviews, category: record.category,
-            pincode: record.pincode, plusCode: record.plusCode, photoUrl: record.photoUrl,
-            latitude: record.latitude, longitude: record.longitude, mapsUrl: record.mapsUrl,
-            scrapKeyword: record.scrapKeyword, scrapCategory: record.scrapCategory,
-            scrapSubCategory: record.scrapSubCategory, scrapRound: record.scrapRound,
-          });
-        }
-
-        if (allNewDocs.length > 0) {
-          await api.post('/api/admin/scrap-database/from-website', { sourceId: record._id, records: allNewDocs });
-          const parts: string[] = [];
-          if (newPhones.length > 0) parts.push(`+${newPhones.length} phones`);
-          if (newEmails.length > 0) parts.push(`+${newEmails.length} emails`);
           setProgress((p) => p ? {
             ...p, done: p.done + 1,
             newPhones: p.newPhones + newPhones.length,
             newEmails: p.newEmails + newEmails.length,
-            newRecords: p.newRecords + allNewDocs.length,
+            newRecords: p.newRecords + newDocs.length,
+            log: [`[${i + 1}/${targets.length}] ${parts.join(', ')}: ${record.name}`, ...p.log].slice(0, 100),
+          } : p);
+        } else if (newEmails.length > 0) {
+          // No new phones but found new emails — just update source record's email
+          await api.post('/api/admin/scrap-database/from-website', {
+            sourceId: record._id,
+            records: [],
+            updateSourceEmail: bestEmail,
+          });
+          setProgress((p) => p ? {
+            ...p, done: p.done + 1,
+            newEmails: p.newEmails + newEmails.length,
             log: [`[${i + 1}/${targets.length}] ${parts.join(', ')}: ${record.name}`, ...p.log].slice(0, 100),
           } : p);
         } else {
