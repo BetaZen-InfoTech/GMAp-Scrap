@@ -54,10 +54,16 @@ const upload = multer({
 });
 
 /**
- * Build a duplicate key from the 5 fields: phone, rating, reviews, category, plusCode
+ * Build duplicate keys from 5 fields.
+ * Key 1: Phone + Rating + Reviews + Category + PlusCode
+ * Key 2: Email + Rating + Reviews + Category + PlusCode
+ * Returns array of keys (1 or 2 depending on available fields)
  */
-function dupKey(phone, rating, reviews, category, plusCode) {
-  return `${phone || ''}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`;
+function dupKeys(phone, email, rating, reviews, category, plusCode) {
+  const keys = [];
+  if (phone) keys.push(`P|${phone}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`);
+  if (email) keys.push(`E|${email}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`);
+  return keys;
 }
 
 /**
@@ -82,25 +88,28 @@ router.post('/batch', async (req, res) => {
     touchDevice(deviceId, getClientIp(req));
 
     // ── Duplicate detection ──
-    // Build $or conditions for all records to check existing duplicates
-    const orConditions = records.map((r) => ({
-      phone: r.phone || null,
-      rating: r.rating || 0,
-      reviews: r.reviews || 0,
-      category: r.category || null,
-      plusCode: r.plusCode || null,
-    }));
+    // Check by Phone+Rating+Reviews+Category+PlusCode AND Email+Rating+Reviews+Category+PlusCode
+    const phoneConditions = [];
+    const emailConditions = [];
+    for (const r of records) {
+      if (r.phone) phoneConditions.push({ phone: r.phone, rating: r.rating || 0, reviews: r.reviews || 0, category: r.category || null, plusCode: r.plusCode || null });
+      if (r.email) emailConditions.push({ email: r.email, rating: r.rating || 0, reviews: r.reviews || 0, category: r.category || null, plusCode: r.plusCode || null });
+    }
+    const orConditions = [...phoneConditions, ...emailConditions];
 
-    // Find existing records that match ALL 5 fields
-    const existing = await ScrapedData.find(
-      { $or: orConditions },
-      { phone: 1, rating: 1, reviews: 1, category: 1, plusCode: 1 }
-    ).lean();
+    const existing = orConditions.length > 0
+      ? await ScrapedData.find(
+          { $or: orConditions },
+          { phone: 1, email: 1, rating: 1, reviews: 1, category: 1, plusCode: 1 }
+        ).lean()
+      : [];
 
-    // Build a Set of existing duplicate keys
+    // Build a Set of existing duplicate keys (both phone-based and email-based)
     const existingKeys = new Set();
     for (const e of existing) {
-      existingKeys.add(dupKey(e.phone, e.rating, e.reviews, e.category, e.plusCode));
+      for (const k of dupKeys(e.phone, e.email, e.rating, e.reviews, e.category, e.plusCode)) {
+        existingKeys.add(k);
+      }
     }
 
     // Split records into new and duplicates — both are saved, duplicates flagged
@@ -108,7 +117,8 @@ router.post('/batch', async (req, res) => {
     const dupDocs = [];
 
     for (const r of records) {
-      const key = dupKey(r.phone, r.rating || 0, r.reviews || 0, r.category, r.plusCode);
+      const keys = dupKeys(r.phone, r.email, r.rating || 0, r.reviews || 0, r.category, r.plusCode);
+      const isDup = keys.some((k) => existingKeys.has(k));
 
       // Resolve pincode: record-level → batch-level → extract from address
       const resolvedPincode = r.pincode || batchPincode || extractPincode(r.address) || undefined;
@@ -141,12 +151,12 @@ router.post('/batch', async (req, res) => {
         scrapFrom: 'G-Map',
       };
 
-      if (existingKeys.has(key)) {
+      if (isDup) {
         doc.isDuplicate = true;
         dupDocs.push(doc);
       } else {
         // Add to existingKeys so within-batch duplicates are also caught
-        existingKeys.add(key);
+        for (const k of keys) existingKeys.add(k);
         doc.isDuplicate = false;
         newDocs.push(doc);
       }

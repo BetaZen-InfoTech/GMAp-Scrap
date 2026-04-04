@@ -1261,37 +1261,45 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
 });
 
 // Helper: re-evaluate isDuplicate for all remaining records in Scraped-Data.
-// Uses the 5-field compound key: phone + rating + reviews + category + plusCode.
-// Sets isDuplicate: true if another record shares the same key, otherwise false.
+// Uses TWO compound keys:
+//   1. Phone + Rating + Reviews + Category + PlusCode
+//   2. Email + Rating + Reviews + Category + PlusCode
+// Sets isDuplicate: true if another record shares either key, otherwise false.
 async function recheckAllDuplicateFlags() {
-  // Find all groups with count >= 2 by compound key
-  const dupGroups = await ScrapedData.aggregate([
-    { $match: {} },
+  // Find duplicates by phone key
+  const phoneDups = await ScrapedData.aggregate([
+    { $match: { phone: { $nin: [null, ''] } } },
     {
       $group: {
-        _id: {
-          phone: '$phone',
-          rating: '$rating',
-          reviews: '$reviews',
-          category: '$category',
-          plusCode: '$plusCode',
-        },
+        _id: { phone: '$phone', rating: '$rating', reviews: '$reviews', category: '$category', plusCode: '$plusCode' },
         ids: { $push: '$_id' },
         count: { $sum: 1 },
       },
     },
     { $match: { count: { $gte: 2 } } },
-  ]);
+  ], { allowDiskUse: true });
 
-  const trueDupIds = dupGroups.flatMap((g) => g.ids);
-  const trueDupSet = new Set(trueDupIds.map(String));
+  // Find duplicates by email key
+  const emailDups = await ScrapedData.aggregate([
+    { $match: { email: { $nin: [null, ''] } } },
+    {
+      $group: {
+        _id: { email: '$email', rating: '$rating', reviews: '$reviews', category: '$category', plusCode: '$plusCode' },
+        ids: { $push: '$_id' },
+        count: { $sum: 1 },
+      },
+    },
+    { $match: { count: { $gte: 2 } } },
+  ], { allowDiskUse: true });
 
-  // Get all current ids
-  const allIds = (await ScrapedData.find({}, { _id: 1 }).lean())
-    .map((r) => r._id);
+  const trueDupSet = new Set();
+  for (const g of phoneDups) for (const id of g.ids) trueDupSet.add(String(id));
+  for (const g of emailDups) for (const id of g.ids) trueDupSet.add(String(id));
+
+  const allIds = (await ScrapedData.find({}, { _id: 1 }).lean()).map((r) => r._id);
 
   const shouldBeFalse = allIds.filter((id) => !trueDupSet.has(String(id)));
-  const shouldBeTrue = trueDupIds;
+  const shouldBeTrue = [...trueDupSet].map((id) => id);
 
   const [falseResult, trueResult] = await Promise.all([
     shouldBeFalse.length > 0
