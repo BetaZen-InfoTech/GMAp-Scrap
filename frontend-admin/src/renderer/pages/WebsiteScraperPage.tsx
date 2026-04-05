@@ -1,20 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
 import type { ScrapedDataRecord } from '../../shared/types';
 import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface ScrapeProgress {
-  total: number;
-  done: number;
-  newPhones: number;
-  newEmails: number;
-  newRecords: number;
-  errors: number;
-  log: string[];
-}
+import { useWebScraperStore } from '../store/useWebScraperStore';
 
 interface WSFilters {
   hasPhone?: boolean;
@@ -62,9 +51,7 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
   const [searchInput, setSearchInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAllPages, setSelectAllPages] = useState(false);
-  const [scraping, setScraping] = useState(false);
-  const [progress, setProgress] = useState<ScrapeProgress | null>(null);
-  const abortRef = useRef(false);
+  const { scraping, setScraping, progress, setProgress, aborted, abort, resetAbort } = useWebScraperStore();
 
   const fetchRecords = useCallback(async (p = 1, f = filters, uq = uniqueWebsite) => {
     setLoading(true);
@@ -126,12 +113,12 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
   const startScraping = async () => {
     const targets = await getTargetRecords();
     if (targets.length === 0) return;
-    abortRef.current = false;
+    resetAbort();
     setScraping(true);
     setProgress({ total: targets.length, done: 0, newPhones: 0, newEmails: 0, newRecords: 0, errors: 0, log: [] });
 
     for (let i = 0; i < targets.length; i++) {
-      if (abortRef.current) break;
+      if (useWebScraperStore.getState().aborted) break;
       const record = targets[i];
       const url = record.website;
 
@@ -291,7 +278,7 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
                 {headless && <span className="ml-1 text-[10px] opacity-70">[Browser]</span>}
               </button>
             ) : (
-              <button onClick={() => { abortRef.current = true; }}
+              <button onClick={() => abort()}
                 className="bg-red-700 hover:bg-red-600 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors">Stop</button>
             )}
           </div>
