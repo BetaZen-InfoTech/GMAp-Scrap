@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { DeviceInfo } from '../../shared/types';
 
 function barColor(percent: number): string {
@@ -21,85 +21,157 @@ function timeAgo(dateStr: string): string {
 interface DeviceCardProps {
   device: DeviceInfo;
   onClick: (deviceId: string) => void;
+  onArchive?: (deviceId: string) => void;
+  onSavePassword?: (deviceId: string, password: string) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (deviceId: string) => void;
 }
 
-const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick }) => {
+const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onSavePassword, selectable, selected, onSelect }) => {
   const stats = device.latestStats;
+  const [showPw, setShowPw] = useState(false);
+  const [editPw, setEditPw] = useState(false);
+  const [pwValue, setPwValue] = useState(device.vpsPassword || '');
+
+  const handleSavePw = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSavePassword?.(device.deviceId, pwValue);
+    setEditPw(false);
+  };
 
   return (
-    <button
-      onClick={() => onClick(device.deviceId)}
-      className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-left hover:border-slate-600 transition-colors w-full"
-    >
+    <div className={`bg-slate-900 border rounded-xl p-5 text-left transition-colors w-full ${
+      device.isArchived ? 'border-slate-700 opacity-60' : selected ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-slate-800 hover:border-slate-600'
+    }`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="text-sm font-semibold text-white">
-            {device.nickname || device.ip || device.hostname}
-          </h3>
-          <p className="text-xs text-slate-500">
-            {device.ip ? device.ip + ' · ' : ''}{device.hostname} · {device.username}
-          </p>
+        <div className="flex items-start gap-2 min-w-0">
+          {selectable && (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onSelect?.(device.deviceId)}
+              className="mt-1 shrink-0 accent-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+          <button onClick={() => onClick(device.deviceId)} className="text-left min-w-0">
+            <h3 className="text-sm font-semibold text-white truncate">
+              {device.nickname || device.ip || device.hostname}
+            </h3>
+            <p className="text-xs text-slate-500 truncate">
+              {device.ip ? device.ip + ' · ' : ''}{device.hostname} · {device.username}
+            </p>
+          </button>
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-          device.status === 'online'
-            ? 'bg-green-500/20 text-green-400'
-            : 'bg-red-500/20 text-red-400'
-        }`}>
-          {device.status === 'online' ? 'Online' : 'Offline'}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {device.isArchived && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">Archived</span>
+          )}
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+            device.status === 'online'
+              ? 'bg-green-500/20 text-green-400'
+              : 'bg-red-500/20 text-red-400'
+          }`}>
+            {device.status === 'online' ? 'Online' : 'Offline'}
+          </span>
+        </div>
       </div>
 
       {/* Specs */}
-      <div className="text-xs text-slate-400 mb-3 space-y-0.5">
-        <p>{device.cpuModel} ({device.cpuCores} cores)</p>
-        <p>{device.totalMemoryGB} GB RAM · {device.arch}</p>
-      </div>
-
-      {/* Live Stats */}
-      {stats ? (
-        <div className="space-y-2 mb-3">
-          <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-400">CPU</span>
-              <span className="text-slate-300">{stats.cpuUsedPercent ?? 0}%</span>
-            </div>
-            <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${barColor(stats.cpuUsedPercent ?? 0)}`}
-                style={{ width: `${stats.cpuUsedPercent ?? 0}%` }} />
-            </div>
-          </div>
-          <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-400">RAM</span>
-              <span className="text-slate-300">{stats.ramUsedPercent}%</span>
-            </div>
-            <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${barColor(stats.ramUsedPercent)}`}
-                style={{ width: `${stats.ramUsedPercent}%` }} />
-            </div>
-          </div>
-          <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-400">Disk</span>
-              <span className="text-slate-300">{stats.diskUsedPercent}%</span>
-            </div>
-            <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${barColor(stats.diskUsedPercent)}`}
-                style={{ width: `${stats.diskUsedPercent}%` }} />
-            </div>
-          </div>
+      <button onClick={() => onClick(device.deviceId)} className="w-full text-left">
+        <div className="text-xs text-slate-400 mb-3 space-y-0.5">
+          <p>{device.cpuModel} ({device.cpuCores} cores)</p>
+          <p>{device.totalMemoryGB} GB RAM · {device.arch}</p>
         </div>
-      ) : (
-        <p className="text-xs text-slate-600 mb-3">No live stats</p>
-      )}
+
+        {/* Live Stats */}
+        {stats ? (
+          <div className="space-y-2 mb-3">
+            {[
+              { label: 'CPU', value: stats.cpuUsedPercent ?? 0 },
+              { label: 'RAM', value: stats.ramUsedPercent },
+              { label: 'Disk', value: stats.diskUsedPercent },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div className="flex justify-between text-xs mb-0.5">
+                  <span className="text-slate-400">{label}</span>
+                  <span className="text-slate-300">{value}%</span>
+                </div>
+                <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${barColor(value)}`} style={{ width: `${value}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-600 mb-3">No live stats</p>
+        )}
+      </button>
+
+      {/* VPS Password */}
+      <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+        {editPw ? (
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={pwValue}
+              onChange={(e) => setPwValue(e.target.value)}
+              placeholder="VPS password..."
+              className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+              autoFocus
+            />
+            <button onClick={handleSavePw} className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded">Save</button>
+            <button onClick={() => { setEditPw(false); setPwValue(device.vpsPassword || ''); }} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-1 rounded">X</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-500">PW:</span>
+            {device.vpsPassword ? (
+              <>
+                <span className="text-slate-300 font-mono">{showPw ? device.vpsPassword : '••••••'}</span>
+                <button onClick={() => setShowPw(!showPw)} className="text-slate-500 hover:text-white" title={showPw ? 'Hide' : 'Show'}>
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    {showPw
+                      ? <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                      : <><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></>}
+                  </svg>
+                </button>
+              </>
+            ) : (
+              <span className="text-slate-600">not set</span>
+            )}
+            <button onClick={() => { setEditPw(true); setPwValue(device.vpsPassword || ''); }} className="text-slate-500 hover:text-white ml-auto" title="Edit password">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>{device.activeJobs ?? 0} jobs · {device.totalSessions ?? 0} sessions</span>
-        <span>{timeAgo(device.lastSeenAt)}</span>
+        <div className="flex items-center gap-2">
+          <span>{timeAgo(device.lastSeenAt)}</span>
+          {device.status !== 'online' && onArchive && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onArchive(device.deviceId); }}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                device.isArchived
+                  ? 'bg-blue-900/40 text-blue-400 hover:bg-blue-800/40'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+              title={device.isArchived ? 'Unarchive' : 'Archive'}
+            >
+              {device.isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+          )}
+        </div>
       </div>
-    </button>
+    </div>
   );
 };
 

@@ -5,6 +5,7 @@ import axios from 'axios';
 import { getApiBaseUrl } from './config';
 import * as https from 'https';
 import * as http from 'http';
+import { sshConnect, sshCommand, sshCommandAll, sshDisconnect } from './sshManager';
 
 export function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async () => getSettings());
@@ -48,6 +49,24 @@ export function setupIpcHandlers(): void {
     } catch (err: unknown) {
       return { success: false, phones: [], emails: [], error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  // ── SSH handlers ───────────────────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.SSH_CONNECT, async (_, deviceId: string, host: string, port: number, username: string, password: string) => {
+    return sshConnect(deviceId, host, port, username, password);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SSH_COMMAND, async (_, deviceId: string, command: string) => {
+    return { success: sshCommand(deviceId, command) };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SSH_COMMAND_ALL, async (_, command: string) => {
+    return { success: true, count: sshCommandAll(command) };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SSH_DISCONNECT, async (_, deviceId?: string) => {
+    sshDisconnect(deviceId);
+    return { success: true };
   });
 }
 

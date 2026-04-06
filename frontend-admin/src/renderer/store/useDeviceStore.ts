@@ -16,7 +16,7 @@ interface DeviceStore {
   jobLimit: number;
   loading: boolean;
 
-  fetchDevices: () => Promise<void>;
+  fetchDevices: (includeArchived?: boolean) => Promise<void>;
   fetchDeviceDetail: (deviceId: string, sessionPage?: number, jobPage?: number) => Promise<void>;
   fetchDeviceSessions: (deviceId: string, page: number) => Promise<void>;
   fetchDeviceJobs: (deviceId: string, page: number) => Promise<void>;
@@ -37,10 +37,12 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   jobLimit: 50,
   loading: false,
 
-  fetchDevices: async () => {
+  fetchDevices: async (includeArchived = false) => {
     set({ loading: true });
     try {
-      const res = await api.get('/api/admin/devices');
+      const res = await api.get('/api/admin/devices', {
+        params: includeArchived ? { includeArchived: 'true' } : {},
+      });
       set({ devices: res.data, loading: false });
     } catch {
       set({ loading: false });

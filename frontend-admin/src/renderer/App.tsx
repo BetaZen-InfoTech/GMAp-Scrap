@@ -17,12 +17,14 @@ import DuplicatesPage from './pages/DuplicatesPage';
 import WebsiteScraperPage from './pages/WebsiteScraperPage';
 import JobsPage from './pages/JobsPage';
 import ComingPincodesPage from './pages/ComingPincodesPage';
+import SshTerminalPage from './pages/SshTerminalPage';
 import Spinner from './components/Spinner';
 
 const App: React.FC = () => {
   const { isAuthenticated, restoreSession, clearSession, logout } = useAuthStore();
   const [route, setRoute] = useState<Route>('dashboard');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [sshDeviceIds, setSshDeviceIds] = useState<string[]>([]);
   const [initializing, setInitializing] = useState(true);
 
   // Connect WebSocket when authenticated
@@ -77,7 +79,7 @@ const App: React.FC = () => {
       case 'dashboard':
         return <DashboardPage />;
       case 'devices':
-        return <DevicesPage onDeviceClick={handleDeviceClick} />;
+        return <DevicesPage onDeviceClick={handleDeviceClick} onOpenSsh={(ids) => { setSshDeviceIds(ids); setRoute('ssh-terminal'); }} />;
       case 'device-detail':
         return (
           <DeviceDetailPage
@@ -103,6 +105,8 @@ const App: React.FC = () => {
         return <WebsiteScraperPage />;
       case 'coming-pincodes':
         return <ComingPincodesPage />;
+      case 'ssh-terminal':
+        return <SshTerminalPage initialDeviceIds={sshDeviceIds} />;
       default:
         return <DashboardPage />;
     }

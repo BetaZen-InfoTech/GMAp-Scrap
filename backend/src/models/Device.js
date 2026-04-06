@@ -17,6 +17,9 @@ const deviceSchema = new mongoose.Schema(
     ip: { type: String, trim: true, default: '' },        // first registration IP
     ips: [{ type: String, trim: true }],                    // all unique IPs (accumulated)
     isActive: { type: Boolean, default: true },
+    isArchived: { type: Boolean, default: false },
+    archivedAt: { type: Date, default: null },
+    vpsPassword: { type: String, default: '' },
     status: { type: String, enum: ['online', 'offline'], default: 'offline' },
     lastSeenAt: { type: Date, default: Date.now },
 

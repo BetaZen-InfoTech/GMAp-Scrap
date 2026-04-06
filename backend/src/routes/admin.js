@@ -92,7 +92,8 @@ router.get('/devices', async (req, res) => {
       }
     }
 
-    const devices = await Device.find().sort({ lastSeenAt: -1 }).lean();
+    const deviceFilter = req.query.includeArchived === 'true' ? {} : { isArchived: { $ne: true } };
+    const devices = await Device.find(deviceFilter).sort({ lastSeenAt: -1 }).lean();
 
     // Get active job counts per device
     const activeJobs = await ScrapeTracking.aggregate([
@@ -186,6 +187,40 @@ router.get('/devices/:deviceId', async (req, res) => {
     });
   } catch (err) {
     console.error('[admin/devices/:id] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/admin/devices/:deviceId/archive ── toggle archive status
+router.patch('/devices/:deviceId/archive', adminAuth, async (req, res) => {
+  try {
+    const device = await Device.findOne({ deviceId: req.params.deviceId });
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+
+    device.isArchived = !device.isArchived;
+    device.archivedAt = device.isArchived ? new Date() : null;
+    await device.save();
+
+    res.json({ success: true, isArchived: device.isArchived });
+  } catch (err) {
+    console.error('[admin/devices/archive] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/admin/devices/:deviceId/vps-password ── save VPS password
+router.patch('/devices/:deviceId/vps-password', adminAuth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    const device = await Device.findOneAndUpdate(
+      { deviceId: req.params.deviceId },
+      { $set: { vpsPassword: password || '' } },
+      { new: true }
+    );
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin/devices/vps-password] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -2,6 +2,7 @@
 import { app, BrowserWindow } from 'electron';
 import { createMainWindow } from './windowManager';
 import { setupIpcHandlers } from './ipcHandlers';
+import { cleanup as sshCleanup } from './sshManager';
 
 // Single-instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -29,6 +30,10 @@ if (!gotTheLock) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    sshCleanup();
   });
 }
 

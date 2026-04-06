@@ -17,6 +17,9 @@ export interface DeviceInfo {
   cpuCores: number;
   totalMemoryGB: number;
   isActive: boolean;
+  isArchived?: boolean;
+  archivedAt?: string;
+  vpsPassword?: string;
   status?: 'online' | 'offline';
   lastSeenAt: string;
   createdAt: string;
@@ -198,4 +201,11 @@ export const IPC_CHANNELS = {
   AUTH_LOGOUT: 'admin:auth-logout',
   GET_API_BASE_URL: 'admin:get-api-base-url',
   SCRAPE_WEBSITE: 'admin:scrape-website',
+  SSH_CONNECT: 'ssh:connect',
+  SSH_COMMAND: 'ssh:command',
+  SSH_COMMAND_ALL: 'ssh:command-all',
+  SSH_DISCONNECT: 'ssh:disconnect',
+  SSH_OUTPUT: 'ssh:output',
+  SSH_ERROR: 'ssh:error',
+  SSH_STATUS: 'ssh:status',
 } as const;

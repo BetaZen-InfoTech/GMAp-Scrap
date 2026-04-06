@@ -91,6 +91,12 @@ router.post('/verify', async (req, res) => {
     device.lastSeenAt = new Date();
     device.status = 'online';
 
+    // Auto-unarchive when device comes back online
+    if (device.isArchived) {
+      device.isArchived = false;
+      device.archivedAt = null;
+    }
+
     // Merge new IP into ips array (keep all unique IPs)
     const currentIp = getClientIp(req);
     if (currentIp && !device.ips.includes(currentIp)) {
