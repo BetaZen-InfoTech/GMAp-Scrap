@@ -159,7 +159,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   };
 
   const connectedCount = [...terminals.values()].filter((t) => t.status === 'connected').length;
-  const onlineDevices = devices.filter((d) => d.ip);
+  const onlineDevices = devices.filter((d) => d.ip && !d.isArchived);
 
   // ── Quick Actions ──
   const [showActions, setShowActions] = useState(false);
