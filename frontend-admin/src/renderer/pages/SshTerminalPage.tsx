@@ -162,12 +162,63 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   const onlineDevices = devices.filter((d) => d.ip);
 
   // ── Quick Actions ──
+  const [showActions, setShowActions] = useState(false);
+
+  const quickActions = [
+    {
+      label: 'Install Node.js',
+      icon: '1',
+      color: 'bg-green-700 hover:bg-green-600',
+      cmd: 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && source ~/.bashrc && nvm install 22 && nvm use 22 && nvm alias default 22 && node -v',
+    },
+    {
+      label: 'Clone Repo',
+      icon: '2',
+      color: 'bg-blue-700 hover:bg-blue-600',
+      cmd: 'cd ~ && git clone https://github.com/BetaZen-InfoTech/GMAp-Scrap.git 2>/dev/null; cd ~/GMAp-Scrap && git pull',
+    },
+    {
+      label: 'Install Dependencies',
+      icon: '3',
+      color: 'bg-indigo-700 hover:bg-indigo-600',
+      cmd: 'cd ~/GMAp-Scrap/frontend-nodejs && npm install',
+    },
+    {
+      label: 'Install Chromium',
+      icon: '4',
+      color: 'bg-violet-700 hover:bg-violet-600',
+      cmd: 'cd ~/GMAp-Scrap/frontend-nodejs && npx playwright install chromium && npx playwright install-deps chromium',
+    },
+    {
+      label: 'Set .env (prod)',
+      icon: '5',
+      color: 'bg-amber-700 hover:bg-amber-600',
+      cmd: `cd ~/GMAp-Scrap/frontend-nodejs && cat > .env << 'ENVEOF'\nAPP_STATE=prod\nLOCAL_API_URL=http://127.0.0.1:5000\nDEV_API_URL=http://127.0.0.1:5000\nPROD_API_URL=https://gmap-scrap-backend-api.betazeninfotech.com\nHEADLESS=true\nENVEOF`,
+    },
+    {
+      label: 'Install PM2',
+      icon: '6',
+      color: 'bg-teal-700 hover:bg-teal-600',
+      cmd: 'npm install -g pm2',
+    },
+  ];
+
+  const runActionAll = (cmd: string) => {
+    window.electronAPI.sshCommandAll(cmd);
+  };
+
+  const runFullSetup = () => {
+    for (let i = 0; i < quickActions.length; i++) {
+      setTimeout(() => {
+        window.electronAPI.sshCommandAll(quickActions[i].cmd);
+      }, i * 2000);
+    }
+  };
 
   const gitPullAll = () => {
     window.electronAPI.sshCommandAll('cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install');
   };
 
-  // Restart scraper: uses per-device pincode from DB, or broadcasts with a custom pincode
   const restartScraperForDevice = (deviceId: string) => {
     const device = useDeviceStore.getState().devices.find((d) => d.deviceId === deviceId);
     if (!device?.scrapePincode) return;
@@ -217,8 +268,14 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
           {connectedCount > 0 && (
             <>
               <span className="text-slate-700">|</span>
+              <button
+                onClick={() => setShowActions(!showActions)}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${showActions ? 'bg-blue-600 text-white' : 'bg-blue-700 hover:bg-blue-600 text-white'}`}
+              >
+                VPS Setup
+              </button>
               <button onClick={gitPullAll} className="text-xs bg-cyan-700 hover:bg-cyan-600 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
-                Git Pull All
+                Git Pull
               </button>
               <button onClick={restartScraperAll} className="text-xs bg-purple-700 hover:bg-purple-600 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
                 Restart Scraper
@@ -241,6 +298,42 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
           </div>
         </div>
       </div>
+
+      {/* VPS Setup Panel */}
+      {showActions && connectedCount > 0 && (
+        <div className="bg-slate-900 border border-blue-800/40 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-blue-400 uppercase tracking-wider">VPS Setup — Run on all {connectedCount} devices</h3>
+            <button onClick={runFullSetup} className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-medium px-3 py-1 rounded transition-colors">
+              Run Full Setup (1-6)
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+            {quickActions.map((action) => (
+              <button
+                key={action.label}
+                onClick={() => runActionAll(action.cmd)}
+                className={`${action.color} text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors text-left`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">{action.icon}</span>
+                  <span>{action.label}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={restartScraperAll}
+              className="text-xs bg-purple-700 hover:bg-purple-600 text-white font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <span className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">7</span>
+              Start Scraper (uses saved pincode per device)
+            </button>
+            <span className="text-[10px] text-slate-500">Devices without a saved pincode will be skipped</span>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Device Selector (left panel) */}
