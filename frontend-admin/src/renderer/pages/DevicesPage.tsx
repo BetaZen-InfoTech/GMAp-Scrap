@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useDeviceStore } from '../store/useDeviceStore';
 import DeviceCard from '../components/DeviceCard';
 import Spinner from '../components/Spinner';
@@ -13,6 +13,9 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const { devices, loading, fetchDevices } = useDeviceStore();
   const [showArchived, setShowArchived] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkPwOpen, setBulkPwOpen] = useState(false);
+  const [bulkPwValue, setBulkPwValue] = useState('');
+  const [bulkPwSaving, setBulkPwSaving] = useState(false);
 
   useEffect(() => {
     fetchDevices(showArchived);
@@ -42,6 +45,29 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
     });
   };
 
+  const selectAll = () => {
+    const allIds = devices.filter((d) => !d.isArchived).map((d) => d.deviceId);
+    setSelectedIds(new Set(allIds));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkPassword = async () => {
+    if (!bulkPwValue.trim() || selectedIds.size === 0) return;
+    setBulkPwSaving(true);
+    try {
+      await Promise.all(
+        [...selectedIds].map((id) =>
+          api.patch(`/api/admin/devices/${id}/vps-password`, { password: bulkPwValue })
+        )
+      );
+      fetchDevices(showArchived);
+      setBulkPwOpen(false);
+      setBulkPwValue('');
+    } catch { /* noop */ }
+    setBulkPwSaving(false);
+  };
+
   if (loading && devices.length === 0) {
     return <Spinner message="Loading devices..." />;
   }
@@ -61,15 +87,36 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && onOpenSsh && (
-            <button
-              onClick={() => onOpenSsh([...selectedIds])}
-              className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              SSH ({selectedIds.size})
+          {selectedIds.size > 0 && (
+            <>
+              <span className="text-xs text-blue-400 font-medium">{selectedIds.size} selected</span>
+              <button onClick={clearSelection} className="text-[10px] text-slate-400 hover:text-white transition-colors">Clear</button>
+              <span className="text-slate-700">|</span>
+              {onOpenSsh && (
+                <button
+                  onClick={() => onOpenSsh([...selectedIds])}
+                  className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  SSH
+                </button>
+              )}
+              <button
+                onClick={() => { setBulkPwOpen(!bulkPwOpen); setBulkPwValue(''); }}
+                className="flex items-center gap-1.5 text-xs bg-orange-600 hover:bg-orange-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+                Set Password
+              </button>
+            </>
+          )}
+          {selectedIds.size === 0 && (
+            <button onClick={selectAll} className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">
+              Select All
             </button>
           )}
           <button
@@ -90,6 +137,38 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           </button>
         </div>
       </div>
+
+      {/* Bulk password input */}
+      {bulkPwOpen && selectedIds.size > 0 && (
+        <div className="bg-slate-900 border border-orange-800/50 rounded-xl p-4 flex items-center gap-3">
+          <svg className="w-4 h-4 text-orange-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+          </svg>
+          <span className="text-xs text-slate-300 shrink-0">Set password for <span className="text-orange-400 font-semibold">{selectedIds.size}</span> devices:</span>
+          <input
+            type="text"
+            value={bulkPwValue}
+            onChange={(e) => setBulkPwValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleBulkPassword(); }}
+            placeholder="Enter VPS password..."
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
+            autoFocus
+          />
+          <button
+            onClick={handleBulkPassword}
+            disabled={bulkPwSaving || !bulkPwValue.trim()}
+            className="text-xs bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-medium px-4 py-1.5 rounded-lg transition-colors shrink-0"
+          >
+            {bulkPwSaving ? 'Saving...' : 'Save All'}
+          </button>
+          <button
+            onClick={() => { setBulkPwOpen(false); setBulkPwValue(''); }}
+            className="text-xs text-slate-400 hover:text-white transition-colors shrink-0"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {devices.length === 0 ? (
         <p className="text-sm text-slate-500 py-16 text-center">No devices registered yet.</p>
