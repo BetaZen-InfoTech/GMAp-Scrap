@@ -191,6 +191,49 @@ router.get('/devices/:deviceId', async (req, res) => {
   }
 });
 
+// ── POST /api/admin/devices/add ── manually add a VPS device
+router.post('/devices/add', adminAuth, async (req, res) => {
+  try {
+    const { ip, password, pincode, jobs } = req.body;
+    if (!ip) return res.status(400).json({ error: 'IP is required' });
+
+    // Check if device with this IP already exists
+    const existing = await Device.findOne({ $or: [{ ip }, { ips: ip }] });
+    if (existing) {
+      // Update existing device
+      if (password) existing.vpsPassword = password;
+      if (pincode !== undefined) existing.scrapePincode = String(pincode);
+      if (jobs !== undefined) existing.scrapeJobs = Number(jobs) || 3;
+      await existing.save();
+      return res.json({ success: true, deviceId: existing.deviceId, updated: true });
+    }
+
+    // Create new device with minimal info — details auto-fill when scraper starts
+    const crypto = require('crypto');
+    const deviceId = crypto.randomUUID();
+    const device = await Device.create({
+      deviceId,
+      nickname: ip,
+      hostname: 'Pending setup',
+      username: 'root',
+      platform: 'linux',
+      ip,
+      ips: [ip],
+      isActive: true,
+      status: 'offline',
+      vpsPassword: password || '',
+      scrapePincode: pincode ? String(pincode) : '',
+      scrapeJobs: jobs || 3,
+      lastSeenAt: new Date(),
+    });
+
+    res.status(201).json({ success: true, deviceId: device.deviceId });
+  } catch (err) {
+    console.error('[admin/devices/add] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── PATCH /api/admin/devices/:deviceId/archive ── toggle archive status
 router.patch('/devices/:deviceId/archive', adminAuth, async (req, res) => {
   try {

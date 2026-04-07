@@ -18,6 +18,12 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const [bulkPwValue, setBulkPwValue] = useState('');
   const [bulkPwSaving, setBulkPwSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [showAddVps, setShowAddVps] = useState(false);
+  const [addIp, setAddIp] = useState('');
+  const [addPw, setAddPw] = useState('');
+  const [addPin, setAddPin] = useState('');
+  const [addJobs, setAddJobs] = useState('3');
+  const [addSaving, setAddSaving] = useState(false);
 
   useEffect(() => {
     fetchDevices(archiveMode !== 'hide');
@@ -60,6 +66,23 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   };
 
   const clearSelection = () => setSelectedIds(new Set());
+
+  const handleAddVps = async () => {
+    if (!addIp.trim()) return;
+    setAddSaving(true);
+    try {
+      await api.post('/api/admin/devices/add', {
+        ip: addIp.trim(),
+        password: addPw,
+        pincode: addPin,
+        jobs: Number(addJobs) || 3,
+      });
+      setAddIp(''); setAddPw(''); setAddPin(''); setAddJobs('3');
+      setShowAddVps(false);
+      fetchDevices(archiveMode !== 'hide');
+    } catch { /* noop */ }
+    setAddSaving(false);
+  };
 
   const handleBulkPassword = async () => {
     if (!bulkPwValue.trim() || selectedIds.size === 0) return;
@@ -154,13 +177,57 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
             {archiveMode === 'hide' ? 'Show Archived' : archiveMode === 'show' ? 'Only Archived' : 'Hide Archived'}
           </button>
           <button
-            onClick={() => fetchDevices(showArchived)}
+            onClick={() => setShowAddVps(!showAddVps)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+              showAddVps ? 'bg-green-600 text-white' : 'bg-green-700 hover:bg-green-600 text-white'
+            }`}
+          >
+            + Add VPS
+          </button>
+          <button
+            onClick={() => fetchDevices(archiveMode !== 'hide')}
             className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
           >
             Refresh
           </button>
         </div>
       </div>
+
+      {/* Add VPS form */}
+      {showAddVps && (
+        <div className="bg-slate-900 border border-green-800/50 rounded-xl p-4">
+          <h3 className="text-xs font-semibold text-green-400 uppercase tracking-wider mb-3">Add VPS Device</h3>
+          <div className="flex items-end gap-3 flex-wrap">
+            <div>
+              <label className="text-[10px] text-slate-500 block mb-1">IP Address *</label>
+              <input type="text" value={addIp} onChange={(e) => setAddIp(e.target.value)} placeholder="187.127.146.83"
+                className="w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-green-500" />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 block mb-1">Password</label>
+              <input type="text" value={addPw} onChange={(e) => setAddPw(e.target.value)} placeholder="VPS password"
+                className="w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-green-500" />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 block mb-1">Start Pincode</label>
+              <input type="text" value={addPin} onChange={(e) => setAddPin(e.target.value)} placeholder="700001"
+                className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-green-500" />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 block mb-1">Jobs</label>
+              <input type="text" value={addJobs} onChange={(e) => setAddJobs(e.target.value)} placeholder="3"
+                className="w-12 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-green-500" />
+            </div>
+            <button onClick={handleAddVps} disabled={addSaving || !addIp.trim()}
+              className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-medium px-4 py-1.5 rounded-lg transition-colors">
+              {addSaving ? 'Adding...' : 'Add Device'}
+            </button>
+            <button onClick={() => setShowAddVps(false)}
+              className="text-xs text-slate-400 hover:text-white transition-colors">Cancel</button>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-2">Device specs (hostname, CPU, RAM) will auto-fill when the scraper starts running.</p>
+        </div>
+      )}
 
       {/* Bulk password input */}
       {bulkPwOpen && selectedIds.size > 0 && (
