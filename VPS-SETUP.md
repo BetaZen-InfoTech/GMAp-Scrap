@@ -226,11 +226,37 @@ pm2 delete all           # remove all
 
 ### Update code and restart
 
+**Step-by-step:**
+
 ```bash
-cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install && npx playwright install chromium && npx playwright install-deps chromium
+# 1. Stop running scrapers
+pm2 delete all
+
+# 2. Pull latest code
+cd ~/GMAp-Scrap
+git pull
+
+# 3. Install dependencies
+cd frontend-nodejs
+npm install
+
+# 4. Install/update Playwright Chromium
+npx playwright install chromium
+npx playwright install-deps chromium
+
+# 5. Start scraper with new pincode
+pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 3
 ```
 
-Then start new scraper instances. Old completed jobs will be skipped automatically.
+**One-liner (stop + update + restart):**
+
+```bash
+pm2 delete all; cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install && npx playwright install chromium && npx playwright install-deps chromium && pm2 start npm --name "scraper-1" -- start -- "VPS-1" 700001 3
+```
+
+> Or use the **Admin Panel → SSH Terminal → Restart Scraper** button to do this on all VPS at once.
+
+Old completed jobs will be skipped automatically.
 
 ---
 
