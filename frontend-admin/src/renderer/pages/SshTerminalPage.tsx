@@ -161,6 +161,31 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   const connectedCount = [...terminals.values()].filter((t) => t.status === 'connected').length;
   const onlineDevices = devices.filter((d) => d.ip);
 
+  // ── Quick Actions ──
+  const [startPincode, setStartPincode] = useState('');
+  const [startJobs, setStartJobs] = useState('3');
+  const [showStartPanel, setShowStartPanel] = useState(false);
+
+  const startScraperAll = () => {
+    if (!startPincode.trim()) return;
+    const commands = [
+      'cd ~/GMAp-Scrap/frontend-nodejs',
+      `pm2 start npm --name "scraper-1" -- start -- "VPS-1" ${startPincode.trim()} ${startJobs.trim() || '3'}`,
+    ];
+    for (const cmd of commands) {
+      window.electronAPI.sshCommandAll(cmd);
+    }
+  };
+
+  const gitPullAll = () => {
+    const commands = [
+      'cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install',
+    ];
+    for (const cmd of commands) {
+      window.electronAPI.sshCommandAll(cmd);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
       {/* Header */}
@@ -178,6 +203,22 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
           <button onClick={disconnectAll} className="text-xs bg-red-700 hover:bg-red-600 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
             Disconnect All
           </button>
+          {connectedCount > 0 && (
+            <>
+              <span className="text-slate-700">|</span>
+              <button onClick={gitPullAll} className="text-xs bg-cyan-700 hover:bg-cyan-600 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
+                Git Pull All
+              </button>
+              <button
+                onClick={() => setShowStartPanel(!showStartPanel)}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                  showStartPanel ? 'bg-purple-600 text-white' : 'bg-purple-700 hover:bg-purple-600 text-white'
+                }`}
+              >
+                Start Scraper
+              </button>
+            </>
+          )}
           <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5">
             {(['broadcast', 'individual'] as const).map((m) => (
               <button
@@ -191,6 +232,47 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
           </div>
         </div>
       </div>
+
+      {/* Start Scraper Panel */}
+      {showStartPanel && connectedCount > 0 && (
+        <div className="bg-slate-900 border border-purple-800/50 rounded-xl p-4 flex items-center gap-3 flex-wrap">
+          <svg className="w-4 h-4 text-purple-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-xs text-slate-300 shrink-0">Start scraper on <span className="text-purple-400 font-semibold">{connectedCount}</span> devices:</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-500">Pincode:</span>
+            <input
+              type="text"
+              value={startPincode}
+              onChange={(e) => setStartPincode(e.target.value)}
+              placeholder="700001"
+              className="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-purple-500"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-500">Jobs:</span>
+            <input
+              type="text"
+              value={startJobs}
+              onChange={(e) => setStartJobs(e.target.value)}
+              placeholder="3"
+              className="w-12 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-purple-500"
+            />
+          </div>
+          <button
+            onClick={startScraperAll}
+            disabled={!startPincode.trim()}
+            className="text-xs bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-medium px-4 py-1.5 rounded-lg transition-colors shrink-0"
+          >
+            Start All
+          </button>
+          <span className="text-[10px] text-slate-600 ml-auto">
+            cmd: cd ~/GMAp-Scrap/frontend-nodejs && pm2 start npm --name "scraper-1" -- start -- "VPS-1" {startPincode || '?'} {startJobs || '3'}
+          </span>
+        </div>
+      )}
 
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Device Selector (left panel) */}
