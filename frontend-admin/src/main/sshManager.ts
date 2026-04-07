@@ -42,9 +42,17 @@ export function sshConnect(
       port: port || 22,
       username: username || 'root',
       password,
+      tryKeyboard: true,
       readyTimeout: 15000,
       keepaliveInterval: 10000,
     };
+
+    console.log(`[SSH] Connecting to ${host}:${port} as ${username} (password: ${password ? '***set***' : 'EMPTY'})`);
+
+    // Handle keyboard-interactive auth (some servers require this instead of plain password)
+    client.on('keyboard-interactive', (_name, _instructions, _lang, _prompts, finish) => {
+      finish([password]);
+    });
 
     client.on('ready', () => {
       client.shell((err, stream) => {
