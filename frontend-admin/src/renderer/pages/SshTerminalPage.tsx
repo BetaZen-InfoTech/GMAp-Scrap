@@ -338,7 +338,18 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Device Selector (left panel) */}
         <div className="w-56 shrink-0 bg-slate-900 border border-slate-800 rounded-xl p-3 overflow-y-auto">
-          <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Devices</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Devices</h3>
+            <button
+              onClick={() => {
+                if (selectedIds.size === onlineDevices.length) setSelectedIds(new Set());
+                else setSelectedIds(new Set(onlineDevices.map((d) => d.deviceId)));
+              }}
+              className="text-[10px] text-slate-400 hover:text-white transition-colors"
+            >
+              {selectedIds.size === onlineDevices.length ? 'None' : 'All'}
+            </button>
+          </div>
           <div className="space-y-1">
             {onlineDevices.map((d) => {
               const t = terminals.get(d.deviceId);
