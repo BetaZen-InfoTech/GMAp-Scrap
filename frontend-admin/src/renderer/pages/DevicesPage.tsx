@@ -90,7 +90,6 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           {selectedIds.size > 0 && (
             <>
               <span className="text-xs text-blue-400 font-medium">{selectedIds.size} selected</span>
-              <button onClick={clearSelection} className="text-[10px] text-slate-400 hover:text-white transition-colors">Clear</button>
               <span className="text-slate-700">|</span>
               {onOpenSsh && (
                 <button
@@ -112,13 +111,15 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                 </svg>
                 Set Password
               </button>
+              <span className="text-slate-700">|</span>
             </>
           )}
-          {selectedIds.size === 0 && (
-            <button onClick={selectAll} className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">
-              Select All
-            </button>
-          )}
+          <button
+            onClick={selectedIds.size === devices.filter((d) => !d.isArchived).length ? clearSelection : selectAll}
+            className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            {selectedIds.size === devices.filter((d) => !d.isArchived).length ? 'Unselect All' : 'Select All'}
+          </button>
           <button
             onClick={() => setShowArchived(!showArchived)}
             className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
