@@ -123,14 +123,22 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
 
   const sendBroadcast = () => {
     if (!broadcastCmd.trim()) return;
-    window.electronAPI.sshCommandAll(broadcastCmd);
+    // Send each line as a separate command
+    const lines = broadcastCmd.split('\n').filter((l) => l.trim());
+    for (const line of lines) {
+      window.electronAPI.sshCommandAll(line);
+    }
     setBroadcastCmd('');
   };
 
   const sendToDevice = (deviceId: string) => {
     const cmd = perDeviceCmd.get(deviceId) || '';
     if (!cmd.trim()) return;
-    window.electronAPI.sshCommand(deviceId, cmd);
+    // Send each line as a separate command
+    const lines = cmd.split('\n').filter((l) => l.trim());
+    for (const line of lines) {
+      window.electronAPI.sshCommand(deviceId, line);
+    }
     setPerDeviceCmd((prev) => { const n = new Map(prev); n.set(deviceId, ''); return n; });
   };
 
@@ -214,16 +222,18 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
         <div className="flex-1 flex flex-col min-h-0 gap-3">
           {/* Broadcast command bar */}
           {mode === 'broadcast' && connectedCount > 0 && (
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={broadcastCmd}
-                onChange={(e) => setBroadcastCmd(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') sendBroadcast(); }}
-                placeholder={`Send to all ${connectedCount} devices...`}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500"
-              />
-              <button onClick={sendBroadcast} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1 relative">
+                <textarea
+                  value={broadcastCmd}
+                  onChange={(e) => setBroadcastCmd(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendBroadcast(); } }}
+                  placeholder={`Send to all ${connectedCount} devices... (Ctrl+Enter to send)`}
+                  rows={broadcastCmd.split('\n').length > 3 ? Math.min(broadcastCmd.split('\n').length, 10) : 1}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500 resize-y min-h-[36px]"
+                />
+              </div>
+              <button onClick={sendBroadcast} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors shrink-0">
                 Send All
               </button>
             </div>
@@ -270,16 +280,16 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
 
                   {/* Per-device command input (individual mode) */}
                   {mode === 'individual' && t?.status === 'connected' && (
-                    <div className="flex gap-1.5 px-2 py-2 border-t border-slate-800 shrink-0">
-                      <input
-                        type="text"
+                    <div className="flex gap-1.5 px-2 py-2 border-t border-slate-800 shrink-0 items-end">
+                      <textarea
                         value={perDeviceCmd.get(deviceId) || ''}
                         onChange={(e) => setPerDeviceCmd((prev) => { const n = new Map(prev); n.set(deviceId, e.target.value); return n; })}
-                        onKeyDown={(e) => { if (e.key === 'Enter') sendToDevice(deviceId); }}
-                        placeholder="Command..."
-                        className="flex-1 bg-black/40 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendToDevice(deviceId); } }}
+                        placeholder="Command... (Ctrl+Enter to send)"
+                        rows={1}
+                        className="flex-1 bg-black/40 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500 resize-y min-h-[28px]"
                       />
-                      <button onClick={() => sendToDevice(deviceId)} className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded">Send</button>
+                      <button onClick={() => sendToDevice(deviceId)} className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded shrink-0">Send</button>
                     </div>
                   )}
                 </div>
