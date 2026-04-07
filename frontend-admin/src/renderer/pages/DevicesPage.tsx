@@ -11,29 +11,30 @@ interface DevicesPageProps {
 
 const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) => {
   const { devices, loading, fetchDevices } = useDeviceStore();
-  const [showArchived, setShowArchived] = useState(false);
+  // 'hide' = normal view, 'show' = include archived, 'only' = only archived
+  const [archiveMode, setArchiveMode] = useState<'hide' | 'show' | 'only'>('hide');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPwOpen, setBulkPwOpen] = useState(false);
   const [bulkPwValue, setBulkPwValue] = useState('');
   const [bulkPwSaving, setBulkPwSaving] = useState(false);
 
   useEffect(() => {
-    fetchDevices(showArchived);
-    const interval = setInterval(() => fetchDevices(showArchived), 30000);
+    fetchDevices(archiveMode !== 'hide');
+    const interval = setInterval(() => fetchDevices(archiveMode !== 'hide'), 30000);
     return () => clearInterval(interval);
-  }, [showArchived]);
+  }, [archiveMode]);
 
   const handleArchive = async (deviceId: string) => {
     try {
       await api.patch(`/api/admin/devices/${deviceId}/archive`);
-      fetchDevices(showArchived);
+      fetchDevices(archiveMode !== 'hide');
     } catch { /* noop */ }
   };
 
   const handleSavePassword = async (deviceId: string, password: string) => {
     try {
       await api.patch(`/api/admin/devices/${deviceId}/vps-password`, { password });
-      fetchDevices(showArchived);
+      fetchDevices(archiveMode !== 'hide');
     } catch { /* noop */ }
   };
 
@@ -61,7 +62,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           api.patch(`/api/admin/devices/${id}/vps-password`, { password: bulkPwValue })
         )
       );
-      fetchDevices(showArchived);
+      fetchDevices(archiveMode !== 'hide');
       setBulkPwOpen(false);
       setBulkPwValue('');
     } catch { /* noop */ }
@@ -75,6 +76,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const activeDevices = devices.filter((d) => d.status === 'online' && !d.isArchived);
   const inactiveDevices = devices.filter((d) => d.status !== 'online' && !d.isArchived);
   const archivedDevices = devices.filter((d) => d.isArchived);
+  const nonArchivedCount = devices.filter((d) => !d.isArchived).length;
 
   return (
     <div className="space-y-6">
@@ -115,20 +117,22 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
             </>
           )}
           <button
-            onClick={selectedIds.size === devices.filter((d) => !d.isArchived).length ? clearSelection : selectAll}
+            onClick={selectedIds.size === nonArchivedCount ? clearSelection : selectAll}
             className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
           >
-            {selectedIds.size === devices.filter((d) => !d.isArchived).length ? 'Unselect All' : 'Select All'}
+            {selectedIds.size === nonArchivedCount && nonArchivedCount > 0 ? 'Unselect All' : 'Select All'}
           </button>
           <button
-            onClick={() => setShowArchived(!showArchived)}
+            onClick={() => setArchiveMode((m) => m === 'hide' ? 'show' : m === 'show' ? 'only' : 'hide')}
             className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-              showArchived
+              archiveMode === 'only'
+                ? 'bg-purple-600 text-white border border-purple-500'
+                : archiveMode === 'show'
                 ? 'bg-purple-900/40 text-purple-300 border border-purple-700/60'
                 : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
             }`}
           >
-            {showArchived ? 'Hide Archived' : 'Show Archived'}
+            {archiveMode === 'hide' ? 'Show Archived' : archiveMode === 'show' ? 'Only Archived' : 'Hide Archived'}
           </button>
           <button
             onClick={() => fetchDevices(showArchived)}
@@ -176,7 +180,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
       ) : (
         <>
           {/* Active Devices */}
-          {activeDevices.length > 0 && (
+          {archiveMode !== 'only' && activeDevices.length > 0 && (
             <div>
               <h3 className="text-xs font-medium text-green-400 uppercase tracking-wider mb-3">
                 Active ({activeDevices.length})
@@ -198,7 +202,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           )}
 
           {/* Inactive Devices */}
-          {inactiveDevices.length > 0 && (
+          {archiveMode !== 'only' && inactiveDevices.length > 0 && (
             <div>
               <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">
                 Inactive ({inactiveDevices.length})
@@ -221,7 +225,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           )}
 
           {/* Archived Devices */}
-          {showArchived && archivedDevices.length > 0 && (
+          {archiveMode !== 'hide' && archivedDevices.length > 0 && (
             <div>
               <h3 className="text-xs font-medium text-purple-400 uppercase tracking-wider mb-3">
                 Archived ({archivedDevices.length})

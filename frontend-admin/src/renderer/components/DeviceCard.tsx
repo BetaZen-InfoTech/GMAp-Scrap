@@ -151,6 +151,13 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
         )}
       </div>
 
+      {/* Archive time */}
+      {device.isArchived && device.archivedAt && (
+        <div className="text-[10px] text-purple-400/70 mb-2">
+          Archived {new Date(device.archivedAt).toLocaleDateString()} {new Date(device.archivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      )}
+
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>{device.activeJobs ?? 0} jobs · {device.totalSessions ?? 0} sessions</span>
