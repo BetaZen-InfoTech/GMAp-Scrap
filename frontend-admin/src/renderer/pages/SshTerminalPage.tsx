@@ -278,8 +278,8 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                     {t?.error && <span className="text-red-400">{'\n'}Error: {t.error}</span>}
                   </pre>
 
-                  {/* Per-device command input (individual mode) */}
-                  {mode === 'individual' && t?.status === 'connected' && (
+                  {/* Per-device command input (always visible when connected) */}
+                  {t?.status === 'connected' && (
                     <div className="flex gap-1.5 px-2 py-2 border-t border-slate-800 shrink-0 items-end">
                       <textarea
                         value={perDeviceCmd.get(deviceId) || ''}
