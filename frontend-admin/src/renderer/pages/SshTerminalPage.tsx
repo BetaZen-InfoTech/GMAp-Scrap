@@ -68,12 +68,16 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   const getDevice = (id: string): DeviceInfo | undefined => devices.find((d) => d.deviceId === id);
 
   const connectDevice = async (deviceId: string) => {
-    const device = getDevice(deviceId);
+    // Refresh devices to get latest password before connecting
+    await fetchDevices(true);
+    const device = useDeviceStore.getState().devices.find((d) => d.deviceId === deviceId);
     if (!device?.ip) return;
+
+    const pw = device.vpsPassword || '';
 
     setTerminals((prev) => {
       const next = new Map(prev);
-      next.set(deviceId, { status: 'connecting', output: [`Connecting to ${device.ip}...`] });
+      next.set(deviceId, { status: 'connecting', output: [`Connecting to ${device.ip} as ${device.username || 'root'} (pw: ${pw ? 'set' : 'EMPTY'})...`] });
       return next;
     });
 
@@ -82,7 +86,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       device.ip,
       22,
       device.username || 'root',
-      device.vpsPassword || '',
+      pw,
     );
 
     if (!result.success) {
