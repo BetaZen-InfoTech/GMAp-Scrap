@@ -25,8 +25,8 @@ const electronAPI = {
   sshConnect: (deviceId: string, host: string, port: number, username: string, password: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.SSH_CONNECT, deviceId, host, port, username, password),
 
-  sshCommand: (deviceId: string, command: string): Promise<{ success: boolean }> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SSH_COMMAND, deviceId, command),
+  sshCommand: (deviceId: string, command: string, raw?: boolean): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SSH_COMMAND, deviceId, command, raw),
 
   sshCommandAll: (command: string): Promise<{ success: boolean; count: number }> =>
     ipcRenderer.invoke(IPC_CHANNELS.SSH_COMMAND_ALL, command),

@@ -298,7 +298,13 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                         type="text"
                         value={perDeviceCmd.get(deviceId) || ''}
                         onChange={(e) => setPerDeviceCmd((prev) => { const n = new Map(prev); n.set(deviceId, e.target.value); return n; })}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendToDevice(deviceId); } }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); sendToDevice(deviceId); }
+                          else if (e.key === 'ArrowUp') { e.preventDefault(); window.electronAPI.sshCommand(deviceId, '\x1b[A', true); }
+                          else if (e.key === 'ArrowDown') { e.preventDefault(); window.electronAPI.sshCommand(deviceId, '\x1b[B', true); }
+                          else if (e.key === 'Tab') { e.preventDefault(); window.electronAPI.sshCommand(deviceId, '\t', true); }
+                          else if (e.key === 'c' && e.ctrlKey) { e.preventDefault(); window.electronAPI.sshCommand(deviceId, '\x03', true); }
+                        }}
                         placeholder="Type command and press Enter..."
                         className="flex-1 bg-transparent text-xs text-white font-mono focus:outline-none placeholder:text-slate-600"
                       />

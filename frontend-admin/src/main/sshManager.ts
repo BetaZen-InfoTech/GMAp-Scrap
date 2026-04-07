@@ -97,10 +97,10 @@ export function sshConnect(
   });
 }
 
-export function sshCommand(deviceId: string, command: string): boolean {
+export function sshCommand(deviceId: string, command: string, raw = false): boolean {
   const conn = connections.get(deviceId);
   if (!conn?.stream) return false;
-  conn.stream.write(command + '\n');
+  conn.stream.write(raw ? command : command + '\n');
   return true;
 }
 

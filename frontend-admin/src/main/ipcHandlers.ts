@@ -56,8 +56,8 @@ export function setupIpcHandlers(): void {
     return sshConnect(deviceId, host, port, username, password);
   });
 
-  ipcMain.handle(IPC_CHANNELS.SSH_COMMAND, async (_, deviceId: string, command: string) => {
-    return { success: sshCommand(deviceId, command) };
+  ipcMain.handle(IPC_CHANNELS.SSH_COMMAND, async (_, deviceId: string, command: string, raw?: boolean) => {
+    return { success: sshCommand(deviceId, command, raw) };
   });
 
   ipcMain.handle(IPC_CHANNELS.SSH_COMMAND_ALL, async (_, command: string) => {
