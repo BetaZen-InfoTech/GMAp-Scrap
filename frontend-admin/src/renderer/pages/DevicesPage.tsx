@@ -17,6 +17,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const [bulkPwOpen, setBulkPwOpen] = useState(false);
   const [bulkPwValue, setBulkPwValue] = useState('');
   const [bulkPwSaving, setBulkPwSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetchDevices(archiveMode !== 'hide');
@@ -80,9 +81,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
     return <Spinner message="Loading devices..." />;
   }
 
-  const activeDevices = devices.filter((d) => d.status === 'online' && !d.isArchived);
-  const inactiveDevices = devices.filter((d) => d.status !== 'online' && !d.isArchived);
-  const archivedDevices = devices.filter((d) => d.isArchived);
+  const s = search.toLowerCase().trim();
+  const matchSearch = (d: typeof devices[0]) =>
+    !s || (d.nickname || '').toLowerCase().includes(s) || (d.ip || '').includes(s) || (d.hostname || '').toLowerCase().includes(s) || (d.scrapePincode || '').includes(s);
+
+  const activeDevices = devices.filter((d) => d.status === 'online' && !d.isArchived && matchSearch(d));
+  const inactiveDevices = devices.filter((d) => d.status !== 'online' && !d.isArchived && matchSearch(d));
+  const archivedDevices = devices.filter((d) => d.isArchived && matchSearch(d));
   const nonArchivedCount = devices.filter((d) => !d.isArchived).length;
 
   return (
@@ -96,6 +101,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search IP, name, pincode..."
+            className="w-48 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 placeholder:text-slate-600"
+          />
           {selectedIds.size > 0 && (
             <>
               <span className="text-xs text-blue-400 font-medium">{selectedIds.size} selected</span>
