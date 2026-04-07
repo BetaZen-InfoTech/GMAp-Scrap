@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const PAGE_SIZES = [10, 25, 50, 100, 250, 500, 750, 1000];
+const PAGE_SIZES = [10, 25, 50, 100, 250, 300, 500, 750, 1000];
 
 interface PaginationProps {
   page: number;
