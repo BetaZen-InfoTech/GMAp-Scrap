@@ -222,74 +222,86 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
         <div className="flex-1 flex flex-col min-h-0 gap-3">
           {/* Broadcast command bar */}
           {mode === 'broadcast' && connectedCount > 0 && (
-            <div className="flex gap-2 items-end">
-              <div className="flex-1 relative">
-                <textarea
-                  value={broadcastCmd}
-                  onChange={(e) => setBroadcastCmd(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendBroadcast(); } }}
-                  placeholder={`Send to all ${connectedCount} devices... (Ctrl+Enter to send)`}
-                  rows={broadcastCmd.split('\n').length > 3 ? Math.min(broadcastCmd.split('\n').length, 10) : 1}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500 resize-y min-h-[36px]"
-                />
-              </div>
-              <button onClick={sendBroadcast} className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors shrink-0">
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-blue-400 font-semibold shrink-0">ALL ({connectedCount})</span>
+              <span className="text-slate-600">|</span>
+              <input
+                type="text"
+                value={broadcastCmd}
+                onChange={(e) => setBroadcastCmd(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendBroadcast(); } }}
+                placeholder="Type command and press Enter to send to all devices..."
+                className="flex-1 bg-transparent text-sm text-white font-mono focus:outline-none placeholder:text-slate-600"
+              />
+              <button onClick={sendBroadcast} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-medium px-3 py-1 rounded transition-colors shrink-0">
                 Send All
               </button>
             </div>
           )}
 
           {/* Terminal panels */}
-          <div className={`flex-1 min-h-0 overflow-y-auto grid gap-3 ${
-            connectedCount <= 1 ? 'grid-cols-1' : connectedCount <= 4 ? 'grid-cols-2' : 'grid-cols-3'
-          }`}>
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
             {[...selectedIds].map((deviceId) => {
               const device = getDevice(deviceId);
               const t = terminals.get(deviceId);
               if (!device) return null;
 
+              const isConnected = t?.status === 'connected';
+              const isError = t?.status === 'disconnected' && t?.error;
+
               return (
-                <div key={deviceId} className="bg-slate-950 border border-slate-800 rounded-xl flex flex-col min-h-[200px]">
+                <div key={deviceId} className={`border rounded-xl flex flex-col shrink-0 ${
+                  isConnected ? 'border-emerald-800/60 bg-slate-950' : isError ? 'border-red-800/40 bg-slate-950' : 'border-slate-800 bg-slate-950'
+                }`} style={{ height: isConnected ? '320px' : '80px' }}>
                   {/* Terminal header */}
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${
-                        t?.status === 'connected' ? 'bg-green-400' : t?.status === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/60 shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${
+                        isConnected ? 'bg-green-400' : t?.status === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'
                       }`} />
-                      <span className="text-xs text-white font-medium">{device.nickname || device.ip}</span>
+                      <span className="text-xs text-white font-semibold">{device.nickname || device.ip}</span>
                       <span className="text-[10px] text-slate-500">{device.ip}</span>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1.5 shrink-0">
                       {(!t || t.status === 'disconnected') && (
-                        <button onClick={() => connectDevice(deviceId)} className="text-[10px] bg-emerald-700 hover:bg-emerald-600 text-white px-2 py-0.5 rounded">Connect</button>
+                        <button onClick={() => connectDevice(deviceId)} className="text-[10px] bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 py-1 rounded transition-colors">Connect</button>
                       )}
-                      {t?.status === 'connected' && (
-                        <button onClick={() => disconnectDevice(deviceId)} className="text-[10px] bg-red-700 hover:bg-red-600 text-white px-2 py-0.5 rounded">Disconnect</button>
+                      {t?.status === 'connecting' && (
+                        <span className="text-[10px] text-yellow-400 px-2 py-1">Connecting...</span>
+                      )}
+                      {isConnected && (
+                        <button onClick={() => disconnectDevice(deviceId)} className="text-[10px] bg-red-700/80 hover:bg-red-600 text-white px-2.5 py-1 rounded transition-colors">Disconnect</button>
                       )}
                     </div>
                   </div>
 
-                  {/* Terminal output */}
-                  <pre
-                    ref={(el) => { if (el) outputRefs.current.set(deviceId, el); }}
-                    className="flex-1 overflow-y-auto p-3 text-xs text-green-400 font-mono whitespace-pre-wrap break-all bg-black/40"
-                  >
-                    {t?.output.join('\n') || (t?.status === 'connecting' ? 'Connecting...' : 'Not connected')}
-                    {t?.error && <span className="text-red-400">{'\n'}Error: {t.error}</span>}
-                  </pre>
+                  {/* Error display (compact when not connected) */}
+                  {isError && !isConnected && (
+                    <div className="px-3 py-2 text-xs text-red-400 font-mono">{t.error}</div>
+                  )}
 
-                  {/* Per-device command input (always visible when connected) */}
-                  {t?.status === 'connected' && (
-                    <div className="flex gap-1.5 px-2 py-2 border-t border-slate-800 shrink-0 items-end">
-                      <textarea
+                  {/* Terminal output */}
+                  {(isConnected || t?.status === 'connecting') && (
+                    <pre
+                      ref={(el) => { if (el) outputRefs.current.set(deviceId, el); }}
+                      className="flex-1 overflow-y-auto px-3 py-2 text-[11px] leading-relaxed text-green-400 font-mono whitespace-pre-wrap break-all bg-black/30"
+                    >
+                      {t?.output.join('\n') || 'Connecting...'}
+                    </pre>
+                  )}
+
+                  {/* Command input — always visible when connected */}
+                  {isConnected && (
+                    <div className="flex items-center gap-1.5 px-2 py-1.5 border-t border-slate-800/60 shrink-0 bg-black/20">
+                      <span className="text-[10px] text-emerald-500 font-mono shrink-0">$</span>
+                      <input
+                        type="text"
                         value={perDeviceCmd.get(deviceId) || ''}
                         onChange={(e) => setPerDeviceCmd((prev) => { const n = new Map(prev); n.set(deviceId, e.target.value); return n; })}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendToDevice(deviceId); } }}
-                        placeholder="Command... (Ctrl+Enter to send)"
-                        rows={1}
-                        className="flex-1 bg-black/40 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500 resize-y min-h-[28px]"
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendToDevice(deviceId); } }}
+                        placeholder="Type command and press Enter..."
+                        className="flex-1 bg-transparent text-xs text-white font-mono focus:outline-none placeholder:text-slate-600"
                       />
-                      <button onClick={() => sendToDevice(deviceId)} className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded shrink-0">Send</button>
                     </div>
                   )}
                 </div>
@@ -297,7 +309,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
             })}
 
             {selectedIds.size === 0 && (
-              <div className="col-span-full flex items-center justify-center h-full">
+              <div className="flex-1 flex items-center justify-center">
                 <p className="text-sm text-slate-500">Select devices from the left panel to connect</p>
               </div>
             )}
