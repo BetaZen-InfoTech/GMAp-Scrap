@@ -257,7 +257,7 @@ router.patch('/devices/:deviceId/vps-password', adminAuth, async (req, res) => {
     const { password } = req.body;
     const device = await Device.findOneAndUpdate(
       { deviceId: req.params.deviceId },
-      { $set: { vpsPassword: password || '' } },
+      { $set: { vpsPassword: (password || '').trim() } },
       { new: true }
     );
     if (!device) return res.status(404).json({ error: 'Device not found' });
@@ -273,7 +273,7 @@ router.patch('/devices/:deviceId/scrape-config', adminAuth, async (req, res) => 
   try {
     const { pincode, jobs } = req.body;
     const update = {};
-    if (pincode !== undefined) update.scrapePincode = String(pincode);
+    if (pincode !== undefined) update.scrapePincode = String(pincode).trim();
     if (jobs !== undefined) update.scrapeJobs = Number(jobs) || 3;
     const device = await Device.findOneAndUpdate(
       { deviceId: req.params.deviceId },
