@@ -40,7 +40,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
 
   const handleSavePw = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onSavePassword?.(device.deviceId, pwValue);
+    onSavePassword?.(device.deviceId, pwValue.trim());
     setEditPw(false);
   };
 
@@ -163,7 +163,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
               className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500" autoFocus />
             <input type="text" value={jobsValue} onChange={(e) => setJobsValue(e.target.value)} placeholder="Jobs"
               className="w-12 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500" />
-            <button onClick={() => { onSaveScrapeConfig?.(device.deviceId, pincodeValue, Number(jobsValue) || 3); setEditScrape(false); }}
+            <button onClick={() => { onSaveScrapeConfig?.(device.deviceId, pincodeValue.trim(), Number(jobsValue.trim()) || 3); setEditScrape(false); }}
               className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded">Save</button>
             <button onClick={() => { setEditScrape(false); setPincodeValue(device.scrapePincode || ''); setJobsValue(String(device.scrapeJobs || 3)); }}
               className="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-1 rounded">X</button>
