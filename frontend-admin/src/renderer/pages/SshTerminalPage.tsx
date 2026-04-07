@@ -14,6 +14,14 @@ interface SshTerminalPageProps {
 
 const MAX_OUTPUT_LINES = 3000;
 
+// Strip ANSI escape codes from terminal output
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+            .replace(/\x1b\][^\x07]*\x07/g, '')
+            .replace(/\x1b\[[\?]?[0-9;]*[a-zA-Z]/g, '')
+            .replace(/\r/g, '');
+}
+
 const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) => {
   const { devices, fetchDevices } = useDeviceStore();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialDeviceIds || []));
@@ -33,7 +41,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       setTerminals((prev) => {
         const next = new Map(prev);
         const t = next.get(deviceId) || { status: 'connected', output: [] };
-        const newOutput = [...t.output, ...data.split('\n')].slice(-MAX_OUTPUT_LINES);
+        const newOutput = [...t.output, ...stripAnsi(data).split('\n')].slice(-MAX_OUTPUT_LINES);
         next.set(deviceId, { ...t, output: newOutput });
         return next;
       });
