@@ -269,26 +269,7 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
             Select All ({total.toLocaleString()})
           </button>
           <button onClick={clearSelection} className="text-xs text-slate-400 hover:text-white transition-colors">Unselect All</button>
-          <div className="ml-auto flex items-center gap-2">
-            {!scraping && (
-              <button
-                onClick={async () => {
-                  const targets = await getTargetRecords();
-                  const ids = targets.map((r) => r._id);
-                  if (ids.length === 0) return;
-                  await api.patch('/api/admin/scrap-database/mark-website-scraped', { ids });
-                  setRecords((prev) => {
-                    const urls = new Set(targets.map((r) => r.website).filter(Boolean));
-                    return prev.map((r) => urls.has(r.website) ? { ...r, scrapWebsite: true } : r);
-                  });
-                  clearSelection();
-                  fetchRecords(1);
-                }}
-                className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium px-3 py-1.5 rounded-lg transition-colors"
-              >
-                Mark as Scraped
-              </button>
-            )}
+          <div className="ml-auto">
             {!scraping ? (
               <button onClick={startScraping}
                 className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors">
