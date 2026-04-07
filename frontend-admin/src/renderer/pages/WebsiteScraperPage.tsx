@@ -136,7 +136,8 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
         if (phones.length === 0 && emails.length === 0) {
           await api.patch('/api/admin/scrap-database/mark-website-scraped', { ids: [record._id] });
           setProgress((p) => p ? { ...p, done: p.done + 1, log: [`[${i + 1}/${targets.length}] Nothing found: ${record.name}`, ...p.log].slice(0, 100) } : p);
-          setRecords((prev) => prev.map((r) => r._id === record._id ? { ...r, scrapWebsite: true } : r));
+          // Mark ALL records with same URL in local state
+          setRecords((prev) => prev.map((r) => r.website === record.website ? { ...r, scrapWebsite: true } : r));
           continue;
         }
 
@@ -192,7 +193,8 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
           await api.patch('/api/admin/scrap-database/mark-website-scraped', { ids: [record._id] });
           setProgress((p) => p ? { ...p, done: p.done + 1, log: [`[${i + 1}/${targets.length}] Same data: ${record.name}`, ...p.log].slice(0, 100) } : p);
         }
-        setRecords((prev) => prev.map((r) => r._id === record._id ? { ...r, scrapWebsite: true } : r));
+        // Mark ALL records with same URL in local state
+        setRecords((prev) => prev.map((r) => r.website === record.website ? { ...r, scrapWebsite: true } : r));
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         setProgress((p) => p ? { ...p, done: p.done + 1, errors: p.errors + 1, log: [`[${i + 1}/${targets.length}] Error (${record.name}): ${msg}`, ...p.log].slice(0, 100) } : p);
@@ -267,7 +269,26 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
             Select All ({total.toLocaleString()})
           </button>
           <button onClick={clearSelection} className="text-xs text-slate-400 hover:text-white transition-colors">Unselect All</button>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {!scraping && (
+              <button
+                onClick={async () => {
+                  const targets = await getTargetRecords();
+                  const ids = targets.map((r) => r._id);
+                  if (ids.length === 0) return;
+                  await api.patch('/api/admin/scrap-database/mark-website-scraped', { ids });
+                  setRecords((prev) => {
+                    const urls = new Set(targets.map((r) => r.website).filter(Boolean));
+                    return prev.map((r) => urls.has(r.website) ? { ...r, scrapWebsite: true } : r);
+                  });
+                  clearSelection();
+                  fetchRecords(1);
+                }}
+                className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Mark as Scraped
+              </button>
+            )}
             {!scraping ? (
               <button onClick={startScraping}
                 className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors">
