@@ -225,6 +225,26 @@ router.patch('/devices/:deviceId/vps-password', adminAuth, async (req, res) => {
   }
 });
 
+// ── PATCH /api/admin/devices/:deviceId/scrape-config ── save pincode + jobs
+router.patch('/devices/:deviceId/scrape-config', adminAuth, async (req, res) => {
+  try {
+    const { pincode, jobs } = req.body;
+    const update = {};
+    if (pincode !== undefined) update.scrapePincode = String(pincode);
+    if (jobs !== undefined) update.scrapeJobs = Number(jobs) || 3;
+    const device = await Device.findOneAndUpdate(
+      { deviceId: req.params.deviceId },
+      { $set: update },
+      { new: true }
+    );
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin/devices/scrape-config] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/admin/sessions ──
 router.get('/sessions', async (req, res) => {
   try {

@@ -20,6 +20,8 @@ export interface DeviceInfo {
   isArchived?: boolean;
   archivedAt?: string;
   vpsPassword?: string;
+  scrapePincode?: string;
+  scrapeJobs?: number;
   status?: 'online' | 'offline';
   lastSeenAt: string;
   createdAt: string;

@@ -20,6 +20,8 @@ const deviceSchema = new mongoose.Schema(
     isArchived: { type: Boolean, default: false },
     archivedAt: { type: Date, default: null },
     vpsPassword: { type: String, default: '' },
+    scrapePincode: { type: String, default: '' },
+    scrapeJobs: { type: Number, default: 3 },
     status: { type: String, enum: ['online', 'offline'], default: 'offline' },
     lastSeenAt: { type: Date, default: Date.now },
 

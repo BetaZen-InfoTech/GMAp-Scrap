@@ -38,6 +38,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
     } catch { /* noop */ }
   };
 
+  const handleSaveScrapeConfig = async (deviceId: string, pincode: string, jobs: number) => {
+    try {
+      await api.patch(`/api/admin/devices/${deviceId}/scrape-config`, { pincode, jobs });
+      fetchDevices(archiveMode !== 'hide');
+    } catch { /* noop */ }
+  };
+
   const toggleSelect = (deviceId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -192,6 +199,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                     device={device}
                     onClick={onDeviceClick}
                     onSavePassword={handleSavePassword}
+                    onSaveScrapeConfig={handleSaveScrapeConfig}
                     selectable
                     selected={selectedIds.has(device.deviceId)}
                     onSelect={toggleSelect}
@@ -215,6 +223,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                     onClick={onDeviceClick}
                     onArchive={handleArchive}
                     onSavePassword={handleSavePassword}
+                    onSaveScrapeConfig={handleSaveScrapeConfig}
                     selectable
                     selected={selectedIds.has(device.deviceId)}
                     onSelect={toggleSelect}
@@ -238,6 +247,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                     onClick={onDeviceClick}
                     onArchive={handleArchive}
                     onSavePassword={handleSavePassword}
+                    onSaveScrapeConfig={handleSaveScrapeConfig}
                   />
                 ))}
               </div>
