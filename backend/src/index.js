@@ -56,17 +56,24 @@ app.use( express.urlencoded( { extended: true, limit: '500mb' } ) );
 // Routes
 app.use( '/api', require( './routes' ) );
 
-// Health check
+// Health check + version
+const APP_VERSION = require( '../package.json' ).version;
 app.get( '/health', ( req, res ) =>
 {
-  res.json( { status: 'ok', message: 'BetaZen G-Map Scraper API is running' } );
+  res.json( { status: 'ok', version: APP_VERSION, message: 'BetaZen G-Map Scraper API is running' } );
+} );
+
+// Version endpoint
+app.get( '/api/version', ( req, res ) =>
+{
+  res.json( { version: APP_VERSION } );
 } );
 
 const PORT = process.env.PORT || 5000;
 const APP_STATE = process.env.APP_STATE || 'prod';
 server.listen( PORT, () =>
 {
-  console.log( `[Backend] Running on port ${ PORT } | state: ${ APP_STATE } | env: ${ process.env.NODE_ENV }` );
+  console.log( `[Backend] v${ APP_VERSION } | port ${ PORT } | state: ${ APP_STATE } | env: ${ process.env.NODE_ENV }` );
 } );
 
 // Allow long-running admin requests (dedup etc.) — 10 min

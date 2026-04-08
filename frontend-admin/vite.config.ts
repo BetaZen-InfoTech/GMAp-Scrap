@@ -5,8 +5,12 @@ import electron from 'vite-plugin-electron/simple'
 import { fileURLToPath, URL } from 'url'
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url))
+const pkg = require('./package.json')
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     react(),
     electron({

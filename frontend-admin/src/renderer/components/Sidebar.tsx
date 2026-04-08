@@ -1,5 +1,8 @@
 import React from 'react';
 
+// @ts-ignore — Vite injects this from package.json
+const APP_VERSION = __APP_VERSION__ || '0.0.0';
+
 export type Route = 'dashboard' | 'devices' | 'device-detail' | 'sessions' | 'jobs' | 'categories'
   | 'pincode-details' | 'scraped-pincodes' | 'scrap-database' | 'duplicates' | 'website-scraper'
   | 'coming-pincodes' | 'ssh-terminal';
@@ -191,7 +194,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, onNavigate, onLogout })
         {/* Version badge */}
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-[11px] text-slate-500">Connected · v1.1</span>
+          <span className="text-[11px] text-slate-500">Connected · v{APP_VERSION}</span>
         </div>
 
         {/* Logout */}

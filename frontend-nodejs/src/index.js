@@ -335,8 +335,10 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const CLI_VERSION = require('../package.json').version;
   const timeStr = new Date().toLocaleString('en-IN');
   const lines = [
+    `   Ver  : v${CLI_VERSION}`,
     `   ENV  : ${APP_STATE.toUpperCase()}`,
     `   API  : ${API_BASE_URL}`,
     `   Time : ${timeStr}`,

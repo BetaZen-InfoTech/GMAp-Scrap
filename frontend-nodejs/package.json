@@ -1,6 +1,6 @@
 {
   "name": "betazen-gmap-scraper-nodejs",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "BetaZen Google Maps Scraper - Node.js CLI",
   "main": "src/index.js",
   "scripts": {
