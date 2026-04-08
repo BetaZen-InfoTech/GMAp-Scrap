@@ -87,7 +87,7 @@ router.post('/register', async (req, res) => {
 
 // POST /api/devices/verify
 router.post('/verify', async (req, res) => {
-  const { deviceId } = req.body;
+  const { deviceId, deviceInfo } = req.body;
 
   if (!deviceId) {
     return res.status(400).json({ success: false, error: 'deviceId is required' });
@@ -107,6 +107,19 @@ router.post('/verify', async (req, res) => {
     if (device.isArchived) {
       device.isArchived = false;
       device.archivedAt = null;
+    }
+
+    // Update device specs if provided (fills in "Pending setup" devices)
+    if (deviceInfo) {
+      if (deviceInfo.hostname && (!device.hostname || device.hostname === 'Pending setup')) device.hostname = deviceInfo.hostname;
+      if (deviceInfo.username) device.username = deviceInfo.username;
+      if (deviceInfo.platform && device.platform === 'unknown') device.platform = deviceInfo.platform;
+      if (deviceInfo.osVersion) device.osVersion = deviceInfo.osVersion;
+      if (deviceInfo.arch) device.arch = deviceInfo.arch;
+      if (deviceInfo.cpuModel && (!device.cpuModel || device.cpuModel === 'Unknown CPU')) device.cpuModel = deviceInfo.cpuModel;
+      if (deviceInfo.cpuCores && !device.cpuCores) device.cpuCores = deviceInfo.cpuCores;
+      if (deviceInfo.totalMemoryGB && !device.totalMemoryGB) device.totalMemoryGB = deviceInfo.totalMemoryGB;
+      if (deviceInfo.macAddresses?.length && (!device.macAddresses || device.macAddresses.length === 0)) device.macAddresses = deviceInfo.macAddresses;
     }
 
     // Merge new IP into ips array (keep all unique IPs)

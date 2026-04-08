@@ -49,7 +49,7 @@ export async function verifyDevice(): Promise<{ success: boolean; error?: string
   try {
     const response = await axios.post(
       `${baseUrl}/api/devices/verify`,
-      { deviceId: settings.deviceId },
+      { deviceId: settings.deviceId, deviceInfo: getDeviceInfo() },
       { timeout: 10000 }
     );
 

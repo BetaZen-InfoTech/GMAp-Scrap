@@ -86,7 +86,7 @@ async function verifyDevice(deviceId) {
   try {
     const res = await axios.post(
       `${API_BASE_URL}/api/devices/verify`,
-      { deviceId },
+      { deviceId, deviceInfo: buildDeviceInfo() },
       { timeout: 10000 }
     );
     return res.data?.success === true;
