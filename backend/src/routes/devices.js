@@ -32,6 +32,18 @@ router.post('/register', async (req, res) => {
         if (nickname?.trim() && nickname.trim() !== existing.nickname) {
           existing.nickname = nickname.trim();
         }
+        // Update device specs from scraper (fills in "Pending setup" devices)
+        if (deviceInfo) {
+          if (deviceInfo.hostname) existing.hostname = deviceInfo.hostname;
+          if (deviceInfo.username) existing.username = deviceInfo.username;
+          if (deviceInfo.platform) existing.platform = deviceInfo.platform;
+          if (deviceInfo.osVersion) existing.osVersion = deviceInfo.osVersion;
+          if (deviceInfo.arch) existing.arch = deviceInfo.arch;
+          if (deviceInfo.cpuModel) existing.cpuModel = deviceInfo.cpuModel;
+          if (deviceInfo.cpuCores) existing.cpuCores = deviceInfo.cpuCores;
+          if (deviceInfo.totalMemoryGB) existing.totalMemoryGB = deviceInfo.totalMemoryGB;
+          if (deviceInfo.macAddresses?.length) existing.macAddresses = deviceInfo.macAddresses;
+        }
         existing.lastSeenAt = new Date();
         existing.status = 'online';
         await existing.save();
