@@ -112,6 +112,43 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
         ) : (
           <p className="text-xs text-slate-600 mb-3">No live stats</p>
         )}
+
+        {/* 60-min Analytics */}
+        {device.recent && (device.recent.records.total > 0 || device.recent.sessions.total > 0) && (
+          <div className="mb-3 bg-slate-800/50 rounded-lg p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Last 60 min</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] text-slate-500">Records</p>
+                <p className="text-sm font-bold text-blue-400">{(device.recent.records.total).toLocaleString()}</p>
+                <p className="text-[10px] text-slate-500">~{device.recent.records.avg10min}/10min</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500">Sessions</p>
+                <p className="text-sm font-bold text-emerald-400">{device.recent.sessions.total.toLocaleString()}</p>
+                <p className="text-[10px] text-slate-500">~{device.recent.sessions.avg10min}/10min</p>
+              </div>
+            </div>
+            {/* Mini bar chart — 6 buckets of 10 min each */}
+            <div className="flex items-end gap-px h-6">
+              {device.recent.records.buckets.slice().reverse().map((count, i) => {
+                const max = Math.max(...device.recent.records.buckets, 1);
+                const h = Math.max((count / max) * 100, 4);
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                    <div className="w-full bg-blue-500/60 rounded-sm" style={{ height: `${h}%` }} title={`${count} records`} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[8px] text-slate-600">
+              <span>60m ago</span>
+              <span>now</span>
+            </div>
+          </div>
+        )}
       </button>
 
       {/* VPS Password */}

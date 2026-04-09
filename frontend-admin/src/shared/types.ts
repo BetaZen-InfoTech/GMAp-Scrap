@@ -28,6 +28,10 @@ export interface DeviceInfo {
   latestStats?: StatSnapshot;
   activeJobs?: number;
   totalSessions?: number;
+  recent?: {
+    records: { total: number; avg10min: number; buckets: number[] };
+    sessions: { total: number; totalRecords: number; avg10min: number; buckets: number[] };
+  };
 }
 
 export interface StatSnapshot {

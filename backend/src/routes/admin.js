@@ -114,10 +114,75 @@ router.get('/devices', async (req, res) => {
       sessionCountMap[s._id] = s.total;
     }
 
+    // ── 60-minute analytics per device ──
+    const sixtyMinAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    // Scraped data in last 60 min — total records + per 10-min buckets
+    const [recentRecords, recentSessions] = await Promise.all([
+      ScrapedData.aggregate([
+        { $match: { createdAt: { $gte: sixtyMinAgo } } },
+        {
+          $group: {
+            _id: '$deviceId',
+            totalRecords: { $sum: 1 },
+            // 10-min bucket: floor(minutesAgo / 10)
+            buckets: {
+              $push: {
+                $floor: { $divide: [{ $subtract: [new Date(), '$createdAt'] }, 600000] },
+              },
+            },
+          },
+        },
+      ]),
+      // Sessions completed in last 60 min
+      SessionStats.aggregate([
+        { $match: { createdAt: { $gte: sixtyMinAgo }, status: 'completed' } },
+        {
+          $group: {
+            _id: '$deviceId',
+            totalSessions60: { $sum: 1 },
+            totalRecords60: { $sum: '$totalRecords' },
+            buckets: {
+              $push: {
+                $floor: { $divide: [{ $subtract: [new Date(), '$createdAt'] }, 600000] },
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const recentRecordsMap = {};
+    for (const r of recentRecords) {
+      const bucketCounts = [0, 0, 0, 0, 0, 0]; // 6 x 10-min buckets
+      for (const b of r.buckets) { if (b >= 0 && b < 6) bucketCounts[b]++; }
+      recentRecordsMap[r._id] = {
+        total: r.totalRecords,
+        avg10min: Math.round(r.totalRecords / 6),
+        buckets: bucketCounts,
+      };
+    }
+
+    const recentSessionsMap = {};
+    for (const s of recentSessions) {
+      const bucketCounts = [0, 0, 0, 0, 0, 0];
+      for (const b of s.buckets) { if (b >= 0 && b < 6) bucketCounts[b]++; }
+      recentSessionsMap[s._id] = {
+        total: s.totalSessions60,
+        totalRecords: s.totalRecords60,
+        avg10min: Math.round(s.totalSessions60 / 6),
+        buckets: bucketCounts,
+      };
+    }
+
     const result = devices.map((d) => ({
       ...d,
       activeJobs: jobCountMap[d.deviceId] || 0,
       totalSessions: sessionCountMap[d.deviceId] || 0,
+      recent: {
+        records: recentRecordsMap[d.deviceId] || { total: 0, avg10min: 0, buckets: [0,0,0,0,0,0] },
+        sessions: recentSessionsMap[d.deviceId] || { total: 0, totalRecords: 0, avg10min: 0, buckets: [0,0,0,0,0,0] },
+      },
     }));
 
     res.json(result);
