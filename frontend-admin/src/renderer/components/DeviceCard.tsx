@@ -44,9 +44,13 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
     setEditPw(false);
   };
 
+  const isRedFlag = device.status === 'online' && device.recent && (
+    device.recent.records.total < 3000 || device.recent.sessions.total < 100
+  );
+
   return (
     <div className={`bg-slate-900 border rounded-xl p-5 text-left transition-colors w-full ${
-      device.isArchived ? 'border-slate-700 opacity-60' : selected ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-slate-800 hover:border-slate-600'
+      isRedFlag ? 'border-red-500/60 ring-1 ring-red-500/20' : device.isArchived ? 'border-slate-700 opacity-60' : selected ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-slate-800 hover:border-slate-600'
     }`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
@@ -70,6 +74,9 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
           </button>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {isRedFlag && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-semibold" title={`Records: ${device.recent?.records.total ?? 0} (<3000) | Sessions: ${device.recent?.sessions.total ?? 0} (<100)`}>Low Activity</span>
+          )}
           {device.isArchived && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">Archived</span>
           )}
