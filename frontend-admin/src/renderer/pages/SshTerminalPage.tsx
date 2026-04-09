@@ -285,6 +285,13 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
               <button onClick={stopScraperAll} className="text-xs bg-orange-700 hover:bg-orange-600 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
                 Stop All
               </button>
+              <span className="text-slate-700">|</span>
+              <button onClick={() => window.electronAPI.sshCommandAll('pm2 status')} className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium px-3 py-1.5 rounded-lg transition-colors">
+                PM2 Status
+              </button>
+              <button onClick={() => window.electronAPI.sshCommandAll('pm2 logs --nostream --lines 20')} className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium px-3 py-1.5 rounded-lg transition-colors">
+                PM2 Logs
+              </button>
             </>
           )}
           <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5">
