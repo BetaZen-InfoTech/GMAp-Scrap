@@ -18,6 +18,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const [bulkPwValue, setBulkPwValue] = useState('');
   const [bulkPwSaving, setBulkPwSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [showAddVps, setShowAddVps] = useState(false);
   const [addIp, setAddIp] = useState('');
   const [addPw, setAddPw] = useState('');
@@ -108,8 +109,14 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const matchSearch = (d: typeof devices[0]) =>
     !s || (d.nickname || '').toLowerCase().includes(s) || (d.ip || '').includes(s) || (d.hostname || '').toLowerCase().includes(s) || (d.scrapePincode || '').includes(s);
 
-  const activeDevices = devices.filter((d) => d.status === 'online' && !d.isArchived && matchSearch(d));
-  const inactiveDevices = devices.filter((d) => d.status !== 'online' && !d.isArchived && matchSearch(d));
+  const isFlagged = (d: typeof devices[0]) =>
+    d.status === 'online' && d.recent && (d.recent.records.total < 3000 || d.recent.sessions.total < 100);
+
+  const matchFlag = (d: typeof devices[0]) => !showFlaggedOnly || isFlagged(d);
+  const flaggedCount = devices.filter((d) => isFlagged(d)).length;
+
+  const activeDevices = devices.filter((d) => d.status === 'online' && !d.isArchived && matchSearch(d) && matchFlag(d));
+  const inactiveDevices = devices.filter((d) => d.status !== 'online' && !d.isArchived && matchSearch(d) && matchFlag(d));
   const archivedDevices = devices.filter((d) => d.isArchived && matchSearch(d));
   const nonArchivedCount = devices.filter((d) => !d.isArchived).length;
 
@@ -131,6 +138,18 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
             placeholder="Search IP, name, pincode..."
             className="w-48 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 placeholder:text-slate-600"
           />
+          {flaggedCount > 0 && (
+            <button
+              onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
+              className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                showFlaggedOnly
+                  ? 'bg-red-600 text-white'
+                  : 'bg-red-900/40 text-red-400 border border-red-700/60 hover:bg-red-800/40'
+              }`}
+            >
+              {showFlaggedOnly ? `Flagged (${flaggedCount})` : `${flaggedCount} Flagged`}
+            </button>
+          )}
           {selectedIds.size > 0 && (
             <>
               <span className="text-xs text-blue-400 font-medium">{selectedIds.size} selected</span>
