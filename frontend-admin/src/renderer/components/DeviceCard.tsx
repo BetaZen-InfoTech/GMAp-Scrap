@@ -235,8 +235,8 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>{device.activeJobs ?? 0} jobs · {device.totalSessions ?? 0} sessions</span>
         <div className="flex items-center gap-2">
-          <span title={`Added: ${new Date(device.createdAt).toLocaleString()}`}>
-            {new Date(device.createdAt).toLocaleDateString()} · {timeAgo(device.lastSeenAt)}
+          <span title={`Added: ${new Date(device.createdAt).toLocaleString('en-IN')}`}>
+            {new Date(device.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} · {timeAgo(device.lastSeenAt)}
           </span>
           {device.status !== 'online' && onArchive && (
             <button
