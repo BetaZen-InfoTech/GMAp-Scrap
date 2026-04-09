@@ -93,7 +93,7 @@ router.get('/devices', async (req, res) => {
     }
 
     const deviceFilter = req.query.includeArchived === 'true' ? {} : { isArchived: { $ne: true } };
-    const devices = await Device.find(deviceFilter).sort({ lastSeenAt: -1 }).lean();
+    const devices = await Device.find(deviceFilter).sort({ createdAt: 1 }).lean();
 
     // Get active job counts per device
     const activeJobs = await ScrapeTracking.aggregate([
