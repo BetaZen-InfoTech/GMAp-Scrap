@@ -27,6 +27,8 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialDeviceIds || []));
   const [terminals, setTerminals] = useState<Map<string, TerminalState>>(new Map());
   const [broadcastCmd, setBroadcastCmd] = useState('');
+  const [focusedDeviceId, setFocusedDeviceId] = useState<string | null>(null);
+  const terminalRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [perDeviceCmd, setPerDeviceCmd] = useState<Map<string, string>>(new Map());
   const [mode, setMode] = useState<'broadcast' | 'individual'>('broadcast');
   const outputRefs = useRef<Map<string, HTMLPreElement>>(new Map());
@@ -367,7 +369,12 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                     onChange={() => toggleDevice(d.deviceId)}
                     className="accent-blue-500 shrink-0"
                   />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1" onClick={(e) => {
+                    e.preventDefault();
+                    setFocusedDeviceId(d.deviceId);
+                    terminalRefs.current.get(d.deviceId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => setFocusedDeviceId(null), 2000);
+                  }}>
                     <p className="text-xs text-white truncate">{d.nickname || d.ip}</p>
                     <p className="text-[10px] text-slate-500 truncate">{d.ip}</p>
                   </div>
@@ -412,9 +419,16 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
               const isError = t?.status === 'disconnected' && t?.error;
 
               return (
-                <div key={deviceId} className={`border rounded-xl flex flex-col shrink-0 ${
-                  isConnected ? 'border-emerald-800/60 bg-slate-950' : isError ? 'border-red-800/40 bg-slate-950' : 'border-slate-800 bg-slate-950'
-                }`} style={{ height: isConnected ? '320px' : '80px' }}>
+                <div
+                  key={deviceId}
+                  ref={(el) => { if (el) terminalRefs.current.set(deviceId, el); }}
+                  className={`border rounded-xl flex flex-col shrink-0 transition-all duration-500 ${
+                    focusedDeviceId === deviceId
+                      ? 'border-blue-400 ring-2 ring-blue-400/40 bg-slate-900'
+                      : isConnected ? 'border-emerald-800/60 bg-slate-950' : isError ? 'border-red-800/40 bg-slate-950' : 'border-slate-800 bg-slate-950'
+                  }`}
+                  style={{ height: isConnected ? '320px' : '80px' }}
+                >
                   {/* Terminal header */}
                   <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/60 shrink-0">
                     <div className="flex items-center gap-2 min-w-0">
