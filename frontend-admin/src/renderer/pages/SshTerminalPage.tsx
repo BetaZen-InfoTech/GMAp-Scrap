@@ -225,10 +225,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
     const device = useDeviceStore.getState().devices.find((d) => d.deviceId === deviceId);
     if (!device?.scrapePincode) return;
     const jobs = device.scrapeJobs || 3;
-    window.electronAPI.sshCommand(deviceId, 'pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs');
-    setTimeout(() => {
-      window.electronAPI.sshCommand(deviceId, `pm2 start npm --name "scraper-1" -- start -- "VPS-1" ${device.scrapePincode} ${jobs}`);
-    }, 500);
+    window.electronAPI.sshCommand(deviceId, `pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs && pm2 start npm --name "scraper-1" -- start -- "VPS-1" ${device.scrapePincode} ${jobs}`);
   };
 
   const restartScraperAll = async () => {
