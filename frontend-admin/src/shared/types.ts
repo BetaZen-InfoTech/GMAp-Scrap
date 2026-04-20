@@ -3,6 +3,13 @@
 // ============================================================
 
 // --- Device ---
+export interface ScrapeTask {
+  type: 'jobs' | 'range' | 'single';
+  startPin: string;
+  endPin?: string;
+  jobs?: number;
+}
+
 export interface DeviceInfo {
   _id: string;
   deviceId: string;
@@ -22,6 +29,7 @@ export interface DeviceInfo {
   vpsPassword?: string;
   scrapePincode?: string;
   scrapeJobs?: number;
+  scrapeTasks?: ScrapeTask[];
   status?: 'online' | 'offline';
   lastSeenAt: string;
   createdAt: string;

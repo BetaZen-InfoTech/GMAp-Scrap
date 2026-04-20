@@ -333,7 +333,7 @@ router.patch('/devices/:deviceId/vps-password', adminAuth, async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/devices/:deviceId/scrape-config ── save pincode + jobs
+// ── PATCH /api/admin/devices/:deviceId/scrape-config ── save pincode + jobs (legacy)
 router.patch('/devices/:deviceId/scrape-config', adminAuth, async (req, res) => {
   try {
     const { pincode, jobs } = req.body;
@@ -349,6 +349,40 @@ router.patch('/devices/:deviceId/scrape-config', adminAuth, async (req, res) => 
     res.json({ success: true });
   } catch (err) {
     console.error('[admin/devices/scrape-config] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/admin/devices/:deviceId/scrape-tasks ── save multiple scrape tasks
+router.patch('/devices/:deviceId/scrape-tasks', adminAuth, async (req, res) => {
+  try {
+    const { tasks } = req.body;
+    if (!Array.isArray(tasks)) return res.status(400).json({ error: 'tasks array required' });
+
+    // Validate and normalize each task
+    const normalized = tasks
+      .map((t) => {
+        const startPin = String(t.startPin || '').trim();
+        if (!startPin) return null;
+        const type = t.type === 'range' || t.type === 'single' ? t.type : 'jobs';
+        return {
+          type,
+          startPin,
+          endPin: type === 'range' ? String(t.endPin || '').trim() : '',
+          jobs: type === 'jobs' ? (Number(t.jobs) || 3) : 0,
+        };
+      })
+      .filter(Boolean);
+
+    const device = await Device.findOneAndUpdate(
+      { deviceId: req.params.deviceId },
+      { $set: { scrapeTasks: normalized } },
+      { new: true }
+    );
+    if (!device) return res.status(404).json({ error: 'Device not found' });
+    res.json({ success: true, tasks: device.scrapeTasks });
+  } catch (err) {
+    console.error('[admin/devices/scrape-tasks] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

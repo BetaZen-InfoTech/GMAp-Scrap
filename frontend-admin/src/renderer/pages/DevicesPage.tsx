@@ -53,6 +53,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
     } catch { /* noop */ }
   };
 
+  const handleSaveScrapeTasks = async (deviceId: string, tasks: import('../../shared/types').ScrapeTask[]) => {
+    try {
+      await api.patch(`/api/admin/devices/${deviceId}/scrape-tasks`, { tasks });
+      fetchDevices(archiveMode !== 'hide');
+    } catch { /* noop */ }
+  };
+
   const toggleSelect = (deviceId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -298,6 +305,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                     onClick={onDeviceClick}
                     onSavePassword={handleSavePassword}
                     onSaveScrapeConfig={handleSaveScrapeConfig}
+                    onSaveScrapeTasks={handleSaveScrapeTasks}
                     selectable
                     selected={selectedIds.has(device.deviceId)}
                     onSelect={toggleSelect}
@@ -322,6 +330,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                     onArchive={handleArchive}
                     onSavePassword={handleSavePassword}
                     onSaveScrapeConfig={handleSaveScrapeConfig}
+                    onSaveScrapeTasks={handleSaveScrapeTasks}
                     selectable
                     selected={selectedIds.has(device.deviceId)}
                     onSelect={toggleSelect}
@@ -346,6 +355,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
                     onArchive={handleArchive}
                     onSavePassword={handleSavePassword}
                     onSaveScrapeConfig={handleSaveScrapeConfig}
+                    onSaveScrapeTasks={handleSaveScrapeTasks}
                   />
                 ))}
               </div>

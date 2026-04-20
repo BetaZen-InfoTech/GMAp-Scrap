@@ -20,8 +20,19 @@ const deviceSchema = new mongoose.Schema(
     isArchived: { type: Boolean, default: false },
     archivedAt: { type: Date, default: null },
     vpsPassword: { type: String, default: '' },
+    // Legacy (kept for backward compat)
     scrapePincode: { type: String, default: '' },
     scrapeJobs: { type: Number, default: 3 },
+    // New: array of scrape tasks — each runs as a separate pm2 process
+    // type 'jobs': N multi-jobs from startPin (same as CLI arg < 1000)
+    // type 'range': scrape startPin → endPin
+    // type 'single': scrape just startPin (1 pincode)
+    scrapeTasks: [{
+      type: { type: String, enum: ['jobs', 'range', 'single'], default: 'jobs' },
+      startPin: { type: String, default: '' },
+      endPin: { type: String, default: '' },
+      jobs: { type: Number, default: 3 },
+    }],
     status: { type: String, enum: ['online', 'offline'], default: 'offline' },
     lastSeenAt: { type: Date, default: Date.now },
 

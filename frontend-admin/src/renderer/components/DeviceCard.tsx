@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { DeviceInfo } from '../../shared/types';
+import type { DeviceInfo, ScrapeTask } from '../../shared/types';
 
 function barColor(percent: number): string {
   if (percent >= 85) return 'bg-red-500';
@@ -24,6 +24,7 @@ interface DeviceCardProps {
   onArchive?: (deviceId: string) => void;
   onSavePassword?: (deviceId: string, password: string) => void;
   onSaveScrapeConfig?: (deviceId: string, pincode: string, jobs: number) => void;
+  onSaveScrapeTasks?: (deviceId: string, tasks: ScrapeTask[]) => void;
   selectable?: boolean;
   selected?: boolean;
   onSelect?: (deviceId: string) => void;
@@ -34,9 +35,15 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
   const [showPw, setShowPw] = useState(false);
   const [editPw, setEditPw] = useState(false);
   const [pwValue, setPwValue] = useState(device.vpsPassword || '');
+  // Build initial tasks from scrapeTasks array OR fallback to legacy scrapePincode/scrapeJobs
+  const initialTasks: ScrapeTask[] = (device.scrapeTasks && device.scrapeTasks.length > 0)
+    ? device.scrapeTasks.map((t) => ({ type: t.type, startPin: t.startPin || '', endPin: t.endPin || '', jobs: t.jobs || 3 }))
+    : (device.scrapePincode
+        ? [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }]
+        : []);
+
   const [editScrape, setEditScrape] = useState(false);
-  const [pincodeValue, setPincodeValue] = useState(device.scrapePincode || '');
-  const [jobsValue, setJobsValue] = useState(String(device.scrapeJobs || 3));
+  const [taskList, setTaskList] = useState<ScrapeTask[]>(initialTasks);
 
   const handleSavePw = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -199,34 +206,110 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
         )}
       </div>
 
-      {/* Scrape Config */}
+      {/* Scrape Tasks */}
       <div className="mb-3" onClick={(e) => e.stopPropagation()}>
         {editScrape ? (
-          <div className="flex gap-1.5 items-center">
-            <input type="text" value={pincodeValue} onChange={(e) => setPincodeValue(e.target.value)} placeholder="Pincode"
-              className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500" autoFocus />
-            <input type="text" value={jobsValue} onChange={(e) => setJobsValue(e.target.value)} placeholder="Jobs"
-              className="w-12 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500" />
-            <button onClick={() => { onSaveScrapeConfig?.(device.deviceId, pincodeValue.trim(), Number(jobsValue.trim()) || 3); setEditScrape(false); }}
-              className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded">Save</button>
-            <button onClick={() => { setEditScrape(false); setPincodeValue(device.scrapePincode || ''); setJobsValue(String(device.scrapeJobs || 3)); }}
-              className="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-1 rounded">X</button>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">Scrape Tasks</span>
+              <button
+                onClick={() => setTaskList([...taskList, { type: 'jobs', startPin: '', endPin: '', jobs: 3 }])}
+                className="text-[10px] bg-cyan-700 hover:bg-cyan-600 text-white px-2 py-0.5 rounded"
+              >+ Add</button>
+            </div>
+            {taskList.map((t, idx) => (
+              <div key={idx} className="flex gap-1 items-center">
+                <select
+                  value={t.type}
+                  onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, type: e.target.value as ScrapeTask['type'] } : x))}
+                  className="bg-slate-800 border border-slate-700 rounded px-1 py-1 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="jobs">Jobs</option>
+                  <option value="range">Range</option>
+                  <option value="single">Single</option>
+                </select>
+                <input
+                  type="text"
+                  value={t.startPin}
+                  onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, startPin: e.target.value } : x))}
+                  placeholder="Start"
+                  className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                {t.type === 'range' && (
+                  <input
+                    type="text"
+                    value={t.endPin || ''}
+                    onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, endPin: e.target.value } : x))}
+                    placeholder="End"
+                    className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                  />
+                )}
+                {t.type === 'jobs' && (
+                  <input
+                    type="text"
+                    value={String(t.jobs || 3)}
+                    onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, jobs: Number(e.target.value) || 3 } : x))}
+                    placeholder="Jobs"
+                    className="w-10 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                  />
+                )}
+                <button
+                  onClick={() => setTaskList(taskList.filter((_, i) => i !== idx))}
+                  className="text-[10px] bg-red-800/50 hover:bg-red-700 text-red-300 px-1.5 py-1 rounded"
+                >X</button>
+              </div>
+            ))}
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => {
+                  const cleaned = taskList
+                    .map((t) => ({
+                      type: t.type,
+                      startPin: t.startPin.trim(),
+                      endPin: t.type === 'range' ? (t.endPin || '').trim() : '',
+                      jobs: t.type === 'jobs' ? (t.jobs || 3) : 0,
+                    }))
+                    .filter((t) => t.startPin);
+                  onSaveScrapeTasks?.(device.deviceId, cleaned);
+                  setEditScrape(false);
+                }}
+                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded"
+              >Save</button>
+              <button
+                onClick={() => { setEditScrape(false); setTaskList(initialTasks); }}
+                className="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-1 rounded"
+              >Cancel</button>
+            </div>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-slate-500">Pin:</span>
-            <span className="text-cyan-400 font-mono">{device.scrapePincode || <span className="text-slate-600">not set</span>}</span>
-            {device.scrapePincode && (
-              <>
-                <span className="text-slate-600">·</span>
-                <span className="text-slate-500">{device.scrapeJobs || 3} jobs</span>
-              </>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">Tasks ({initialTasks.length})</span>
+              <button onClick={() => setEditScrape(true)} className="text-slate-500 hover:text-white" title="Edit tasks">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
+            </div>
+            {initialTasks.length === 0 ? (
+              <span className="text-[10px] text-slate-600">No tasks set</span>
+            ) : (
+              <div className="space-y-0.5">
+                {initialTasks.map((t, idx) => (
+                  <div key={idx} className="text-[10px] font-mono flex items-center gap-1.5">
+                    <span className="text-slate-500">{idx + 1}.</span>
+                    <span className={`px-1 py-px rounded text-[9px] ${
+                      t.type === 'range' ? 'bg-purple-900/40 text-purple-300' :
+                      t.type === 'single' ? 'bg-orange-900/40 text-orange-300' :
+                      'bg-blue-900/40 text-blue-300'
+                    }`}>{t.type}</span>
+                    <span className="text-cyan-400">{t.startPin}</span>
+                    {t.type === 'range' && <span className="text-slate-500">→ <span className="text-cyan-400">{t.endPin}</span></span>}
+                    {t.type === 'jobs' && <span className="text-slate-500">× {t.jobs}j</span>}
+                  </div>
+                ))}
+              </div>
             )}
-            <button onClick={() => setEditScrape(true)} className="text-slate-500 hover:text-white ml-auto" title="Edit scrape config">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-            </button>
           </div>
         )}
       </div>

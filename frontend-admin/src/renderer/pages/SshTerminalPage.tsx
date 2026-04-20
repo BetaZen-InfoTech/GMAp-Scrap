@@ -221,11 +221,37 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
     window.electronAPI.sshCommandAll('cd ~/GMAp-Scrap && git pull && cd frontend-nodejs && npm install');
   };
 
+  // Build the list of effective scrape tasks for a device (handles legacy scrapePincode)
+  const getTasks = (device: { scrapeTasks?: Array<{ type: string; startPin: string; endPin?: string; jobs?: number }>; scrapePincode?: string; scrapeJobs?: number }) => {
+    if (device.scrapeTasks && device.scrapeTasks.length > 0) return device.scrapeTasks;
+    if (device.scrapePincode) {
+      return [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }];
+    }
+    return [];
+  };
+
+  // Build the full pm2 start command string for a device's tasks (all run in parallel)
+  const buildStartCommand = (tasks: ReturnType<typeof getTasks>, nickname: string) => {
+    const parts: string[] = [];
+    tasks.forEach((task, idx) => {
+      const name = `scraper-${idx + 1}`;
+      let thirdArg = '';
+      if (task.type === 'range' && task.endPin) thirdArg = task.endPin;
+      else if (task.type === 'single') thirdArg = task.startPin; // same pin for single
+      else thirdArg = String(task.jobs || 3); // jobs mode
+      parts.push(`pm2 start npm --name "${name}" -- start -- "${nickname}" ${task.startPin} ${thirdArg}`);
+    });
+    return parts.join(' && ');
+  };
+
   const restartScraperForDevice = (deviceId: string) => {
     const device = useDeviceStore.getState().devices.find((d) => d.deviceId === deviceId);
-    if (!device?.scrapePincode) return;
-    const jobs = device.scrapeJobs || 3;
-    window.electronAPI.sshCommand(deviceId, `pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs && pm2 start npm --name "scraper-1" -- start -- "VPS-1" ${device.scrapePincode} ${jobs}`);
+    if (!device) return;
+    const tasks = getTasks(device);
+    if (tasks.length === 0) return;
+    const nickname = device.nickname || device.ip || 'VPS';
+    const startCmd = buildStartCommand(tasks, nickname);
+    window.electronAPI.sshCommand(deviceId, `pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs && ${startCmd}`);
   };
 
   const restartScraperAll = async () => {
@@ -234,12 +260,12 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
     for (const deviceId of selectedIds) {
       const device = devs.find((d) => d.deviceId === deviceId);
       const t = terminals.get(deviceId);
-      if (!device?.scrapePincode || t?.status !== 'connected') continue;
-      const jobs = device.scrapeJobs || 3;
-      window.electronAPI.sshCommand(deviceId, 'pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs');
-      setTimeout(() => {
-        window.electronAPI.sshCommand(deviceId, `pm2 start npm --name "scraper-1" -- start -- "VPS-1" ${device.scrapePincode} ${jobs}`);
-      }, 500);
+      if (!device) continue;
+      const tasks = getTasks(device);
+      if (tasks.length === 0 || t?.status !== 'connected') continue;
+      const nickname = device.nickname || device.ip || 'VPS';
+      const startCmd = buildStartCommand(tasks, nickname);
+      window.electronAPI.sshCommand(deviceId, `pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs && ${startCmd}`);
     }
   };
 
@@ -441,9 +467,15 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                       }`} />
                       <span className="text-xs text-white font-semibold">{device.nickname || device.ip}</span>
                       <span className="text-[10px] text-slate-500">{device.ip}</span>
-                      {device.scrapePincode && (
-                        <span className="text-[10px] bg-cyan-900/50 text-cyan-400 px-1.5 py-0.5 rounded">Pin: {device.scrapePincode} · {device.scrapeJobs || 3}j</span>
-                      )}
+                      {(() => {
+                        const tasks = getTasks(device);
+                        if (tasks.length === 0) return null;
+                        return (
+                          <span className="text-[10px] bg-cyan-900/50 text-cyan-400 px-1.5 py-0.5 rounded" title={tasks.map((t) => `${t.type}: ${t.startPin}${t.type === 'range' ? `→${t.endPin}` : t.type === 'jobs' ? `×${t.jobs}j` : ''}`).join(' · ')}>
+                            {tasks.length} task{tasks.length > 1 ? 's' : ''}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="flex gap-1.5 shrink-0">
                       {(!t || t.status === 'disconnected') && (
@@ -454,7 +486,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                       )}
                       {isConnected && (
                         <>
-                          {device.scrapePincode && (
+                          {getTasks(device).length > 0 && (
                             <button onClick={() => restartScraperForDevice(deviceId)} className="text-[10px] bg-purple-700 hover:bg-purple-600 text-white px-2.5 py-1 rounded transition-colors">Restart</button>
                           )}
                           <button onClick={() => disconnectDevice(deviceId)} className="text-[10px] bg-red-700/80 hover:bg-red-600 text-white px-2.5 py-1 rounded transition-colors">Disconnect</button>
