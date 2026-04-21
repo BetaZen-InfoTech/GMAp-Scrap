@@ -386,10 +386,29 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
             {onlineDevices.map((d) => {
               const t = terminals.get(d.deviceId);
               const isConnected = t?.status === 'connected';
+              const isFocused = focusedDeviceId === d.deviceId;
+              const handleFocusDevice = () => {
+                // Auto-select if not already — otherwise terminal panel isn't rendered
+                if (!selectedIds.has(d.deviceId)) {
+                  setSelectedIds((prev) => new Set(prev).add(d.deviceId));
+                }
+                setFocusedDeviceId(d.deviceId);
+                // Wait a frame for the panel to mount, then scroll
+                setTimeout(() => {
+                  const el = terminalRefs.current.get(d.deviceId);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  } else {
+                    console.warn('[SshTerminal] No terminal panel ref for', d.deviceId);
+                  }
+                }, 50);
+                setTimeout(() => setFocusedDeviceId((cur) => cur === d.deviceId ? null : cur), 2500);
+              };
               return (
-                <label
+                <div
                   key={d.deviceId}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors ${
+                    isFocused ? 'bg-blue-900/40 ring-1 ring-blue-400/50' :
                     selectedIds.has(d.deviceId) ? 'bg-slate-800' : 'hover:bg-slate-800/50'
                   }`}
                 >
@@ -397,21 +416,21 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                     type="checkbox"
                     checked={selectedIds.has(d.deviceId)}
                     onChange={() => toggleDevice(d.deviceId)}
-                    className="accent-blue-500 shrink-0"
+                    className="accent-blue-500 shrink-0 cursor-pointer"
                   />
-                  <div className="min-w-0 flex-1" onClick={(e) => {
-                    e.preventDefault();
-                    setFocusedDeviceId(d.deviceId);
-                    terminalRefs.current.get(d.deviceId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    setTimeout(() => setFocusedDeviceId(null), 2000);
-                  }}>
+                  <button
+                    type="button"
+                    onClick={handleFocusDevice}
+                    className="min-w-0 flex-1 text-left cursor-pointer"
+                    title="Click to scroll to terminal"
+                  >
                     <p className="text-xs text-white truncate">{d.nickname || d.ip}</p>
                     <p className="text-[10px] text-slate-500 truncate">{d.ip}</p>
-                  </div>
+                  </button>
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                     isConnected ? 'bg-green-400' : t?.status === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-slate-600'
                   }`} />
-                </label>
+                </div>
               );
             })}
           </div>
@@ -452,9 +471,9 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
                 <div
                   key={deviceId}
                   ref={(el) => { if (el) terminalRefs.current.set(deviceId, el); }}
-                  className={`border rounded-xl flex flex-col shrink-0 transition-all duration-500 ${
+                  className={`border-2 rounded-xl flex flex-col shrink-0 transition-all duration-300 ${
                     focusedDeviceId === deviceId
-                      ? 'border-blue-400 ring-2 ring-blue-400/40 bg-slate-900'
+                      ? 'border-blue-400 ring-4 ring-blue-400/50 bg-blue-950/30 shadow-lg shadow-blue-500/30'
                       : isConnected ? 'border-emerald-800/60 bg-slate-950' : isError ? 'border-red-800/40 bg-slate-950' : 'border-slate-800 bg-slate-950'
                   }`}
                   style={{ height: isConnected ? '320px' : '80px' }}
