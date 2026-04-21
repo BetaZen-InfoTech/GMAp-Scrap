@@ -30,7 +30,7 @@ interface DeviceCardProps {
   onSelect?: (deviceId: string) => void;
 }
 
-const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onSavePassword, onSaveScrapeConfig, selectable, selected, onSelect }) => {
+const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onSavePassword, onSaveScrapeTasks, selectable, selected, onSelect }) => {
   const stats = device.latestStats;
   const [showPw, setShowPw] = useState(false);
   const [editPw, setEditPw] = useState(false);
