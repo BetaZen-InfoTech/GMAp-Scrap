@@ -1,6 +1,6 @@
 {
   "name": "google-maps-scraper",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Google Maps Scraper Desktop App",
   "main": "dist-electron/main/index.js",
   "scripts": {

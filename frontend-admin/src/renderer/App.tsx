@@ -19,9 +19,11 @@ import JobsPage from './pages/JobsPage';
 import ComingPincodesPage from './pages/ComingPincodesPage';
 import SshTerminalPage from './pages/SshTerminalPage';
 import Spinner from './components/Spinner';
+import { useVersionStore } from './store/useVersionStore';
 
 const App: React.FC = () => {
   const { isAuthenticated, restoreSession, clearSession, logout } = useAuthStore();
+  const { fetchBackendVersion } = useVersionStore();
   const [route, setRoute] = useState<Route>('dashboard');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [sshDeviceIds, setSshDeviceIds] = useState<string[]>([]);
@@ -42,6 +44,7 @@ const App: React.FC = () => {
     if (typeof window.electronAPI?.getSettings === 'function') {
       initBaseUrl()
         .then(() => restoreSession())
+        .then(() => fetchBackendVersion())
         .catch((err) => console.error('[App] init error:', err))
         .finally(() => { console.log("[App] init done"); setInitializing(false); });
     } else {
@@ -49,6 +52,13 @@ const App: React.FC = () => {
       setInitializing(false);
     }
   }, []);
+
+  // Re-check backend version every 60s while authenticated
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const t = setInterval(() => fetchBackendVersion(), 60000);
+    return () => clearInterval(t);
+  }, [isAuthenticated]);
 
   if (initializing) {
     return (

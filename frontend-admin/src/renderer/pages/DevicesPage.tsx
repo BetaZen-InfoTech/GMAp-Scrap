@@ -55,12 +55,21 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
 
   const handleSaveScrapeTasks = async (deviceId: string, tasks: import('../../shared/types').ScrapeTask[]) => {
     try {
-      await api.patch(`/api/admin/devices/${deviceId}/scrape-tasks`, { tasks });
-      fetchDevices(archiveMode !== 'hide');
+      const res = await api.patch(`/api/admin/devices/${deviceId}/scrape-tasks`, { tasks });
+      console.log('[saveScrapeTasks] Saved:', res.data);
+      await fetchDevices(archiveMode !== 'hide');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as Error)?.message || 'Unknown error';
-      console.error('[saveScrapeTasks] Failed:', err);
-      alert(`Failed to save scrape tasks: ${msg}`);
+      const e = err as { response?: { status?: number; data?: { error?: string } }; message?: string };
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.error || e?.message || 'Unknown error';
+      console.error('[saveScrapeTasks] Failed:', { status, msg, err });
+      if (status === 404) {
+        alert(`Backend endpoint missing (404).\n\nThe /scrape-tasks endpoint is not deployed on the server.\nPlease redeploy the backend with the latest code.`);
+      } else if (status === 401) {
+        alert(`Auth failed (401). Please log in again.`);
+      } else {
+        alert(`Failed to save tasks${status ? ` (${status})` : ''}: ${msg}`);
+      }
     }
   };
 

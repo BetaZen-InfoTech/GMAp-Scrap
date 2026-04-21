@@ -1,4 +1,5 @@
 import React from 'react';
+import { useVersionStore } from '../store/useVersionStore';
 
 // @ts-ignore — Vite injects this from package.json
 const APP_VERSION = __APP_VERSION__ || '0.0.0';
@@ -190,12 +191,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, onNavigate, onLogout })
       </nav>
 
       {/* Bottom section */}
+      <VersionBadge />
+
       <div className="px-3 py-4 border-t border-slate-800/60 space-y-1">
-        {/* Version badge */}
-        <div className="flex items-center gap-2 px-3 py-2 mb-1">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-[11px] text-slate-500">Connected · v{APP_VERSION}</span>
-        </div>
 
         {/* Logout */}
         <button
@@ -209,6 +207,49 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, onNavigate, onLogout })
           <span>Logout</span>
         </button>
       </div>
+    </div>
+  );
+};
+
+const VersionBadge: React.FC = () => {
+  const { adminVersion, backendVersion, backendError, isMismatch } = useVersionStore();
+  const mismatch = isMismatch();
+
+  if (backendError) {
+    return (
+      <div className="px-3 py-2 border-t border-slate-800/60" title={backendError}>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-red-400" />
+          <span className="text-[11px] text-red-400">API unreachable</span>
+        </div>
+        <span className="text-[9px] text-slate-600 block mt-0.5">admin v{adminVersion}</span>
+      </div>
+    );
+  }
+
+  if (mismatch && backendVersion) {
+    return (
+      <div className="px-3 py-2 border-t border-orange-800/60 bg-orange-900/10" title={`Admin v${adminVersion} vs Backend v${backendVersion} — version mismatch. Redeploy backend.`}>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+          <span className="text-[11px] text-orange-400 font-semibold">Version mismatch!</span>
+        </div>
+        <span className="text-[9px] text-slate-500 block mt-0.5">
+          admin v{adminVersion} ≠ api v{backendVersion}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 py-2 border-t border-slate-800/60">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+        <span className="text-[11px] text-slate-500">Connected · v{adminVersion}</span>
+      </div>
+      {backendVersion && (
+        <span className="text-[9px] text-slate-600 block mt-0.5">api v{backendVersion}</span>
+      )}
     </div>
   );
 };
