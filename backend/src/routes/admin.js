@@ -180,7 +180,7 @@ router.get('/devices', async (req, res) => {
     const deviceIds = devices.map((d) => d.deviceId);
     const trackingDocs = await ScrapeTracking.find(
       { deviceId: { $in: deviceIds } },
-      { deviceId: 1, startPincode: 1, endPincode: 1, status: 1, completedSearches: 1, totalSearches: 1, updatedAt: 1 }
+      { jobId: 1, deviceId: 1, startPincode: 1, endPincode: 1, status: 1, completedSearches: 1, totalSearches: 1, pincodeIndex: 1, updatedAt: 1 }
     ).sort({ updatedAt: -1 }).lean();
 
     // Build map: deviceId → array of tracking records (sorted newest first)
@@ -190,32 +190,89 @@ router.get('/devices', async (req, res) => {
       trackingByDevice[doc.deviceId].push(doc);
     }
 
-    // Match a scrape task to the most recent ScrapeTracking doc
+    // Summarize a single tracking doc → job progress
+    const summarize = (t) => {
+      const pct = t.totalSearches > 0 ? Math.round((t.completedSearches / t.totalSearches) * 100) : 0;
+      // Calculate approximate current pincode from pincodeIndex (0-based index into range)
+      const rangeSize = Math.max(t.endPincode - t.startPincode + 1, 1);
+      const currentPincodeIdx = Math.min(t.pincodeIndex || 0, rangeSize - 1);
+      const currentPincode = t.startPincode + currentPincodeIdx;
+      return {
+        jobId: t.jobId,
+        startPincode: t.startPincode,
+        endPincode: t.endPincode,
+        totalPincodes: rangeSize,
+        currentPincode,
+        currentPincodeIndex: currentPincodeIdx + 1, // 1-based for display
+        status: t.status,
+        completedSearches: t.completedSearches,
+        totalSearches: t.totalSearches,
+        percent: pct,
+        completedAt: t.status === 'completed' ? t.updatedAt : null,
+      };
+    };
+
+    // Match a scrape task to ScrapeTracking doc(s)
+    // For 'jobs' type: returns jobs[] array with multiple chunks
     const matchTaskProgress = (deviceId, task) => {
       const tracks = trackingByDevice[deviceId] || [];
       const startPin = Number(task.startPin);
       if (!startPin) return null;
 
-      let match;
       if (task.type === 'range') {
         const endPin = Number(task.endPin);
-        match = tracks.find((t) => t.startPincode === startPin && t.endPincode === endPin);
-      } else if (task.type === 'single') {
-        match = tracks.find((t) => t.startPincode === startPin && t.endPincode === startPin);
-      } else {
-        // 'jobs' type: startPincode matches, endPincode varies by actual pincode count
-        match = tracks.find((t) => t.startPincode === startPin);
+        const match = tracks.find((t) => t.startPincode === startPin && t.endPincode === endPin);
+        return match ? summarize(match) : null;
       }
-      if (!match) return null;
-      const pct = match.totalSearches > 0
-        ? Math.round((match.completedSearches / match.totalSearches) * 100)
-        : 0;
+      if (task.type === 'single') {
+        const match = tracks.find((t) => t.startPincode === startPin && t.endPincode === startPin);
+        return match ? summarize(match) : null;
+      }
+
+      // 'jobs' type: find `task.jobs` sequential chunks starting at startPin
+      // Each chunk is a separate ScrapeTracking record (one per 100 pincodes)
+      const jobCount = Number(task.jobs) || 3;
+      // Filter tracks at or after startPin, sort ASC by startPincode
+      const candidates = tracks
+        .filter((t) => t.startPincode >= startPin)
+        .sort((a, b) => a.startPincode - b.startPincode);
+
+      // Pick the first `jobCount` most-recently-updated chunks
+      // To avoid picking old runs, prefer the most recent updatedAt cluster
+      const recent = candidates.slice().sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      const chosenIds = new Set();
+      const chosen = [];
+      for (const c of recent) {
+        if (chosenIds.has(c.jobId)) continue;
+        chosenIds.add(c.jobId);
+        chosen.push(c);
+        if (chosen.length >= jobCount) break;
+      }
+      chosen.sort((a, b) => a.startPincode - b.startPincode);
+
+      if (chosen.length === 0) return null;
+
+      const jobs = chosen.map(summarize);
+      const totalSearches = jobs.reduce((s, j) => s + j.totalSearches, 0);
+      const completedSearches = jobs.reduce((s, j) => s + j.completedSearches, 0);
+      const allCompleted = jobs.length === jobCount && jobs.every((j) => j.status === 'completed');
+      const anyRunning = jobs.some((j) => j.status === 'running');
+      const anyStopped = jobs.some((j) => j.status === 'stopped' || j.status === 'stop');
+      const aggStatus = allCompleted ? 'completed' : anyRunning ? 'running' : anyStopped ? 'stopped' : jobs[0].status;
+      const latestCompletedAt = allCompleted
+        ? jobs.reduce((latest, j) => {
+            const t = j.completedAt ? new Date(j.completedAt).getTime() : 0;
+            return t > latest ? t : latest;
+          }, 0)
+        : null;
+
       return {
-        status: match.status,
-        completedSearches: match.completedSearches,
-        totalSearches: match.totalSearches,
-        percent: pct,
-        completedAt: match.status === 'completed' ? match.updatedAt : null,
+        status: aggStatus,
+        completedSearches,
+        totalSearches,
+        percent: totalSearches > 0 ? Math.round((completedSearches / totalSearches) * 100) : 0,
+        completedAt: latestCompletedAt ? new Date(latestCompletedAt) : null,
+        jobs, // per-chunk details
       };
     };
 

@@ -3,12 +3,27 @@
 // ============================================================
 
 // --- Device ---
+export interface JobProgress {
+  jobId: string;
+  startPincode: number;
+  endPincode: number;
+  totalPincodes: number;
+  currentPincode: number;
+  currentPincodeIndex: number;
+  status: 'running' | 'paused' | 'completed' | 'stopped' | 'stop';
+  completedSearches: number;
+  totalSearches: number;
+  percent: number;
+  completedAt: string | null;
+}
+
 export interface TaskProgress {
   status: 'running' | 'paused' | 'completed' | 'stopped' | 'stop';
   completedSearches: number;
   totalSearches: number;
   percent: number;
   completedAt: string | null;
+  jobs?: JobProgress[]; // Only present for 'jobs' type tasks
 }
 
 export interface ScrapeTask {
