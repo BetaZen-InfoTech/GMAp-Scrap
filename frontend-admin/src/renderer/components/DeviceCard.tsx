@@ -24,7 +24,7 @@ interface DeviceCardProps {
   onArchive?: (deviceId: string) => void;
   onSavePassword?: (deviceId: string, password: string) => void;
   onSaveScrapeConfig?: (deviceId: string, pincode: string, jobs: number) => void;
-  onSaveScrapeTasks?: (deviceId: string, tasks: ScrapeTask[]) => void;
+  onSaveScrapeTasks?: (deviceId: string, tasks: ScrapeTask[]) => Promise<void> | void;
   selectable?: boolean;
   selected?: boolean;
   onSelect?: (deviceId: string) => void;
@@ -261,7 +261,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
             ))}
             <div className="flex gap-1.5">
               <button
-                onClick={() => {
+                onClick={async () => {
                   const cleaned = taskList
                     .map((t) => ({
                       type: t.type,
@@ -270,8 +270,12 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                       jobs: t.type === 'jobs' ? (t.jobs || 3) : 0,
                     }))
                     .filter((t) => t.startPin);
-                  onSaveScrapeTasks?.(device.deviceId, cleaned);
-                  setEditScrape(false);
+                  try {
+                    await onSaveScrapeTasks?.(device.deviceId, cleaned);
+                    setEditScrape(false);
+                  } catch (err) {
+                    console.error('[DeviceCard] Save tasks failed:', err);
+                  }
                 }}
                 className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded"
               >Save</button>

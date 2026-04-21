@@ -57,7 +57,11 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
     try {
       await api.patch(`/api/admin/devices/${deviceId}/scrape-tasks`, { tasks });
       fetchDevices(archiveMode !== 'hide');
-    } catch { /* noop */ }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as Error)?.message || 'Unknown error';
+      console.error('[saveScrapeTasks] Failed:', err);
+      alert(`Failed to save scrape tasks: ${msg}`);
+    }
   };
 
   const toggleSelect = (deviceId: string) => {
