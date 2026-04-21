@@ -3,11 +3,20 @@
 // ============================================================
 
 // --- Device ---
+export interface TaskProgress {
+  status: 'running' | 'paused' | 'completed' | 'stopped' | 'stop';
+  completedSearches: number;
+  totalSearches: number;
+  percent: number;
+  completedAt: string | null;
+}
+
 export interface ScrapeTask {
   type: 'jobs' | 'range' | 'single';
   startPin: string;
   endPin?: string;
   jobs?: number;
+  progress?: TaskProgress | null;
 }
 
 export interface DeviceInfo {

@@ -175,15 +175,66 @@ router.get('/devices', async (req, res) => {
       };
     }
 
-    const result = devices.map((d) => ({
-      ...d,
-      activeJobs: jobCountMap[d.deviceId] || 0,
-      totalSessions: sessionCountMap[d.deviceId] || 0,
-      recent: {
-        records: recentRecordsMap[d.deviceId] || { total: 0, avg10min: 0, buckets: [0,0,0,0,0,0] },
-        sessions: recentSessionsMap[d.deviceId] || { total: 0, totalRecords: 0, avg10min: 0, buckets: [0,0,0,0,0,0] },
-      },
-    }));
+    // ── Compute task completion status per device ──
+    // Pull all ScrapeTracking docs for these devices (latest per deviceId+startPincode)
+    const deviceIds = devices.map((d) => d.deviceId);
+    const trackingDocs = await ScrapeTracking.find(
+      { deviceId: { $in: deviceIds } },
+      { deviceId: 1, startPincode: 1, endPincode: 1, status: 1, completedSearches: 1, totalSearches: 1, updatedAt: 1 }
+    ).sort({ updatedAt: -1 }).lean();
+
+    // Build map: deviceId → array of tracking records (sorted newest first)
+    const trackingByDevice = {};
+    for (const doc of trackingDocs) {
+      if (!trackingByDevice[doc.deviceId]) trackingByDevice[doc.deviceId] = [];
+      trackingByDevice[doc.deviceId].push(doc);
+    }
+
+    // Match a scrape task to the most recent ScrapeTracking doc
+    const matchTaskProgress = (deviceId, task) => {
+      const tracks = trackingByDevice[deviceId] || [];
+      const startPin = Number(task.startPin);
+      if (!startPin) return null;
+
+      let match;
+      if (task.type === 'range') {
+        const endPin = Number(task.endPin);
+        match = tracks.find((t) => t.startPincode === startPin && t.endPincode === endPin);
+      } else if (task.type === 'single') {
+        match = tracks.find((t) => t.startPincode === startPin && t.endPincode === startPin);
+      } else {
+        // 'jobs' type: startPincode matches, endPincode varies by actual pincode count
+        match = tracks.find((t) => t.startPincode === startPin);
+      }
+      if (!match) return null;
+      const pct = match.totalSearches > 0
+        ? Math.round((match.completedSearches / match.totalSearches) * 100)
+        : 0;
+      return {
+        status: match.status,
+        completedSearches: match.completedSearches,
+        totalSearches: match.totalSearches,
+        percent: pct,
+        completedAt: match.status === 'completed' ? match.updatedAt : null,
+      };
+    };
+
+    const result = devices.map((d) => {
+      const tasksWithProgress = (d.scrapeTasks || []).map((t) => ({
+        ...(typeof t.toObject === 'function' ? t.toObject() : t),
+        progress: matchTaskProgress(d.deviceId, t),
+      }));
+      return {
+        ...d,
+        scrapeTasks: tasksWithProgress,
+        activeJobs: jobCountMap[d.deviceId] || 0,
+        totalSessions: sessionCountMap[d.deviceId] || 0,
+        recent: {
+          records: recentRecordsMap[d.deviceId] || { total: 0, avg10min: 0, buckets: [0,0,0,0,0,0] },
+          sessions: recentSessionsMap[d.deviceId] || { total: 0, totalRecords: 0, avg10min: 0, buckets: [0,0,0,0,0,0] },
+        },
+      };
+    });
 
     res.json(result);
   } catch (err) {

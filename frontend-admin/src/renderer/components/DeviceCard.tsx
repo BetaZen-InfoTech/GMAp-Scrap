@@ -36,8 +36,9 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
   const [editPw, setEditPw] = useState(false);
   const [pwValue, setPwValue] = useState(device.vpsPassword || '');
   // Build initial tasks from scrapeTasks array OR fallback to legacy scrapePincode/scrapeJobs
+  // Preserve the `progress` field from backend
   const initialTasks: ScrapeTask[] = (device.scrapeTasks && device.scrapeTasks.length > 0)
-    ? device.scrapeTasks.map((t) => ({ type: t.type, startPin: t.startPin || '', endPin: t.endPin || '', jobs: t.jobs || 3 }))
+    ? device.scrapeTasks.map((t) => ({ type: t.type, startPin: t.startPin || '', endPin: t.endPin || '', jobs: t.jobs || 3, progress: t.progress }))
     : (device.scrapePincode
         ? [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }]
         : []);
@@ -298,20 +299,56 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
             {initialTasks.length === 0 ? (
               <span className="text-[10px] text-slate-600">No tasks set</span>
             ) : (
-              <div className="space-y-0.5">
-                {initialTasks.map((t, idx) => (
-                  <div key={idx} className="text-[10px] font-mono flex items-center gap-1.5">
-                    <span className="text-slate-500">{idx + 1}.</span>
-                    <span className={`px-1 py-px rounded text-[9px] ${
-                      t.type === 'range' ? 'bg-purple-900/40 text-purple-300' :
-                      t.type === 'single' ? 'bg-orange-900/40 text-orange-300' :
-                      'bg-blue-900/40 text-blue-300'
-                    }`}>{t.type}</span>
-                    <span className="text-cyan-400">{t.startPin}</span>
-                    {t.type === 'range' && <span className="text-slate-500">→ <span className="text-cyan-400">{t.endPin}</span></span>}
-                    {t.type === 'jobs' && <span className="text-slate-500">× {t.jobs}j</span>}
-                  </div>
-                ))}
+              <div className="space-y-1">
+                {initialTasks.map((t, idx) => {
+                  const prog = t.progress;
+                  const isComplete = prog?.status === 'completed';
+                  const isStopped = prog?.status === 'stopped' || prog?.status === 'stop';
+                  const isRunning = prog?.status === 'running';
+                  return (
+                    <div key={idx} className={`rounded px-1.5 py-1 ${
+                      isComplete ? 'bg-emerald-900/20 border border-emerald-700/40' :
+                      isStopped ? 'bg-red-900/20 border border-red-700/40' :
+                      'bg-slate-800/40'
+                    }`}>
+                      <div className="text-[10px] font-mono flex items-center gap-1.5 flex-wrap">
+                        <span className="text-slate-500">{idx + 1}.</span>
+                        <span className={`px-1 py-px rounded text-[9px] ${
+                          t.type === 'range' ? 'bg-purple-900/40 text-purple-300' :
+                          t.type === 'single' ? 'bg-orange-900/40 text-orange-300' :
+                          'bg-blue-900/40 text-blue-300'
+                        }`}>{t.type}</span>
+                        <span className="text-cyan-400">{t.startPin}</span>
+                        {t.type === 'range' && <span className="text-slate-500">→ <span className="text-cyan-400">{t.endPin}</span></span>}
+                        {t.type === 'jobs' && <span className="text-slate-500">× {t.jobs}j</span>}
+                        {isComplete && (
+                          <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-400 font-semibold" title={prog.completedAt ? `Completed ${new Date(prog.completedAt).toLocaleString('en-IN')}` : 'Completed'}>
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                            Completed
+                          </span>
+                        )}
+                        {isStopped && (
+                          <span className="ml-auto text-[9px] text-red-400 font-semibold">Stopped</span>
+                        )}
+                        {isRunning && prog && (
+                          <span className="ml-auto text-[9px] text-blue-400 font-semibold">
+                            {prog.percent}% · {prog.completedSearches.toLocaleString()}/{prog.totalSearches.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      {isRunning && prog && (
+                        <div className="mt-1 h-0.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${prog.percent}%` }} />
+                        </div>
+                      )}
+                      {isComplete && prog?.completedAt && (
+                        <div className="text-[9px] text-emerald-400/70 mt-0.5 font-mono">
+                          ✓ Finished {new Date(prog.completedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
