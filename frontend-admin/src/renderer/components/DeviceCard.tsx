@@ -46,6 +46,48 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
   const [editScrape, setEditScrape] = useState(false);
   const [taskList, setTaskList] = useState<ScrapeTask[]>(initialTasks);
 
+  // Save handler (shared between Save button + Enter key on last field)
+  const saveTasks = async () => {
+    const cleaned = taskList
+      .map((t) => ({
+        type: t.type,
+        startPin: t.startPin.trim(),
+        endPin: t.type === 'range' ? (t.endPin || '').trim() : '',
+        jobs: t.type === 'jobs' ? (t.jobs || 3) : 0,
+      }))
+      .filter((t) => t.startPin);
+    try {
+      await onSaveScrapeTasks?.(device.deviceId, cleaned);
+      setEditScrape(false);
+    } catch (err) {
+      console.error('[DeviceCard] Save tasks failed:', err);
+    }
+  };
+
+  // Enter key navigation — focuses next input, or saves on last
+  const handleTaskKey = (e: React.KeyboardEvent<HTMLInputElement>, idx: number, field: 'start' | 'end' | 'jobs') => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const task = taskList[idx];
+
+    // Decide next target
+    if (field === 'start') {
+      // Next: end/jobs of same row
+      const nextField = task.type === 'range' ? 'end' : 'jobs';
+      const sel = e.currentTarget.closest('.task-row')?.querySelector<HTMLInputElement>(`[data-field="${nextField}"]`);
+      if (sel) { sel.focus(); sel.select(); return; }
+    }
+    // End/jobs → go to next row's start, or save if last row
+    if (idx < taskList.length - 1) {
+      const rows = e.currentTarget.closest('.task-list')?.querySelectorAll<HTMLElement>('.task-row');
+      const nextRow = rows?.[idx + 1];
+      const nextStart = nextRow?.querySelector<HTMLInputElement>('[data-field="start"]');
+      if (nextStart) { nextStart.focus(); nextStart.select(); return; }
+    }
+    // Last row's last field — save
+    saveTasks();
+  };
+
   const handleSavePw = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSavePassword?.(device.deviceId, pwValue.trim());
@@ -218,8 +260,9 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                 className="text-[10px] bg-cyan-700 hover:bg-cyan-600 text-white px-2 py-0.5 rounded"
               >+ Add</button>
             </div>
+            <div className="task-list space-y-1.5">
             {taskList.map((t, idx) => (
-              <div key={idx} className="flex gap-1 items-center">
+              <div key={idx} className="task-row flex gap-1 items-center">
                 <select
                   value={t.type}
                   onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, type: e.target.value as ScrapeTask['type'] } : x))}
@@ -231,16 +274,20 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                 </select>
                 <input
                   type="text"
+                  data-field="start"
                   value={t.startPin}
                   onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, startPin: e.target.value } : x))}
+                  onKeyDown={(e) => handleTaskKey(e, idx, 'start')}
                   placeholder="Start"
                   className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
                 />
                 {t.type === 'range' && (
                   <input
                     type="text"
+                    data-field="end"
                     value={t.endPin || ''}
                     onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, endPin: e.target.value } : x))}
+                    onKeyDown={(e) => handleTaskKey(e, idx, 'end')}
                     placeholder="End"
                     className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
                   />
@@ -248,8 +295,10 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                 {t.type === 'jobs' && (
                   <input
                     type="text"
+                    data-field="jobs"
                     value={String(t.jobs || 3)}
                     onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, jobs: Number(e.target.value) || 3 } : x))}
+                    onKeyDown={(e) => handleTaskKey(e, idx, 'jobs')}
                     placeholder="Jobs"
                     className="w-10 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
                   />
@@ -260,24 +309,10 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                 >X</button>
               </div>
             ))}
+            </div>
             <div className="flex gap-1.5">
               <button
-                onClick={async () => {
-                  const cleaned = taskList
-                    .map((t) => ({
-                      type: t.type,
-                      startPin: t.startPin.trim(),
-                      endPin: t.type === 'range' ? (t.endPin || '').trim() : '',
-                      jobs: t.type === 'jobs' ? (t.jobs || 3) : 0,
-                    }))
-                    .filter((t) => t.startPin);
-                  try {
-                    await onSaveScrapeTasks?.(device.deviceId, cleaned);
-                    setEditScrape(false);
-                  } catch (err) {
-                    console.error('[DeviceCard] Save tasks failed:', err);
-                  }
-                }}
+                onClick={() => saveTasks()}
                 className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded"
               >Save</button>
               <button
