@@ -1,5 +1,14 @@
 const mongoose = require('mongoose');
 
+// Sub-schema for scrape tasks. Must be a separate Schema because the field "type"
+// conflicts with Mongoose's type-declaration keyword inside a plain object literal.
+const scrapeTaskSchema = new mongoose.Schema({
+  type: { type: String, enum: ['jobs', 'range', 'single'], default: 'jobs' },
+  startPin: { type: String, default: '' },
+  endPin: { type: String, default: '' },
+  jobs: { type: Number, default: 3 },
+}, { _id: false });
+
 const deviceSchema = new mongoose.Schema(
   {
     deviceId: { type: String, required: true, unique: true },
@@ -27,12 +36,7 @@ const deviceSchema = new mongoose.Schema(
     // type 'jobs': N multi-jobs from startPin (same as CLI arg < 1000)
     // type 'range': scrape startPin → endPin
     // type 'single': scrape just startPin (1 pincode)
-    scrapeTasks: [{
-      type: { type: String, enum: ['jobs', 'range', 'single'], default: 'jobs' },
-      startPin: { type: String, default: '' },
-      endPin: { type: String, default: '' },
-      jobs: { type: Number, default: 3 },
-    }],
+    scrapeTasks: { type: [scrapeTaskSchema], default: [] },
     status: { type: String, enum: ['online', 'offline'], default: 'offline' },
     lastSeenAt: { type: Date, default: Date.now },
 
