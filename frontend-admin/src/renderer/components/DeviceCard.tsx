@@ -349,38 +349,46 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
 
                       {/* Per-chunk job details for 'jobs' type tasks */}
                       {t.type === 'jobs' && prog?.jobs && prog.jobs.length > 0 && (
-                        <div className="mt-1.5 pl-3 border-l-2 border-slate-700/60 space-y-1">
+                        <div className="mt-1.5 pl-2 border-l-2 border-slate-700/60 space-y-1">
+                          <div className="text-[9px] text-slate-500 uppercase font-semibold tracking-wider">Sub-Jobs ({prog.jobs.length})</div>
                           {prog.jobs.map((job, jIdx) => {
                             const jComplete = job.status === 'completed';
                             const jStopped = job.status === 'stopped' || job.status === 'stop';
                             const jRunning = job.status === 'running';
+                            const statusColor = jComplete ? 'bg-emerald-900/60 text-emerald-400' :
+                              jStopped ? 'bg-red-900/60 text-red-400' :
+                              jRunning ? 'bg-blue-900/60 text-blue-400' :
+                              'bg-slate-800 text-slate-400';
                             return (
-                              <div key={job.jobId} className="text-[9px] font-mono">
+                              <div key={job.jobId} className="bg-slate-900/60 rounded px-1.5 py-1 text-[9px] font-mono space-y-0.5">
+                                {/* Row 1: index, range, status */}
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-slate-500">{jIdx + 1}</span>
+                                  <span className="text-slate-500">#{jIdx + 1}</span>
+                                  <span className="text-slate-500">Range:</span>
                                   <span className="text-cyan-400">{job.startPincode}</span>
                                   <span className="text-slate-600">→</span>
                                   <span className="text-cyan-400">{job.endPincode}</span>
-                                  <span className="text-slate-500">·</span>
-                                  {jRunning && (
-                                    <>
-                                      <span className="text-slate-400">Pin {job.currentPincodeIndex}/{job.totalPincodes}</span>
-                                      <span className="text-slate-500">→</span>
-                                      <span className="text-yellow-300">{job.currentPincode}</span>
-                                    </>
-                                  )}
-                                  <span className={`ml-auto px-1 py-px rounded text-[8px] font-semibold ${
-                                    jComplete ? 'bg-emerald-900/60 text-emerald-400' :
-                                    jStopped ? 'bg-red-900/60 text-red-400' :
-                                    jRunning ? 'bg-blue-900/60 text-blue-400' :
-                                    'bg-slate-800 text-slate-400'
-                                  }`}>
-                                    {jComplete ? '✓ Done' : jStopped ? 'Stop' : jRunning ? `${job.percent}%` : job.status}
+                                  <span className="text-slate-500">({job.totalPincodes} pins)</span>
+                                  <span className={`ml-auto px-1 py-px rounded text-[8px] font-semibold ${statusColor}`}>
+                                    {jComplete ? '✓ Completed' : jStopped ? '■ Stopped' : jRunning ? `${job.percent}%` : job.status}
                                   </span>
                                 </div>
-                                {jRunning && (
-                                  <div className="mt-0.5 h-0.5 bg-slate-700 rounded-full overflow-hidden">
-                                    <div className="h-full bg-blue-500" style={{ width: `${job.percent}%` }} />
+                                {/* Row 2: current pincode + progress */}
+                                <div className="flex items-center gap-1.5 flex-wrap text-slate-500">
+                                  <span>Current:</span>
+                                  <span className="text-yellow-300">{job.currentPincode}</span>
+                                  <span>({job.currentPincodeIndex}/{job.totalPincodes})</span>
+                                  <span className="ml-auto text-slate-400">
+                                    {job.completedSearches.toLocaleString()}/{job.totalSearches.toLocaleString()} searches
+                                  </span>
+                                </div>
+                                {/* Progress bar */}
+                                <div className="h-0.5 bg-slate-700 rounded-full overflow-hidden">
+                                  <div className={`h-full ${jComplete ? 'bg-emerald-500' : jStopped ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${job.percent}%` }} />
+                                </div>
+                                {jComplete && job.completedAt && (
+                                  <div className="text-[8px] text-emerald-400/70">
+                                    ✓ Done {new Date(job.completedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                                   </div>
                                 )}
                               </div>
