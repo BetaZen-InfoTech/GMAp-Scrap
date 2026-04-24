@@ -121,7 +121,11 @@ async function fetchPincodes(start, end, limit) {
   const res = await axios.get(`${API_BASE_URL}/api/pincodes/range`, {
     params, timeout: 30000,
   });
-  return Array.isArray(res.data) ? res.data : [];
+  const arr = Array.isArray(res.data) ? res.data : [];
+  // Defensive client-side ascending sort (0 → 9). The backend also sorts,
+  // but we re-sort here so the guarantee survives any backend/DB change.
+  arr.sort((a, b) => Number(a.Pincode) - Number(b.Pincode));
+  return arr;
 }
 
 async function fetchNiches() {
@@ -434,10 +438,19 @@ async function main() {
     process.exit(0);
   }
 
+  // Log the sort window so the operator can verify the order before work starts.
+  const firstPin = allPincodes[0].Pincode;
+  const lastPin  = allPincodes[allPincodes.length - 1].Pincode;
+  console.log(chalk.cyan(
+    `  Fetched ${allPincodes.length} pincodes, sorted ASC: ${firstPin} → ${lastPin}` +
+    (isMultiJobMode ? ` (limit ${totalNeeded})` : '')
+  ));
+
   // ── Split into jobs (multi-job: 100 pincodes per job) ───────────────────
+  // Pincodes are sorted 0 → 9 before any limit/range slicing is applied.
   const pincodeChunks = [];
   if (isMultiJobMode) {
-    // Take only the first totalNeeded pincodes, split into jobs of 100
+    // Take only the first totalNeeded pincodes (ascending order), split into jobs of 100
     const needed = allPincodes.slice(0, totalNeeded);
     for (let i = 0; i < needed.length; i += PINCODES_PER_JOB) {
       pincodeChunks.push(needed.slice(i, i + PINCODES_PER_JOB));

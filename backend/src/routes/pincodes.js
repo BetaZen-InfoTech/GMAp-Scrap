@@ -4,6 +4,11 @@ const PinCode = require('../models/PinCode');
 const PincodeStatus = require('../models/PincodeStatus');
 
 // GET /api/pincodes/range?start=N&end=N&limit=N
+//
+// Contract: always returns pincodes sorted ascending (0 → 9). The aggregation
+// pipeline enforces: match window → sort ASC → dedup by Pincode → re-sort ASC
+// (group output isn't ordered) → apply limit. Limit is applied AFTER sort+dedup,
+// so callers get the N smallest unique pincodes in the requested window.
 router.get('/range', async (req, res) => {
   try {
     const start = parseInt(req.query.start, 10);
@@ -17,27 +22,31 @@ router.get('/range', async (req, res) => {
       return res.status(400).json({ error: 'start must be <= end' });
     }
 
-    const raw = await PinCode.find(
-      { Pincode: { $gte: start, $lte: end } },
-      { Pincode: 1, District: 1, StateName: 1, _id: 0 }
-    ).sort({ Pincode: 1 });
+    const pipeline = [
+      { $match: { Pincode: { $gte: start, $lte: end } } },
+      { $sort:  { Pincode: 1 } },
+      // Keep the first occurrence (by ascending Pincode) per unique pincode value
+      {
+        $group: {
+          _id:       '$Pincode',
+          District:  { $first: '$District' },
+          StateName: { $first: '$StateName' },
+        },
+      },
+      // $group doesn't preserve sort order — re-sort so output is ASC
+      { $sort: { _id: 1 } },
+    ];
+    if (limit > 0) pipeline.push({ $limit: limit });
+    pipeline.push({
+      $project: {
+        _id: 0,
+        Pincode: '$_id',
+        District: 1,
+        StateName: 1,
+      },
+    });
 
-    // Deduplicate — keep first occurrence per unique Pincode
-    const seen = new Set();
-    const pincodes = [];
-    for (const doc of raw) {
-      if (!seen.has(doc.Pincode)) {
-        seen.add(doc.Pincode);
-        pincodes.push({
-          Pincode: doc.Pincode,
-          District: doc.District,
-          StateName: doc.StateName,
-        });
-        // Stop early if limit reached
-        if (limit > 0 && pincodes.length >= limit) break;
-      }
-    }
-
+    const pincodes = await PinCode.aggregate(pipeline);
     res.json(pincodes);
   } catch (err) {
     console.error('[pincodes/range] Error:', err.message);
