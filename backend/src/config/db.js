@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isAuthzError } = require('../utils/mongoErrors');
 
 const connectDB = async () => {
   try {
@@ -17,6 +18,7 @@ const connectDB = async () => {
       },
     ];
 
+    let authzWarned = false;
     for (const m of migrations) {
       try {
         const col = conn.connection.collection(m.collection);
@@ -29,7 +31,15 @@ const connectDB = async () => {
           }
         }
       } catch (err) {
-        if (err.code !== 26) console.log(`[DB Migration] ${m.collection} index check: ${err.message}`);
+        if (err.code === 26) continue; // namespace not found — benign
+        if (isAuthzError(err)) {
+          if (!authzWarned) {
+            console.log('[DB Migration] Skipped — MongoDB user lacks `dbAdmin` on this database. Grant it to enable index migrations.');
+            authzWarned = true;
+          }
+          continue;
+        }
+        console.log(`[DB Migration] ${m.collection} index check: ${err.message}`);
       }
     }
   } catch (error) {

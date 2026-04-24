@@ -1,4 +1,5 @@
 const Device = require('../models/Device');
+const { startCron } = require('../utils/cronRunner');
 
 const OFFLINE_THRESHOLD_MS = 2.55 * 60 * 1000; // 2 min 33 sec
 const CHECK_INTERVAL_MS    = 3   * 60 * 1000;   // run every 3 minutes
@@ -26,24 +27,13 @@ async function runOfflineCheck() {
   }
 }
 
-/**
- * Starts the device offline cron.
- * Runs IMMEDIATELY on startup, then every CHECK_INTERVAL_MS.
- */
 function startDeviceOfflineCron() {
   console.log('[DeviceCron] Starting — threshold: 2.55 min, interval: every 3 min');
-
-  // Run immediately (don't wait for first interval)
-  runOfflineCheck().catch((err) =>
-    console.error('[DeviceCron] Error on initial run:', err.message)
-  );
-
-  // Then run every 3 minutes
-  setInterval(() => {
-    runOfflineCheck().catch((err) =>
-      console.error('[DeviceCron] Error:', err.message)
-    );
-  }, CHECK_INTERVAL_MS);
+  return startCron({
+    name: 'DeviceCron',
+    intervalMs: CHECK_INTERVAL_MS,
+    task: runOfflineCheck,
+  });
 }
 
 module.exports = { startDeviceOfflineCron, runOfflineCheck };

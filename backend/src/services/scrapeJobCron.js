@@ -1,4 +1,5 @@
 const ScrapeTracking = require('../models/ScrapeTracking');
+const { startCron } = require('../utils/cronRunner');
 
 const STOP_THRESHOLD_MS  = 3 * 60 * 1000; // 3 min of inactivity → stop
 const CHECK_INTERVAL_MS  = 3 * 60 * 1000; // run every 3 min
@@ -65,17 +66,11 @@ async function runScrapeJobCheck() {
 
 function startScrapeJobCron() {
   console.log('[ScrapeJobCron] Starting — stop threshold: 3 min, interval: every 3 min');
-
-  // Run immediately on startup
-  runScrapeJobCheck().catch((err) =>
-    console.error('[ScrapeJobCron] Error on initial run:', err.message)
-  );
-
-  setInterval(() => {
-    runScrapeJobCheck().catch((err) =>
-      console.error('[ScrapeJobCron] Error:', err.message)
-    );
-  }, CHECK_INTERVAL_MS);
+  return startCron({
+    name: 'ScrapeJobCron',
+    intervalMs: CHECK_INTERVAL_MS,
+    task: runScrapeJobCheck,
+  });
 }
 
 module.exports = { startScrapeJobCron, runScrapeJobCheck };

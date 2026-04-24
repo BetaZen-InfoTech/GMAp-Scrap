@@ -3,6 +3,7 @@ const BusinessNiche = require('../models/BusinessNiche');
 const PincodeStatus = require('../models/PincodeStatus');
 const ScrapedData   = require('../models/ScrapedData');
 const PinCode       = require('../models/PinCode');
+const { startCron }  = require('../utils/cronRunner');
 
 const COMPLETION_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 const STOP_INTERVAL_MS       = 3 * 60 * 1000; // every 3 minutes
@@ -220,28 +221,17 @@ async function runPincodeStopCheck() {
 // ──────────────────────────────────────────────────────────────────────────────
 function startPincodeCompletionCron() {
   console.log('[PincodeCron] Starting — completion: every 5 min | stop check: every 3 min');
-
-  // Run both immediately on startup
-  runPincodeCompletionCheck().catch((err) =>
-    console.error('[PincodeCron] Completion error on initial run:', err.message)
-  );
-  runPincodeStopCheck().catch((err) =>
-    console.error('[PincodeCron] Stop-check error on initial run:', err.message)
-  );
-
-  // Completion check every 5 minutes
-  setInterval(() => {
-    runPincodeCompletionCheck().catch((err) =>
-      console.error('[PincodeCron] Completion error:', err.message)
-    );
-  }, COMPLETION_INTERVAL_MS);
-
-  // Stop check every 3 minutes
-  setInterval(() => {
-    runPincodeStopCheck().catch((err) =>
-      console.error('[PincodeCron] Stop-check error:', err.message)
-    );
-  }, STOP_INTERVAL_MS);
+  const completion = startCron({
+    name: 'PincodeCron/completion',
+    intervalMs: COMPLETION_INTERVAL_MS,
+    task: runPincodeCompletionCheck,
+  });
+  const stop = startCron({
+    name: 'PincodeCron/stop-check',
+    intervalMs: STOP_INTERVAL_MS,
+    task: runPincodeStopCheck,
+  });
+  return { completion, stop };
 }
 
 module.exports = { startPincodeCompletionCron, runPincodeCompletionCheck, runPincodeStopCheck };
