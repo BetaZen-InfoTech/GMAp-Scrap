@@ -992,6 +992,80 @@ router.get('/pincodes', async (req, res) => {
   }
 });
 
+/**
+ * Normalize + validate a pincode payload coming from the admin UI.
+ * Returns { ok: true, doc } or { ok: false, error }.
+ * Pass `existingId` on updates so the uniqueness check excludes self.
+ */
+async function validatePincodePayload(body, { existingId = null } = {}) {
+  const pincodeNum = Number(body.Pincode);
+  if (!Number.isInteger(pincodeNum) || pincodeNum <= 0) {
+    return { ok: false, error: 'Pincode must be a positive integer' };
+  }
+
+  // Uniqueness — same Pincode shouldn't appear twice
+  const dupFilter = { Pincode: pincodeNum };
+  if (existingId) dupFilter._id = { $ne: existingId };
+  const dup = await PinCode.findOne(dupFilter, { _id: 1 }).lean();
+  if (dup) return { ok: false, error: `Pincode ${pincodeNum} already exists` };
+
+  const trim = (v) => (typeof v === 'string' ? v.trim() : v);
+  const doc = {
+    Pincode:    pincodeNum,
+    CircleName: trim(body.CircleName) || '',
+    District:   trim(body.District)   || '',
+    StateName:  trim(body.StateName)  || '',
+    Latitude:   trim(body.Latitude)   || '',
+    Longitude:  trim(body.Longitude)  || '',
+    Country:    trim(body.Country)    || 'India',
+  };
+  return { ok: true, doc };
+}
+
+// ── POST /api/admin/pincodes — create a new pincode ──
+router.post('/pincodes', async (req, res) => {
+  try {
+    const { ok, error, doc } = await validatePincodePayload(req.body);
+    if (!ok) return res.status(400).json({ error });
+    const created = await PinCode.create(doc);
+    res.status(201).json({ success: true, data: created.toObject() });
+  } catch (err) {
+    console.error('[admin/pincodes POST] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
+// ── PATCH /api/admin/pincodes/:id — update an existing pincode ──
+router.patch('/pincodes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await PinCode.findById(id).lean();
+    if (!existing) return res.status(404).json({ error: 'Pincode not found' });
+
+    const { ok, error, doc } = await validatePincodePayload(req.body, { existingId: id });
+    if (!ok) return res.status(400).json({ error });
+
+    const updated = await PinCode.findByIdAndUpdate(id, { $set: doc }, { new: true }).lean();
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('[admin/pincodes PATCH] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
+// ── DELETE /api/admin/pincodes/:id — delete a pincode ──
+router.delete('/pincodes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await PinCode.findByIdAndDelete(id).lean();
+    if (!result) return res.status(404).json({ error: 'Pincode not found' });
+    res.json({ success: true, deletedId: id });
+  } catch (err) {
+    console.error('[admin/pincodes DELETE] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Page: Scraped Pincodes
 // ══════════════════════════════════════════════════════════════════════════════

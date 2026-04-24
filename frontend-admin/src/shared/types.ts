@@ -157,6 +157,19 @@ export interface PinCodeRecord {
   Longitude: string;
   Country: string;
   scrapedCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Fields accepted by POST /api/admin/pincodes and PATCH /api/admin/pincodes/:id. */
+export interface PinCodeInput {
+  Pincode: number | string;
+  CircleName?: string;
+  District?: string;
+  StateName?: string;
+  Latitude?: string;
+  Longitude?: string;
+  Country?: string;
 }
 
 // --- Scraped Pincode (aggregated) ---

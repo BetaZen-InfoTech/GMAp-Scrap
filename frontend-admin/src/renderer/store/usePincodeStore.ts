@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import api from '../lib/api';
-import type { PinCodeRecord } from '../../shared/types';
+import type { PinCodeRecord, PinCodeInput } from '../../shared/types';
 
 interface PincodeFilters {
   search?: string;
@@ -22,6 +22,10 @@ interface PincodeStore {
   setLimit: (limit: number) => void;
   setFilters: (filters: Partial<PincodeFilters>) => void;
   clearFilters: () => void;
+
+  createPincode: (input: PinCodeInput) => Promise<PinCodeRecord>;
+  updatePincode: (id: string, input: PinCodeInput) => Promise<PinCodeRecord>;
+  deletePincode: (id: string) => Promise<void>;
 }
 
 export const usePincodeStore = create<PincodeStore>((set, get) => ({
@@ -63,4 +67,28 @@ export const usePincodeStore = create<PincodeStore>((set, get) => ({
   setLimit: (limit) => set({ limit }),
   setFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
   clearFilters: () => set({ filters: {} }),
+
+  createPincode: async (input) => {
+    const res = await api.post('/api/admin/pincodes', input);
+    // Re-fetch so the new row lands in its correctly-sorted position.
+    await get().fetchPincodes(get().page);
+    return res.data.data as PinCodeRecord;
+  },
+
+  updatePincode: async (id, input) => {
+    const res = await api.patch(`/api/admin/pincodes/${id}`, input);
+    const updated = res.data.data as PinCodeRecord;
+    set((s) => ({
+      pincodes: s.pincodes.map((p) => (p._id === id ? { ...p, ...updated } : p)),
+    }));
+    return updated;
+  },
+
+  deletePincode: async (id) => {
+    await api.delete(`/api/admin/pincodes/${id}`);
+    set((s) => ({
+      pincodes: s.pincodes.filter((p) => p._id !== id),
+      total: Math.max(0, s.total - 1),
+    }));
+  },
 }));
