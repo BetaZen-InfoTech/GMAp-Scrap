@@ -89,6 +89,8 @@ const ScrapDatabasePage: React.FC = () => {
     try {
       const ids = selectedIds.size > 0 && !selectAllPages ? Array.from(selectedIds) : undefined;
       await exportCSV(filters, ids);
+    } catch (err) {
+      alert((err as Error).message || 'CSV export failed');
     } finally {
       setExporting(false);
     }
@@ -99,6 +101,8 @@ const ScrapDatabasePage: React.FC = () => {
     try {
       const ids = selectedIds.size > 0 && !selectAllPages ? Array.from(selectedIds) : undefined;
       await exportExcel(filters, ids);
+    } catch (err) {
+      alert((err as Error).message || 'Excel export failed');
     } finally {
       setExporting(false);
     }

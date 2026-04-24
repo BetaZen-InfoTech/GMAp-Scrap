@@ -66,7 +66,7 @@ export const usePincodeStore = create<PincodeStore>((set, get) => ({
 
   setLimit: (limit) => set({ limit }),
   setFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
-  clearFilters: () => set({ filters: {} }),
+  clearFilters: () => set({ filters: {}, page: 1 }),
 
   createPincode: async (input) => {
     const res = await api.post('/api/admin/pincodes', input);

@@ -28,7 +28,7 @@ function toLocale(val: unknown): string {
 }
 
 const DashboardPage: React.FC = () => {
-  const { data, loading, fetchAnalytics } = useAnalyticsStore();
+  const { data, loading, error, fetchAnalytics } = useAnalyticsStore();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const handleRefresh = async () => {
@@ -48,7 +48,23 @@ const DashboardPage: React.FC = () => {
   }
 
   if (!data) {
-    return <p className="text-sm text-slate-500 py-16 text-center">Failed to load analytics.</p>;
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <p className="text-sm text-slate-400">Failed to load analytics.</p>
+        {error && (
+          <p className="text-xs text-red-300 bg-red-900/30 border border-red-800/60 rounded px-3 py-2 max-w-xl text-center">
+            {error}
+          </p>
+        )}
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg"
+        >
+          {refreshing ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+    );
   }
 
   const completionRate = Number(data.sessionCompletionRate) || 0;

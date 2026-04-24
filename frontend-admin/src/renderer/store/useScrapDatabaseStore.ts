@@ -118,7 +118,7 @@ export const useScrapDatabaseStore = create<ScrapDatabaseStore>((set, get) => ({
   },
 
   setFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
-  clearFilters: () => set({ filters: {}, selectedIds: new Set(), selectAllPages: false }),
+  clearFilters: () => set({ filters: {}, page: 1, selectedIds: new Set(), selectAllPages: false }),
   setViewMode: (viewMode) => set({ viewMode }),
   setLimit: (limit) => set({ limit }),
 

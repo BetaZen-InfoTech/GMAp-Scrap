@@ -24,6 +24,11 @@ function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
   return params;
 }
 
+function messageFrom(err: unknown): string {
+  const e = err as { response?: { data?: { error?: string } }; message?: string };
+  return e?.response?.data?.error || e?.message || 'Unknown export error';
+}
+
 export async function exportCSV(filters: ScrapDbFilters, selectedIds?: string[]) {
   const params: Record<string, string> = {
     ...filtersToParams(filters),
@@ -31,10 +36,17 @@ export async function exportCSV(filters: ScrapDbFilters, selectedIds?: string[])
   };
   if (selectedIds?.length) params.ids = selectedIds.join(',');
 
-  const res = await api.get('/api/admin/scrap-database/export', {
-    params,
-    responseType: 'blob',
-  });
+  let res;
+  try {
+    res = await api.get('/api/admin/scrap-database/export', {
+      params,
+      responseType: 'blob',
+    });
+  } catch (err) {
+    const msg = messageFrom(err);
+    console.error('[export CSV] failed:', msg);
+    throw new Error(`CSV export failed: ${msg}`);
+  }
 
   const url = URL.createObjectURL(res.data);
   const a = document.createElement('a');
@@ -47,7 +59,14 @@ export async function exportCSV(filters: ScrapDbFilters, selectedIds?: string[])
 }
 
 export async function exportExcel(filters: ScrapDbFilters, selectedIds?: string[]) {
-  const XLSX = await import('xlsx');
+  let XLSX;
+  try {
+    XLSX = await import('xlsx');
+  } catch (err) {
+    const msg = messageFrom(err);
+    console.error('[export Excel] failed loading xlsx:', msg);
+    throw new Error(`Excel export failed: could not load xlsx module (${msg})`);
+  }
 
   const params: Record<string, string> = {
     ...filtersToParams(filters),
@@ -55,7 +74,14 @@ export async function exportExcel(filters: ScrapDbFilters, selectedIds?: string[
   };
   if (selectedIds?.length) params.ids = selectedIds.join(',');
 
-  const res = await api.get('/api/admin/scrap-database/export', { params });
+  let res;
+  try {
+    res = await api.get('/api/admin/scrap-database/export', { params });
+  } catch (err) {
+    const msg = messageFrom(err);
+    console.error('[export Excel] failed:', msg);
+    throw new Error(`Excel export failed: ${msg}`);
+  }
   const data: ScrapedDataRecord[] = res.data.data || [];
 
   const rows = data.map((r) => ({
