@@ -9,6 +9,7 @@ import type {
   CompletePayload,
   ApiLogEntry,
   ScrapeJobState,
+  DeviceStats,
 } from '../../shared/types';
 
 declare global {
@@ -39,25 +40,33 @@ declare global {
       clearApiLogs: () => Promise<{ success: boolean }>;
 
       // Device registration
-      registerDevice: (password: string) => Promise<{ success: boolean; error?: string }>;
+      registerDevice: (password: string, nickname?: string) => Promise<{ success: boolean; error?: string }>;
       verifyDevice: () => Promise<{ success: boolean; error?: string }>;
 
       // Dialogs
       selectFolder: () => Promise<string | null>;
       selectFile: () => Promise<string | null>;
 
-      // Scrape Job (Pincode-Range)
+      // Scrape Job (Pincode-Range) — multi-job support
       loadScrapeJob: (payload: { startPincode: number; endPincode: number }) => Promise<{ success: boolean; error?: string; job?: ScrapeJobState }>;
-      startScrapeJob: () => Promise<{ success: boolean; error?: string }>;
-      pauseScrapeJob: () => Promise<{ success: boolean }>;
-      stopScrapeJob: () => Promise<{ success: boolean }>;
-      getScrapeJobState: () => Promise<ScrapeJobState | null>;
+      startScrapeJob: (jobId: string) => Promise<{ success: boolean; error?: string }>;
+      pauseScrapeJob: (jobId: string) => Promise<{ success: boolean }>;
+      stopScrapeJob: (jobId: string) => Promise<{ success: boolean }>;
+      getScrapeJobState: (jobId: string) => Promise<ScrapeJobState | null>;
+      getAllScrapeJobs: () => Promise<ScrapeJobState[]>;
 
-      // Event listeners
+      // Resolved API base URL from .env config
+      getApiBaseUrl: () => Promise<string>;
+
+      // Device Stats (live system monitoring)
+      getDeviceStats: () => Promise<DeviceStats>;
+
+      // Event listeners (return unsubscribe fns)
       onProgress: (callback: (payload: ProgressPayload) => void) => () => void;
       onBatchSent: (callback: (payload: BatchSentPayload) => void) => () => void;
       onComplete: (callback: (payload: CompletePayload) => void) => () => void;
       onScrapeJobProgress: (callback: (job: ScrapeJobState) => void) => () => void;
+      onDeviceStats: (callback: (stats: DeviceStats) => void) => () => void;
     };
   }
 }
