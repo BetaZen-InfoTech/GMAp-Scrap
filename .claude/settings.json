@@ -10,7 +10,10 @@
       "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/node_modules/electron/dist/electron.exe\" -e \"const e = require\\(''electron''\\); console.log\\(''keys:'', Object.keys\\(e\\)\\); console.log\\(''app:'', typeof e.app\\); process.exit\\(0\\)\")",
       "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend/node_modules/electron/dist/electron.exe\" -e \"console.log\\(''app type:'', typeof require\\(''electron''\\).app\\)\")",
       "Bash(\"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/node_modules/.bin/electron\" \"c:/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/frontend-admin/_test_electron.js\")",
-      "Bash(npx electron:*)"
+      "Bash(npx electron:*)",
+      "Bash(grep -in \"search.*status\\\\|/search\" /c/Users/sayan/Project/BetaZen-InfoTech/BetaZen-G-Map-Scrap/backend/src/routes/*.js)",
+      "Bash(sed -i 's/\"version\": \"1.1.0\"/\"version\": \"1.2.0\"/g' backend/package.json frontend-admin/package.json frontend/package.json)",
+      "Bash(sed -i 's/\"version\": \"1.0.0\"/\"version\": \"1.2.0\"/g' frontend-nodejs/package.json)"
     ],
     "additionalDirectories": [
       "c:\\Users\\sayan\\Project\\BetaZen-InfoTech\\BetaZen-G-Map-Scrap\\backend\\src"

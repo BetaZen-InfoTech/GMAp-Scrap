@@ -1,14 +1,14 @@
-const { v4: uuidv4 } = require('crypto');
+const crypto = require('crypto');
 
 const validTokens = new Set();
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '9679329806';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  throw new Error('ADMIN_PASSWORD environment variable is required. Set it in backend/.env');
+}
 
 function generateToken() {
-  // Use crypto.randomUUID if available (Node 19+), else fallback
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : require('crypto').randomBytes(16).toString('hex');
+  return crypto.randomUUID();
 }
 
 function adminAuth(req, res, next) {

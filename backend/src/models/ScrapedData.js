@@ -29,6 +29,7 @@ const scrapedDataSchema = new mongoose.Schema(
     isDuplicate: { type: Boolean, default: false, index: true },
     scrapFrom: { type: String, default: 'G-Map' },
     scrapWebsite: { type: Boolean, default: false, index: true },
+    numberFixing: { type: Boolean, default: false },
   },
   {
     collection: 'Scraped-Data',

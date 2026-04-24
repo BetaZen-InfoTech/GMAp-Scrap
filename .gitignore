@@ -9,12 +9,10 @@ yarn.lock
 pnpm-lock.yaml
 
 # ── Environment files ────────────────────────────────────────
-# Only ignore .env (device-specific secrets)
-# .env.local, .env.dev, .env.prod are committed (shared configs)
+# All env files are device/environment-specific and must NOT be committed.
+# Only .env.example is tracked as a template.
 .env
-!.env.local
-!.env.dev
-!.env.prod
+.env.*
 !.env.example
 
 # ── Build output ─────────────────────────────────────────────
@@ -26,7 +24,6 @@ build/
 
 # ── Vite ─────────────────────────────────────────────────────
 *.local
-!.env.local
 
 # ── OS files ─────────────────────────────────────────────────
 Thumbs.db

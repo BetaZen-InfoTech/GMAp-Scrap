@@ -53,6 +53,9 @@ interface ScrapDatabaseStore {
   // Soft delete
   softDeleteSelected: () => Promise<number>;
   softDeleteAllFiltered: () => Promise<number>;
+
+  // Phone normalization backfill
+  fixNumbers: () => Promise<{ scanned: number; modified: number }>;
 }
 
 function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
@@ -155,5 +158,12 @@ export const useScrapDatabaseStore = create<ScrapDatabaseStore>((set, get) => ({
     set({ selectedIds: new Set(), selectAllPages: false });
     await fetchRecords(1);
     return res.data.modifiedCount;
+  },
+
+  fixNumbers: async () => {
+    const { fetchRecords, page } = get();
+    const res = await api.post('/api/admin/scrap-database/fix-numbers');
+    await fetchRecords(page);
+    return { scanned: res.data.scanned || 0, modified: res.data.modified || 0 };
   },
 }));

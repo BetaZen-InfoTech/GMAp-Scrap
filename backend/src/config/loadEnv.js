@@ -2,12 +2,15 @@
  * Load environment variables based on APP_STATE (local | dev | prod).
  *
  * Strategy:
- *   1. Load the base `.env` first (device-specific secrets + APP_STATE).
- *   2. Inspect APP_STATE and load `.env.<state>` with `override: false` so
- *      any value already set in `.env` still wins.
+ *   1. Load the base `.env` first (all required values + APP_STATE).
+ *   2. If `.env.<APP_STATE>` exists locally, layer it on with
+ *      override:false so values already set in `.env` still win.
+ *   3. Resolve MONGODB_URI from state-specific keys:
+ *        - if MONGODB_URI is already set explicitly, keep it
+ *        - otherwise use `<STATE>_MONGODB_URI` (e.g. DEV_MONGODB_URI)
  *
- * This lets a VPS keep APP_STATE=prod in `.env` while the committed
- * `.env.prod` provides the default URIs.
+ * `.env` and `.env.<state>` are both gitignored; only `.env.example`
+ * is tracked. See backend/.env.example for the full key list.
  */
 const { config } = require('dotenv');
 const path = require('path');
@@ -30,4 +33,13 @@ if (fs.existsSync(stateFile)) {
   console.log(`[env] Loaded ${path.basename(stateFile)} (state: ${state})`);
 } else {
   console.log(`[env] No .env.${state} file — using base .env only`);
+}
+
+// 3. Resolve MONGODB_URI from state-specific key if not explicitly set
+if (!process.env.MONGODB_URI) {
+  const stateKey = `${state.toUpperCase()}_MONGODB_URI`;
+  if (process.env[stateKey]) {
+    process.env.MONGODB_URI = process.env[stateKey];
+    console.log(`[env] MONGODB_URI resolved from ${stateKey}`);
+  }
 }

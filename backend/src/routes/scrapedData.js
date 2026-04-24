@@ -7,6 +7,7 @@ const ScrapedData = require('../models/ScrapedData');
 const ExcelUpload = require('../models/ExcelUpload');
 const SessionStats = require('../models/SessionStats');
 const Device = require('../models/Device');
+const { fixPhoneNumber } = require('../utils/phoneFixer');
 
 /** Fire-and-forget: mark device as online + update lastSeenAt + update IP */
 function touchDevice(deviceId, ip) {
@@ -87,6 +88,16 @@ router.post('/batch', async (req, res) => {
 
     touchDevice(deviceId, getClientIp(req));
 
+    // ── Phone normalization ──
+    // Normalize each record's phone in-place so duplicate detection and storage
+    // both use the same canonical value. `_numberFixing` is carried per-record
+    // so we can persist the flag when we build the doc below.
+    for (const r of records) {
+      const { phone: fixedPhone, fixed } = fixPhoneNumber(r.phone);
+      r.phone = fixedPhone;
+      r._numberFixing = fixed;
+    }
+
     // ── Duplicate detection ──
     // Check by Phone+Rating+Reviews+Category+PlusCode AND Email+Rating+Reviews+Category+PlusCode
     const phoneConditions = [];
@@ -149,6 +160,7 @@ router.post('/batch', async (req, res) => {
         scrapRound: batchRound || undefined,
         scrapedAt: r.timestamp || timestamp,
         scrapFrom: 'G-Map',
+        numberFixing: r._numberFixing === true,
       };
 
       if (isDup) {

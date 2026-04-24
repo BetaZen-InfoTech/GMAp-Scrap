@@ -50,9 +50,21 @@ const DupTable: React.FC<DupTableProps> = ({ records, showMovedAt }) => {
                 </span>
               </td>
               <td className="px-4 py-3">
-                {r.phone
-                  ? <span className="text-blue-400 font-mono text-xs">{r.phone}</span>
-                  : <span className="text-slate-600 italic text-xs">—</span>}
+                {r.phone ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-blue-400 font-mono text-xs">{r.phone}</span>
+                    {r.numberFixing && (
+                      <span
+                        title="Number normalized (+91 format)"
+                        className="text-[9px] uppercase font-semibold text-indigo-300 bg-indigo-900/50 border border-indigo-700/60 rounded px-1 py-px"
+                      >
+                        Fixed
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-slate-600 italic text-xs">—</span>
+                )}
               </td>
               <td className="px-4 py-3 max-w-[140px]">
                 {r.website

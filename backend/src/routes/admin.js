@@ -13,6 +13,7 @@ const PincodeStatus = require('../models/PincodeStatus');
 const BusinessNiche = require('../models/BusinessNiche');
 const PinCode = require('../models/PinCode');
 const SearchStatus = require('../models/SearchStatus');
+const { fixPhoneNumber } = require('../utils/phoneFixer');
 
 // ── POST /api/admin/login ──
 router.post('/login', async (req, res) => {
@@ -1441,6 +1442,60 @@ router.post('/scrap-database/from-website', async (req, res) => {
   } catch (err) {
     console.error('[admin/scrap-database/from-website] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/admin/scrap-database/fix-numbers ──
+// Backfill: normalizes the `phone` field on every record that hasn't been fixed
+// yet (numberFixing !== true) and has a non-empty phone. Applies the same
+// pipeline as the batch endpoint: strip spaces/hyphens/backticks, drop leading
+// zeros, ensure a leading '+' with '+91' prefix if not international.
+router.post('/scrap-database/fix-numbers', async (req, res) => {
+  try {
+    const BATCH = 500;
+    let scanned = 0;
+    let modified = 0;
+    let lastId = null;
+
+    while (true) {
+      const filter = {
+        phone: { $nin: [null, ''] },
+        numberFixing: { $ne: true },
+      };
+      if (lastId) filter._id = { $gt: lastId };
+
+      const records = await ScrapedData
+        .find(filter, { phone: 1 })
+        .sort({ _id: 1 })
+        .limit(BATCH)
+        .lean();
+
+      if (records.length === 0) break;
+      scanned += records.length;
+      lastId = records[records.length - 1]._id;
+
+      const ops = [];
+      for (const r of records) {
+        const { phone: fixedPhone, fixed } = fixPhoneNumber(r.phone);
+        if (!fixed) continue;
+        ops.push({
+          updateOne: {
+            filter: { _id: r._id },
+            update: { $set: { phone: fixedPhone, numberFixing: true } },
+          },
+        });
+      }
+
+      if (ops.length > 0) {
+        const result = await ScrapedData.bulkWrite(ops, { ordered: false });
+        modified += result.modifiedCount || 0;
+      }
+    }
+
+    res.json({ success: true, scanned, modified });
+  } catch (err) {
+    console.error('[admin/scrap-database/fix-numbers] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
   }
 });
 

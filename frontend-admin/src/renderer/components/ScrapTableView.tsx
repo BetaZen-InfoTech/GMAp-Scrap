@@ -64,7 +64,23 @@ const ScrapTableView: React.FC<ScrapTableViewProps> = ({ records, selectedIds, o
                   )}
                 </td>
                 <td className="px-3 py-3 text-white font-medium max-w-[160px] truncate">{rec.name || '—'}</td>
-                <td className="px-3 py-3 text-slate-300 whitespace-nowrap">{rec.phone || <span className="text-slate-600">—</span>}</td>
+                <td className="px-3 py-3 text-slate-300 whitespace-nowrap">
+                  {rec.phone ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span>{rec.phone}</span>
+                      {rec.numberFixing && (
+                        <span
+                          title="Number normalized (+91 format)"
+                          className="text-[9px] uppercase font-semibold text-indigo-300 bg-indigo-900/50 border border-indigo-700/60 rounded px-1 py-px"
+                        >
+                          Fixed
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600">—</span>
+                  )}
+                </td>
                 <td className="px-3 py-3 text-slate-300 max-w-[140px] truncate">{rec.email || <span className="text-slate-600">—</span>}</td>
                 <td className="px-3 py-3 text-slate-400 max-w-[180px] truncate">{rec.address || <span className="text-slate-600">—</span>}</td>
                 <td className="px-3 py-3 max-w-[140px] truncate">

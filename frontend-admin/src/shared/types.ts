@@ -204,6 +204,7 @@ export interface ScrapedDataRecord {
   isDuplicate?: boolean;
   scrapFrom?: string;
   scrapWebsite?: boolean;
+  numberFixing?: boolean;
   createdAt?: string;
 }
 

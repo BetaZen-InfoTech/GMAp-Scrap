@@ -146,7 +146,19 @@ const ScrapCardView: React.FC<ScrapCardViewProps> = ({ records, selectedIds, onT
                     <svg className="w-3 h-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                     </svg>
-                  }>{rec.phone}</InfoRow>
+                  }>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span>{rec.phone}</span>
+                      {rec.numberFixing && (
+                        <span
+                          title="Number normalized (+91 format)"
+                          className="text-[9px] uppercase font-semibold text-indigo-300 bg-indigo-900/50 border border-indigo-700/60 rounded px-1 py-px"
+                        >
+                          Fixed
+                        </span>
+                      )}
+                    </span>
+                  </InfoRow>
                 )}
                 {rec.email && (
                   <InfoRow icon={
