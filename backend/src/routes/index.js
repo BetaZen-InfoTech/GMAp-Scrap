@@ -11,6 +11,7 @@ router.use('/niches', require('./niches'));
 router.use('/scrape-tracking', require('./scrapeTracking'));
 router.use('/scraped-data', require('./scrapedData'));
 router.use('/device-history', require('./deviceHistory'));
+router.use('/server-info', require('./serverInfo'));
 router.use('/admin', require('./admin'));
 
 module.exports = router;
