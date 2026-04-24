@@ -30,6 +30,32 @@ const { ensureDevice }           = require('./deviceManager');
 // ── Module-level live monitor (shared by all helpers) ─────────────────────────
 let liveMonitor = null;
 
+// ── Graceful shutdown coordinator ────────────────────────────────────────────
+// Signal handlers flip `shuttingDown` and fire every registered cleanup. The
+// main loop periodically checks the flag so it can abort between searches.
+const shutdownTasks = new Set();
+let shuttingDown = false;
+function onShutdown(fn) {
+  shutdownTasks.add(fn);
+  return () => shutdownTasks.delete(fn);
+}
+function isShuttingDown() {
+  return shuttingDown;
+}
+async function runShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try { if (liveMonitor) { liveMonitor.stop(); liveMonitor = null; } } catch (_) { /* ignore */ }
+  console.log(chalk.yellow(`\n  Received ${signal} — flushing pending work, closing browsers…`));
+  for (const task of shutdownTasks) {
+    try { await task(); } catch (err) { console.error(chalk.red(`  Shutdown task failed: ${err.message}`)); }
+  }
+  console.log(chalk.gray('  Shutdown complete.'));
+  process.exit(0);
+}
+process.on('SIGINT',  () => { runShutdown('SIGINT'); });
+process.on('SIGTERM', () => { runShutdown('SIGTERM'); });
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeRl() {
@@ -235,11 +261,17 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
               duplicates += result.duplicateCount ?? 0;
               batchesSent++;
               print(chalk.green(`  [Batch ${bNum}] ${result.count} saved, ${result.duplicateCount} dups`));
+            } else if (result.fatal) {
+              // Retrying a 400/401/403/422 won't help — surface loud + clear.
+              print(chalk.bgRed.white(`  [Batch ${bNum}] FATAL (${result.status}): ${result.error} — backend rejected, will not retry`));
             } else {
               print(chalk.red(`  [Batch ${bNum}] FAILED: ${result.error}`));
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            // sendBatch should resolve, not reject — but guard anyway.
+            print(chalk.red(`  [Batch ${bNum}] unexpected error: ${err.message}`));
+          });
       }
     },
 
@@ -396,7 +428,19 @@ async function main() {
   }
 
   if (isNaN(startPincode) || isNaN(endPincode)) {
-    console.log(chalk.red('\nInvalid pincode. Exiting.'));
+    console.log(chalk.red('\nInvalid pincode — args must be integers. Exiting.'));
+    process.exit(1);
+  }
+  if (!Number.isInteger(startPincode) || !Number.isInteger(endPincode)) {
+    console.log(chalk.red('\nInvalid pincode — decimals are not allowed. Exiting.'));
+    process.exit(1);
+  }
+  if (startPincode < 100000 || startPincode > 999999) {
+    console.log(chalk.red(`\nStart pincode must be a 6-digit value (100000–999999). Got ${startPincode}. Exiting.`));
+    process.exit(1);
+  }
+  if (endPincode <= 0) {
+    console.log(chalk.red(`\nSecond argument must be positive. Got ${endPincode}. Exiting.`));
     process.exit(1);
   }
 
@@ -411,6 +455,10 @@ async function main() {
   const numberOfJobs   = isMultiJobMode ? endPincode : 0;
   const totalNeeded    = isMultiJobMode ? numberOfJobs * PINCODES_PER_JOB : 0;
 
+  if (!isMultiJobMode && endPincode > 999999) {
+    console.log(chalk.red(`\nEnd pincode must be a 6-digit value (100000–999999). Got ${endPincode}. Exiting.`));
+    process.exit(1);
+  }
   if (!isMultiJobMode && startPincode > endPincode) {
     console.log(chalk.red('\nStart pincode must be ≤ end pincode. Exiting.'));
     process.exit(1);
