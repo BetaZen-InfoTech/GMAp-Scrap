@@ -18,8 +18,17 @@ router.get('/range', async (req, res) => {
     if (isNaN(start) || isNaN(end)) {
       return res.status(400).json({ error: 'start and end query params must be numbers' });
     }
+    if (!Number.isInteger(start) || !Number.isInteger(end)) {
+      return res.status(400).json({ error: 'start and end must be integers' });
+    }
+    if (start < 0 || end > 999999) {
+      return res.status(400).json({ error: 'start and end must be within 0–999999' });
+    }
     if (start > end) {
       return res.status(400).json({ error: 'start must be <= end' });
+    }
+    if (limit < 0 || limit > 100000) {
+      return res.status(400).json({ error: 'limit must be between 0 and 100000' });
     }
 
     const pipeline = [

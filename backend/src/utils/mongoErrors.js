@@ -39,8 +39,20 @@ function describe(err) {
   return parts.join(' | ');
 }
 
+/**
+ * Escape a string so it's safe to use as a literal inside a MongoDB $regex
+ * expression. Without this, a user-supplied search term like ".*" or
+ * "(bad|thing).+" would be interpreted as a pattern — causing wrong matches,
+ * ReDoS, or scanning every doc in the collection.
+ */
+function escapeRegex(str) {
+  if (str == null) return '';
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 module.exports = {
   isAuthzError,
   isStandaloneChangeStreamError,
   describe,
+  escapeRegex,
 };

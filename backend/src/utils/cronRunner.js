@@ -64,6 +64,7 @@ function startCron({
       console.error(
         `[${name}]${isInitial ? ' initial-run' : ''} error — ${describe(err)}`
       );
+      if (err && err.stack) console.error(err.stack);
     }
   };
 

@@ -14,7 +14,9 @@ function touchDevice(deviceId, ip) {
   if (!deviceId) return;
   const update = { lastSeenAt: new Date(), status: 'online' };
   if (ip) update.ip = ip;
-  Device.updateOne({ deviceId }, { $set: update }).catch(() => {});
+  Device.updateOne({ deviceId }, { $set: update }).catch((err) => {
+    console.error(`[touchDevice] Failed to touch ${deviceId}:`, err.message);
+  });
 }
 
 function getClientIp(req) {

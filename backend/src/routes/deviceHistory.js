@@ -49,7 +49,9 @@ router.post('/', async (req, res) => {
         updatedAt:       new Date(),
       };
     }
-    Device.updateOne({ deviceId }, { $set: deviceUpdate }).catch(() => {});
+    Device.updateOne({ deviceId }, { $set: deviceUpdate }).catch((err) => {
+      console.error(`[deviceHistory] Failed to update device ${deviceId}:`, err.message);
+    });
 
     res.json({
       success: true,

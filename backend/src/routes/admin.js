@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { adminAuth, validTokens, ADMIN_PASSWORD, generateToken } = require('../middleware/adminAuth');
+const { adminAuth, ADMIN_PASSWORD, issueToken } = require('../middleware/adminAuth');
 
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
@@ -14,6 +14,7 @@ const BusinessNiche = require('../models/BusinessNiche');
 const PinCode = require('../models/PinCode');
 const SearchStatus = require('../models/SearchStatus');
 const { fixPhoneNumber } = require('../utils/phoneFixer');
+const { escapeRegex } = require('../utils/mongoErrors');
 
 // ── POST /api/admin/login ──
 router.post('/login', async (req, res) => {
@@ -22,8 +23,7 @@ router.post('/login', async (req, res) => {
     if (!password || password !== ADMIN_PASSWORD) {
       return res.status(401).json({ success: false, error: 'Invalid admin password' });
     }
-    const token = generateToken();
-    validTokens.add(token);
+    const token = issueToken();
     res.json({ success: true, token });
   } catch (err) {
     console.error('[admin/login] Error:', err.message);
@@ -504,7 +504,7 @@ router.get('/sessions', async (req, res) => {
 
     if (deviceId) filter.deviceId = deviceId;
     if (status) filter.status = status;
-    if (keyword) filter.keyword = { $regex: keyword, $options: 'i' };
+    if (keyword) filter.keyword = { $regex: escapeRegex(keyword), $options: 'i' };
     if (from || to) {
       filter.createdAt = {};
       if (from) filter.createdAt.$gte = new Date(from);
@@ -999,9 +999,9 @@ router.get('/pincodes', async (req, res) => {
         filter.Pincode = Number(search);
       } else {
         filter.$or = [
-          { District: { $regex: search, $options: 'i' } },
-          { StateName: { $regex: search, $options: 'i' } },
-          { CircleName: { $regex: search, $options: 'i' } },
+          { District: { $regex: escapeRegex(search), $options: 'i' } },
+          { StateName: { $regex: escapeRegex(search), $options: 'i' } },
+          { CircleName: { $regex: escapeRegex(search), $options: 'i' } },
         ];
       }
     }
@@ -1232,13 +1232,13 @@ function buildScrapDbFilter(params) {
 
   if (search) {
     filter.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { nameEnglish: { $regex: search, $options: 'i' } },
-      { scrapKeyword: { $regex: search, $options: 'i' } },
-      { address: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-      { website: { $regex: search, $options: 'i' } },
+      { name: { $regex: escapeRegex(search), $options: 'i' } },
+      { nameEnglish: { $regex: escapeRegex(search), $options: 'i' } },
+      { scrapKeyword: { $regex: escapeRegex(search), $options: 'i' } },
+      { address: { $regex: escapeRegex(search), $options: 'i' } },
+      { phone: { $regex: escapeRegex(search), $options: 'i' } },
+      { email: { $regex: escapeRegex(search), $options: 'i' } },
+      { website: { $regex: escapeRegex(search), $options: 'i' } },
     ];
   }
   if (category) {
@@ -1636,10 +1636,10 @@ router.get('/duplicates', async (req, res) => {
     const filter = { isDuplicate: true };
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { website: { $regex: search, $options: 'i' } },
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { phone: { $regex: escapeRegex(search), $options: 'i' } },
+        { address: { $regex: escapeRegex(search), $options: 'i' } },
+        { website: { $regex: escapeRegex(search), $options: 'i' } },
       ];
     }
 
@@ -1812,10 +1812,10 @@ router.get('/duplicates/archive', async (req, res) => {
     const filter = {};
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { website: { $regex: search, $options: 'i' } },
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { phone: { $regex: escapeRegex(search), $options: 'i' } },
+        { address: { $regex: escapeRegex(search), $options: 'i' } },
+        { website: { $regex: escapeRegex(search), $options: 'i' } },
       ];
     }
 
