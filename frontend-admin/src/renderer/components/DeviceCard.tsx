@@ -191,7 +191,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
             {/* Mini bar chart — 6 buckets of 10 min each */}
             <div className="flex items-end gap-px h-6">
               {device.recent.records.buckets.slice().reverse().map((count, i) => {
-                const max = Math.max(...device.recent.records.buckets, 1);
+                const max = Math.max(...(device.recent?.records?.buckets ?? []), 1);
                 const h = Math.max((count / max) * 100, 4);
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-0.5">

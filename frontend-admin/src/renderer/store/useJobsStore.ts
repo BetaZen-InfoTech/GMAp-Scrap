@@ -13,6 +13,7 @@ interface StatusCounts {
   completed: number;
   stopped: number;
   stop: number;
+  [key: string]: number;
 }
 
 interface JobsStore {
@@ -52,7 +53,7 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
         total: res.data.total,
         page,
         loading: false,
-        statusCounts: res.data.statusCounts || { running: 0, paused: 0, completed: 0, stopped: 0 },
+        statusCounts: res.data.statusCounts || { running: 0, paused: 0, completed: 0, stopped: 0, stop: 0 },
       });
     } catch {
       set({ loading: false });

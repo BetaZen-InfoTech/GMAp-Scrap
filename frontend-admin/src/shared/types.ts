@@ -124,7 +124,7 @@ export interface ScrapeJob {
   round: number;
   totalSearches: number;
   completedSearches: number;
-  status: 'running' | 'paused' | 'completed' | 'stopped';
+  status: 'running' | 'paused' | 'completed' | 'stopped' | 'stop';
   createdAt: string;
   updatedAt: string;
 }

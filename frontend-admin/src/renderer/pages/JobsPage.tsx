@@ -220,7 +220,7 @@ const JobsPage: React.FC = () => {
           <div key={key} className={`flex items-center gap-2 bg-slate-900 border ${chip} rounded-lg px-3 py-2`}>
             <span className={`w-2 h-2 rounded-full ${dot}`} />
             <span className="text-xs text-slate-300 font-medium">
-              {(statusCounts as Record<string, number>)[key] ?? 0} {label}
+              {statusCounts[key] ?? 0} {label}
             </span>
           </div>
         ))}
