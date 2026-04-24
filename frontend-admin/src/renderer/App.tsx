@@ -18,6 +18,7 @@ import WebsiteScraperPage from './pages/WebsiteScraperPage';
 import JobsPage from './pages/JobsPage';
 import ComingPincodesPage from './pages/ComingPincodesPage';
 import SshTerminalPage from './pages/SshTerminalPage';
+import GoogleCategoryPage from './pages/GoogleCategoryPage';
 import Spinner from './components/Spinner';
 import { useVersionStore } from './store/useVersionStore';
 
@@ -117,6 +118,8 @@ const App: React.FC = () => {
         return <ComingPincodesPage />;
       case 'ssh-terminal':
         return <SshTerminalPage initialDeviceIds={sshDeviceIds} />;
+      case 'google-category':
+        return <GoogleCategoryPage />;
       default:
         return <DashboardPage />;
     }

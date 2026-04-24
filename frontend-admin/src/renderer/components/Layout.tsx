@@ -15,6 +15,7 @@ const PAGE_TITLES: Record<Route, string> = {
   'website-scraper': 'Website Scraper',
   'coming-pincodes': 'Coming Pincodes',
   'ssh-terminal': 'SSH Terminal',
+  'google-category': 'Google Category',
 };
 
 interface LayoutProps {
