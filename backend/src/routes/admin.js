@@ -719,31 +719,80 @@ router.get('/categories', async (req, res) => {
 });
 
 // ── GET /api/admin/categories/:category/subcategories ──
-// Aggregates scraped records by scrapSubCategory within a category
+// Merges BusinessNiche subcategories (planned) with scraped aggregation.
+// Returns all subcategories in the niche plus any extras that appear in
+// scraped data (e.g. ad-hoc/unregistered). Every subcategory shows:
+//   - subCategory, count, devices, rounds
+//   - inNiches (true if defined in BusinessNiche)
+//   - nicheId (the BusinessNiche doc id, if any — used for deletion)
 router.get('/categories/:category/subcategories', async (req, res) => {
   try {
     const { category } = req.params;
 
-    const pipeline = [
-      { $match: { category } },
-      {
-        $group: {
-          _id: '$scrapSubCategory',
-          count: { $sum: 1 },
-          devices: { $addToSet: '$deviceId' },
-          rounds: { $addToSet: '$scrapRound' },
+    // Match category by either field (scrapCategory is the actual scraped label)
+    const [scrapedAgg, niches] = await Promise.all([
+      ScrapedData.aggregate([
+        {
+          $match: {
+            $or: [
+              { category: category },
+              { scrapCategory: category },
+            ],
+          },
         },
-      },
-      { $sort: { count: -1 } },
-    ];
+        {
+          $group: {
+            _id: '$scrapSubCategory',
+            count: { $sum: 1 },
+            devices: { $addToSet: '$deviceId' },
+            rounds: { $addToSet: '$scrapRound' },
+          },
+        },
+      ]),
+      BusinessNiche.find({ Category: category }, { SubCategory: 1 }).sort({ SubCategory: 1 }).lean(),
+    ]);
 
-    const agg = await ScrapedData.aggregate(pipeline);
-    const subCategories = agg.map((a) => ({
-      subCategory: a._id || 'Uncategorized',
-      count: a.count,
-      devices: (a.devices || []).filter(Boolean).length,
-      rounds: (a.rounds || []).filter((r) => r != null).sort(),
-    }));
+    // Build lookup: subCategory name → scraped stats
+    const statsByName = {};
+    for (const a of scrapedAgg) {
+      const name = a._id || 'Uncategorized';
+      statsByName[name] = {
+        count: a.count,
+        devices: (a.devices || []).filter(Boolean).length,
+        rounds: (a.rounds || []).filter((r) => r != null).sort((x, y) => x - y),
+      };
+    }
+
+    // Seed output with BusinessNiche entries (planned, even if 0 records)
+    const outputByName = {};
+    for (const n of niches) {
+      const name = n.SubCategory;
+      const stats = statsByName[name] || { count: 0, devices: 0, rounds: [] };
+      outputByName[name] = {
+        subCategory: name,
+        inNiches: true,
+        nicheId: String(n._id),
+        ...stats,
+      };
+    }
+
+    // Add any scraped subcategories NOT in niches
+    for (const [name, stats] of Object.entries(statsByName)) {
+      if (!outputByName[name]) {
+        outputByName[name] = {
+          subCategory: name,
+          inNiches: false,
+          nicheId: null,
+          ...stats,
+        };
+      }
+    }
+
+    // Sort: scraped (count desc) first, then planned alphabetical
+    const subCategories = Object.values(outputByName).sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count;
+      return a.subCategory.localeCompare(b.subCategory);
+    });
 
     const totalRecords = subCategories.reduce((sum, sc) => sum + sc.count, 0);
     res.json({ subCategories, totalRecords });

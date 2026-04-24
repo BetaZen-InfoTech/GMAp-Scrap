@@ -22,6 +22,8 @@ interface ScrapedSubCategory {
   count: number;
   devices: number;
   rounds: number[];
+  inNiches: boolean;
+  nicheId: string | null;
 }
 
 interface ScrapedRecord {
@@ -76,9 +78,17 @@ const CategoriesPage: React.FC = () => {
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState('');
 
-  // Delete confirm
+  // Delete confirm (whole category)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Subcategory view: search + add + delete state
+  const [subSearch, setSubSearch] = useState('');
+  const [showAddSub, setShowAddSub] = useState(false);
+  const [newSubInCategory, setNewSubInCategory] = useState('');
+  const [addSubLoading, setAddSubLoading] = useState(false);
+  const [addSubError, setAddSubError] = useState('');
+  const [deleteSubTarget, setDeleteSubTarget] = useState<ScrapedSubCategory | null>(null);
 
   // ── Fetch categories ──────────────────────────────────────────────────────
   const fetchCategories = useCallback(async () => {
@@ -178,6 +188,50 @@ const CategoriesPage: React.FC = () => {
       setAddError(err?.response?.data?.error || 'Failed to add category');
     } finally {
       setAddLoading(false);
+    }
+  };
+
+  // ── Add subcategory inside current category ──────────────────────────────
+  const handleAddSub = async () => {
+    if (!selectedCategory) return;
+    const sub = newSubInCategory.trim();
+    if (!sub) {
+      setAddSubError('Sub-category is required');
+      return;
+    }
+    setAddSubLoading(true);
+    setAddSubError('');
+    try {
+      await api.post('/api/admin/categories', {
+        category: selectedCategory.category,
+        subCategory: sub,
+      });
+      setNewSubInCategory('');
+      setShowAddSub(false);
+      await fetchSubCategories(selectedCategory.category);
+      await fetchCategories();
+    } catch (err: any) {
+      setAddSubError(err?.response?.data?.error || 'Failed to add sub-category');
+    } finally {
+      setAddSubLoading(false);
+    }
+  };
+
+  // ── Delete individual subcategory ────────────────────────────────────────
+  const handleDeleteSub = async () => {
+    if (!selectedCategory || !deleteSubTarget?.nicheId) return;
+    setAddSubLoading(true);
+    try {
+      await api.delete(
+        `/api/admin/categories/${encodeURIComponent(selectedCategory.category)}/niches/${deleteSubTarget.nicheId}`
+      );
+      await fetchSubCategories(selectedCategory.category);
+      await fetchCategories();
+      setDeleteSubTarget(null);
+    } catch {
+      /* ignore — alert not necessary here */
+    } finally {
+      setAddSubLoading(false);
     }
   };
 
@@ -381,10 +435,18 @@ const CategoriesPage: React.FC = () => {
   const renderSubcategoriesView = () => {
     if (!selectedCategory) return null;
 
+    const s = subSearch.toLowerCase().trim();
+    const filteredSubs = !s
+      ? subCategories
+      : subCategories.filter((sc) => sc.subCategory.toLowerCase().includes(s));
+
+    const plannedCount = subCategories.filter((sc) => sc.inNiches).length;
+    const scrapedCount = subCategories.filter((sc) => sc.count > 0).length;
+
     return (
       <div className="flex flex-col gap-4 h-full min-h-0">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <button
               onClick={goBack}
@@ -398,60 +460,154 @@ const CategoriesPage: React.FC = () => {
             <div>
               <h2 className="text-lg font-bold text-white">{selectedCategory.category}</h2>
               <p className="text-sm text-slate-500 mt-0.5">
-                {subCategories.length} sub-categories &middot; {subCatTotalRecords.toLocaleString()} total records
+                {subCategories.length} sub-categories ({plannedCount} planned, {scrapedCount} with data) &middot;
+                {' '}{subCatTotalRecords.toLocaleString()} total records
               </p>
             </div>
           </div>
-          <button
-            onClick={() => handleSubCategoryClick('all')}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            View All Records
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={subSearch}
+              onChange={(e) => setSubSearch(e.target.value)}
+              placeholder="Search sub-category..."
+              className="w-56 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 placeholder:text-slate-600"
+            />
+            <button
+              onClick={() => { setShowAddSub(true); setAddSubError(''); }}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add Sub
+            </button>
+            {subCatTotalRecords > 0 && (
+              <button
+                onClick={() => handleSubCategoryClick('all')}
+                className="text-xs bg-emerald-700 hover:bg-emerald-600 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+              >
+                View All Records
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Add sub-category form */}
+        {showAddSub && (
+          <div className="bg-slate-900 border border-blue-800/50 rounded-xl p-4 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-slate-300 shrink-0">
+              Add to <span className="text-blue-400 font-semibold">{selectedCategory.category}</span>:
+            </span>
+            <input
+              type="text"
+              value={newSubInCategory}
+              onChange={(e) => setNewSubInCategory(e.target.value)}
+              placeholder="Sub-category name..."
+              onKeyDown={(e) => e.key === 'Enter' && handleAddSub()}
+              className="flex-1 min-w-[200px] bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+              autoFocus
+            />
+            <button
+              onClick={handleAddSub}
+              disabled={addSubLoading || !newSubInCategory.trim()}
+              className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium px-4 py-1.5 rounded-lg transition-colors"
+            >
+              {addSubLoading ? 'Adding...' : 'Add'}
+            </button>
+            <button
+              onClick={() => { setShowAddSub(false); setNewSubInCategory(''); setAddSubError(''); }}
+              className="text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            {addSubError && <span className="text-xs text-red-400 w-full">{addSubError}</span>}
+          </div>
+        )}
 
         {/* Subcategory grid */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {subCatLoading ? (
             <div className="p-8 flex justify-center"><Spinner message="Loading subcategories..." /></div>
           ) : subCategories.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">No subcategories found for this category</div>
+            <div className="p-8 text-center text-sm">
+              <p className="text-slate-500 mb-2">No sub-categories defined for this category yet.</p>
+              <p className="text-slate-600 text-xs">Click "+ Add Sub" above to plan a sub-category, or start scraping under this category.</p>
+            </div>
+          ) : filteredSubs.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-sm">No sub-categories match "{subSearch}"</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {subCategories.map((sc) => (
-                <div
-                  key={sc.subCategory}
-                  onClick={() => handleSubCategoryClick(sc.subCategory)}
-                  className="bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-800/60 hover:border-slate-700 transition-all group"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-white group-hover:text-blue-300 transition-colors truncate flex-1 mr-2">
-                      {sc.subCategory}
-                    </h3>
-                    <span className="text-xs font-bold bg-blue-900/60 text-blue-300 px-2.5 py-1 rounded-full shrink-0">
-                      {sc.count.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span>{sc.devices} device{sc.devices !== 1 ? 's' : ''}</span>
-                    {sc.rounds.length > 0 && (
-                      <div className="flex gap-1">
-                        {sc.rounds.map((r) => (
-                          <span key={r} className="bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded text-[10px] font-medium">
-                            R{r}
-                          </span>
-                        ))}
+              {filteredSubs.map((sc) => {
+                const hasData = sc.count > 0;
+                return (
+                  <div
+                    key={sc.subCategory}
+                    onClick={() => hasData && handleSubCategoryClick(sc.subCategory)}
+                    className={`bg-slate-900 border rounded-xl p-4 transition-all group ${
+                      hasData
+                        ? 'border-slate-800 cursor-pointer hover:bg-slate-800/60 hover:border-slate-700'
+                        : 'border-slate-800/60 opacity-80'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-2 gap-2">
+                      <h3 className={`text-sm font-semibold truncate flex-1 ${
+                        hasData ? 'text-white group-hover:text-blue-300 transition-colors' : 'text-slate-300'
+                      }`}>
+                        {sc.subCategory}
+                      </h3>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                          hasData ? 'bg-blue-900/60 text-blue-300' : 'bg-slate-800 text-slate-500'
+                        }`}>
+                          {sc.count.toLocaleString()}
+                        </span>
+                        {sc.nicheId && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteSubTarget(sc); }}
+                            className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1 rounded"
+                            title="Remove from niche list"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
-                    )}
-                    <span className="flex items-center gap-1 text-slate-400 ml-auto">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                      </svg>
-                      View records
-                    </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                      {sc.inNiches && (
+                        <span className="bg-cyan-900/40 text-cyan-400 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                          Planned
+                        </span>
+                      )}
+                      {!hasData && (
+                        <span className="text-slate-600 text-[10px]">Not scraped yet</span>
+                      )}
+                      {hasData && (
+                        <>
+                          <span>{sc.devices} device{sc.devices !== 1 ? 's' : ''}</span>
+                          {sc.rounds.length > 0 && (
+                            <div className="flex gap-1">
+                              {sc.rounds.map((r) => (
+                                <span key={r} className="bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                  R{r}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <span className="flex items-center gap-1 text-slate-400 ml-auto">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                            View records
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -595,6 +751,39 @@ const CategoriesPage: React.FC = () => {
       {view === 'categories' && renderCategoriesView()}
       {view === 'subcategories' && renderSubcategoriesView()}
       {view === 'records' && renderRecordsView()}
+
+      {/* Delete sub-category confirm modal */}
+      {deleteSubTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-base font-bold text-white mb-2">Remove Sub-Category</h3>
+            <p className="text-sm text-slate-400 mb-5">
+              Remove <span className="text-white font-medium">{deleteSubTarget.subCategory}</span> from the
+              {' '}<span className="text-white font-medium">{selectedCategory?.category}</span> niche list?
+              {deleteSubTarget.count > 0 && (
+                <span className="block mt-2 text-xs text-yellow-400">
+                  Note: {deleteSubTarget.count.toLocaleString()} scraped records will remain in the database.
+                </span>
+              )}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDeleteSub}
+                disabled={addSubLoading}
+                className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              >
+                {addSubLoading ? 'Removing...' : 'Remove'}
+              </button>
+              <button
+                onClick={() => setDeleteSubTarget(null)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2.5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirm modal */}
       {deleteTarget && (
