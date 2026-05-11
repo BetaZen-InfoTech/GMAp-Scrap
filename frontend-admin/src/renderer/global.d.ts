@@ -14,6 +14,7 @@ declare global {
       sshCommand: (deviceId: string, command: string, raw?: boolean) => Promise<{ success: boolean }>;
       sshCommandAll: (command: string) => Promise<{ success: boolean; count: number }>;
       sshDisconnect: (deviceId?: string) => Promise<{ success: boolean }>;
+      sshGetState: () => Promise<Array<{ deviceId: string; host: string; connected: boolean; buffer: string[] }>>;
       onSshOutput: (callback: (deviceId: string, data: string) => void) => () => void;
       onSshError: (callback: (deviceId: string, error: string) => void) => () => void;
       onSshStatus: (callback: (deviceId: string, status: string) => void) => () => void;

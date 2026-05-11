@@ -35,6 +35,40 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
 
   useEffect(() => {
     fetchDevices(true);
+
+    // Rehydrate UI from any SSH connections still alive in the main process.
+    // The connections survive page navigation (they live in sshManager.ts);
+    // only the page's React state gets wiped on unmount. Without this, returning
+    // to the page after navigating away shows everything as disconnected even
+    // though the underlying sessions are still open.
+    (async () => {
+      try {
+        const live = await window.electronAPI.sshGetState();
+        if (!live || live.length === 0) return;
+        setTerminals((prev) => {
+          const next = new Map(prev);
+          for (const entry of live) {
+            const replayed = entry.buffer
+              .flatMap((chunk) => stripAnsi(chunk).split('\n'))
+              .slice(-MAX_OUTPUT_LINES);
+            next.set(entry.deviceId, {
+              status: entry.connected ? 'connected' : 'disconnected',
+              output: replayed,
+            });
+          }
+          return next;
+        });
+        // Auto-select restored devices so the operator sees them highlighted in
+        // the left rail without having to re-tick the checkboxes.
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const entry of live) if (entry.connected) next.add(entry.deviceId);
+          return next;
+        });
+      } catch (err) {
+        console.error('[SshTerminalPage] failed to restore SSH state:', err);
+      }
+    })();
   }, []);
 
   // Listen for SSH events

@@ -260,4 +260,5 @@ export const IPC_CHANNELS = {
   SSH_OUTPUT: 'ssh:output',
   SSH_ERROR: 'ssh:error',
   SSH_STATUS: 'ssh:status',
+  SSH_GET_STATE: 'ssh:get-state',
 } as const;

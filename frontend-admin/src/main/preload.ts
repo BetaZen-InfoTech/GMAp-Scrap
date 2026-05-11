@@ -34,6 +34,11 @@ const electronAPI = {
   sshDisconnect: (deviceId?: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.SSH_DISCONNECT, deviceId),
 
+  /** Returns currently-connected SSH sessions (+ their buffered output) so
+   *  SshTerminalPage can rehydrate after navigating away. */
+  sshGetState: (): Promise<Array<{ deviceId: string; host: string; connected: boolean; buffer: string[] }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SSH_GET_STATE),
+
   onSshOutput: (callback: (deviceId: string, data: string) => void) => {
     const handler = (_: unknown, deviceId: string, data: string) => callback(deviceId, data);
     ipcRenderer.on(IPC_CHANNELS.SSH_OUTPUT, handler);

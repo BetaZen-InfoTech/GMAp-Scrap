@@ -5,7 +5,7 @@ import axios from 'axios';
 import { getApiBaseUrl } from './config';
 import * as https from 'https';
 import * as http from 'http';
-import { sshConnect, sshCommand, sshCommandAll, sshDisconnect } from './sshManager';
+import { sshConnect, sshCommand, sshCommandAll, sshDisconnect, getSshState } from './sshManager';
 
 export function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async () => getSettings());
@@ -68,6 +68,11 @@ export function setupIpcHandlers(): void {
     sshDisconnect(deviceId);
     return { success: true };
   });
+
+  // Used by SshTerminalPage on mount to restore connected device list + their
+  // recent output history. SSH connections live in the main process and
+  // survive page navigation; this lets the UI catch back up after a remount.
+  ipcMain.handle(IPC_CHANNELS.SSH_GET_STATE, async () => getSshState());
 }
 
 function fetchUrl(url: string): Promise<string> {

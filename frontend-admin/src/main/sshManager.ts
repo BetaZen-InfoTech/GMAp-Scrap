@@ -7,9 +7,26 @@ interface SshConnection {
   stream: NodeJS.ReadWriteStream | null;
   deviceId: string;
   host: string;
+  /** Rolling buffer of recent output chunks so the page can show history
+   *  after the operator navigates away and back. Stored as the raw chunks
+   *  the renderer already receives — renderer keeps ANSI stripping logic. */
+  buffer: string[];
 }
 
 const connections = new Map<string, SshConnection>();
+
+/** Hard cap on per-device buffered output. Older chunks are dropped. */
+const MAX_BUFFER_CHUNKS = 800;
+
+function pushBuffer(deviceId: string, chunk: string): void {
+  const conn = connections.get(deviceId);
+  if (!conn) return;
+  conn.buffer.push(chunk);
+  if (conn.buffer.length > MAX_BUFFER_CHUNKS) {
+    // Drop from the front in batches so we don't shift on every push.
+    conn.buffer.splice(0, conn.buffer.length - MAX_BUFFER_CHUNKS);
+  }
+}
 
 function getWindow(): BrowserWindow | null {
   const wins = BrowserWindow.getAllWindows();
@@ -62,14 +79,18 @@ export function sshConnect(
           return;
         }
 
-        connections.set(deviceId, { client, stream, deviceId, host });
+        connections.set(deviceId, { client, stream, deviceId, host, buffer: [] });
 
         stream.on('data', (data: Buffer) => {
-          sendToRenderer(IPC_CHANNELS.SSH_OUTPUT, deviceId, data.toString('utf8'));
+          const chunk = data.toString('utf8');
+          pushBuffer(deviceId, chunk);
+          sendToRenderer(IPC_CHANNELS.SSH_OUTPUT, deviceId, chunk);
         });
 
         stream.stderr?.on('data', (data: Buffer) => {
-          sendToRenderer(IPC_CHANNELS.SSH_OUTPUT, deviceId, data.toString('utf8'));
+          const chunk = data.toString('utf8');
+          pushBuffer(deviceId, chunk);
+          sendToRenderer(IPC_CHANNELS.SSH_OUTPUT, deviceId, chunk);
         });
 
         stream.on('close', () => {
@@ -135,6 +156,32 @@ export function sshDisconnect(deviceId?: string): void {
 
 export function getConnectedDeviceIds(): string[] {
   return [...connections.keys()];
+}
+
+/**
+ * Snapshot of every live SSH connection plus its buffered output so the
+ * renderer can rebuild its UI after navigating away and back. The renderer
+ * holds a transient React state (terminals Map + output arrays); the real
+ * connections live here in the main process and survive page unmounts.
+ */
+export interface SshStateEntry {
+  deviceId: string;
+  host: string;
+  connected: boolean;
+  buffer: string[];
+}
+
+export function getSshState(): SshStateEntry[] {
+  const out: SshStateEntry[] = [];
+  for (const conn of connections.values()) {
+    out.push({
+      deviceId: conn.deviceId,
+      host: conn.host,
+      connected: !!conn.stream,
+      buffer: conn.buffer.slice(), // copy so caller can't mutate the live buffer
+    });
+  }
+  return out;
 }
 
 export function cleanup(): void {
