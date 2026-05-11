@@ -230,18 +230,57 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
     return [];
   };
 
-  // Build the full pm2 start command string for a device's tasks (all run in parallel)
+  /**
+   * Wrap a string in single quotes for safe interpolation into a POSIX shell
+   * command. Any single quote in the input is escaped as `'\''` (close quote,
+   * literal escaped single quote, reopen quote). Handles nicknames containing
+   * quotes, spaces, backslashes, or any other shell metacharacter.
+   */
+  const shEscape = (s: string) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+
+  /**
+   * Build the full multi-task launch command for a device.
+   *
+   * Key correctness properties:
+   *  - Uses ';' (sequential, no short-circuit) between pm2 start commands so a
+   *    failure starting one task does NOT prevent the others from launching.
+   *    The earlier '&&' chain was the root cause of "only 2 of 3 scrapers
+   *    appear" — if scraper-1 failed for any reason, scraper-2 and scraper-3
+   *    never executed.
+   *  - 0.4s sleep between starts gives PM2's daemon time to register each
+   *    process before the next one races in (PM2's daemon serializes IPC but
+   *    rapid-fire spawns can still drop process names in stress).
+   *  - All arguments are shell-quoted so a nickname with spaces, apostrophes,
+   *    or other metacharacters can't break parsing.
+   *  - `pm2 save` persists the process list so a VPS reboot will resurrect
+   *    all N scrapers (the previous flow would lose them).
+   *  - `pm2 list` at the end prints a verification table the operator can see
+   *    in the SSH terminal.
+   */
   const buildStartCommand = (tasks: ReturnType<typeof getTasks>, nickname: string) => {
-    const parts: string[] = [];
+    const escapedNick = shEscape(nickname);
+    const segments: string[] = [
+      'cd ~/GMAp-Scrap/frontend-nodejs',
+      'pm2 delete all 2>/dev/null || true',
+    ];
     tasks.forEach((task, idx) => {
       const name = `scraper-${idx + 1}`;
       let thirdArg = '';
-      if (task.type === 'range' && task.endPin) thirdArg = task.endPin;
-      else if (task.type === 'single') thirdArg = task.startPin; // same pin for single
+      if (task.type === 'range' && task.endPin) thirdArg = String(task.endPin);
+      else if (task.type === 'single') thirdArg = String(task.startPin); // same pin for single
       else thirdArg = String(task.jobs || 3); // jobs mode
-      parts.push(`pm2 start npm --name "${name}" -- start -- "${nickname}" ${task.startPin} ${thirdArg}`);
+      const startPin = String(task.startPin);
+      // pm2 start npm --name <name> -- start -- <nickname> <startPin> <thirdArg>
+      // Each `--` is a parse boundary: first separates pm2 args from npm args,
+      // second separates `npm start` args from the script's argv.
+      segments.push(
+        `pm2 start npm --name ${shEscape(name)} -- start -- ${escapedNick} ${shEscape(startPin)} ${shEscape(thirdArg)}`
+      );
+      segments.push('sleep 0.4');
     });
-    return parts.join(' && ');
+    segments.push('pm2 save');
+    segments.push('pm2 list');
+    return segments.join(' ; ');
   };
 
   const restartScraperForDevice = (deviceId: string) => {
@@ -250,8 +289,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
     const tasks = getTasks(device);
     if (tasks.length === 0) return;
     const nickname = device.nickname || device.ip || 'VPS';
-    const startCmd = buildStartCommand(tasks, nickname);
-    window.electronAPI.sshCommand(deviceId, `pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs && ${startCmd}`);
+    window.electronAPI.sshCommand(deviceId, buildStartCommand(tasks, nickname));
   };
 
   const restartScraperAll = async () => {
@@ -264,8 +302,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       const tasks = getTasks(device);
       if (tasks.length === 0 || t?.status !== 'connected') continue;
       const nickname = device.nickname || device.ip || 'VPS';
-      const startCmd = buildStartCommand(tasks, nickname);
-      window.electronAPI.sshCommand(deviceId, `pm2 delete all 2>/dev/null; cd ~/GMAp-Scrap/frontend-nodejs && ${startCmd}`);
+      window.electronAPI.sshCommand(deviceId, buildStartCommand(tasks, nickname));
     }
   };
 
