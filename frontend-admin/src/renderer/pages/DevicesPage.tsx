@@ -3,6 +3,7 @@ import { useDeviceStore } from '../store/useDeviceStore';
 import DeviceCard from '../components/DeviceCard';
 import Spinner from '../components/Spinner';
 import BulkTasksModal from '../components/BulkTasksModal';
+import BulkAddDevicesModal from '../components/BulkAddDevicesModal';
 import api from '../lib/api';
 
 interface DevicesPageProps {
@@ -22,6 +23,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [showAddVps, setShowAddVps] = useState(false);
   const [showBulkTasks, setShowBulkTasks] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [addIp, setAddIp] = useState('');
   const [addPw, setAddPw] = useState('');
   const [addPin, setAddPin] = useState('');
@@ -218,6 +220,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
             {archiveMode === 'hide' ? 'Show Archived' : archiveMode === 'show' ? 'Only Archived' : 'Hide Archived'}
           </button>
           <button
+            onClick={() => setShowBulkAdd(true)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white transition-colors"
+            title="Register many VPS devices at once from a CSV (ip, password, startPin, jobs)."
+          >
+            ↥ Bulk Add
+          </button>
+          <button
             onClick={() => setShowBulkTasks(true)}
             className="text-xs font-medium px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white transition-colors"
             title="Upload a CSV to assign tasks to many devices at once. Replaces each matched device's task list."
@@ -245,6 +254,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
         <BulkTasksModal
           onClose={() => setShowBulkTasks(false)}
           onUploaded={() => fetchDevices(archiveMode !== 'hide')}
+        />
+      )}
+
+      {showBulkAdd && (
+        <BulkAddDevicesModal
+          onClose={() => setShowBulkAdd(false)}
+          onAdded={() => fetchDevices(archiveMode !== 'hide')}
         />
       )}
 

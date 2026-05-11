@@ -408,6 +408,120 @@ router.post('/devices/add', adminAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/admin/devices/bulk-add — register many VPS devices at once.
+ *
+ * Body:
+ *   { rows: [{ ip, password, startPin?, jobs? }, ...] }
+ *
+ * For each row:
+ *   - If a device with that IP exists (either as primary `ip` or in `ips[]`),
+ *     update its password / startPin / jobs (whichever fields were supplied).
+ *   - Otherwise create a new device record with minimal info — the rest fills
+ *     in when the scraper actually runs on the VPS.
+ *
+ * Returns counts: { created, updated, rowsRejected, errors[] }.
+ * Mirrors the single-device /devices/add behaviour so a bulk row is exactly
+ * equivalent to N single posts.
+ */
+router.post('/devices/bulk-add', adminAuth, async (req, res) => {
+  try {
+    const { rows } = req.body || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'rows array required (and must not be empty)' });
+    }
+    if (rows.length > 2000) {
+      return res.status(413).json({ error: `Too many rows (${rows.length}); cap is 2000 per upload` });
+    }
+
+    const crypto = require('crypto');
+    const errors = [];
+    let created = 0;
+    let updated = 0;
+    let rowsRejected = 0;
+
+    // Process sequentially — keeps order, lets us catch per-row errors without
+    // aborting the rest. 2000 cap means this is bounded in time.
+    for (let i = 0; i < rows.length; i++) {
+      const raw = rows[i] || {};
+      const lineNo = i + 2; // header is row 1
+      const ip = String(raw.ip ?? '').trim();
+      if (!ip) {
+        errors.push(`row ${lineNo}: missing 'ip'`);
+        rowsRejected++;
+        continue;
+      }
+      // Basic IPv4 shape check — not exhaustive, just catches obvious typos.
+      // Accepts IPv6 too (skips the regex if there's a colon).
+      if (!ip.includes(':') && !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+        errors.push(`row ${lineNo}: '${ip}' is not a valid IPv4 address`);
+        rowsRejected++;
+        continue;
+      }
+
+      const password = raw.password != null ? String(raw.password) : '';
+      const startPinStr = raw.startPin != null && raw.startPin !== '' ? String(raw.startPin).trim() : '';
+      if (startPinStr) {
+        const n = Number(startPinStr);
+        if (!Number.isInteger(n) || n < 100000 || n > 999999) {
+          errors.push(`row ${lineNo}: startPin '${startPinStr}' must be a 6-digit integer (100000-999999)`);
+          rowsRejected++;
+          continue;
+        }
+      }
+      const jobsNum = raw.jobs != null && raw.jobs !== '' ? Number(raw.jobs) : 3;
+      if (raw.jobs != null && raw.jobs !== '' && (!Number.isInteger(jobsNum) || jobsNum < 1 || jobsNum > 999)) {
+        errors.push(`row ${lineNo}: jobs '${raw.jobs}' must be an integer between 1 and 999`);
+        rowsRejected++;
+        continue;
+      }
+
+      try {
+        const existing = await Device.findOne({ $or: [{ ip }, { ips: ip }] });
+        if (existing) {
+          if (password) existing.vpsPassword = password;
+          if (startPinStr) existing.scrapePincode = startPinStr;
+          if (raw.jobs != null && raw.jobs !== '') existing.scrapeJobs = jobsNum;
+          await existing.save();
+          updated++;
+        } else {
+          await Device.create({
+            deviceId:      crypto.randomUUID(),
+            nickname:      ip,
+            hostname:      'Pending setup',
+            username:      'root',
+            platform:      'linux',
+            ip,
+            ips:           [ip],
+            isActive:      true,
+            status:        'offline',
+            vpsPassword:   password,
+            scrapePincode: startPinStr,
+            scrapeJobs:    jobsNum,
+            lastSeenAt:    new Date(),
+          });
+          created++;
+        }
+      } catch (err) {
+        errors.push(`row ${lineNo}: ${err.message}`);
+        rowsRejected++;
+      }
+    }
+
+    res.json({
+      success: true,
+      created,
+      updated,
+      rowsAccepted: rows.length - rowsRejected,
+      rowsRejected,
+      errors,
+    });
+  } catch (err) {
+    console.error('[admin/devices/bulk-add] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
 // ── PATCH /api/admin/devices/:deviceId/archive ── toggle archive status
 router.patch('/devices/:deviceId/archive', adminAuth, async (req, res) => {
   try {
