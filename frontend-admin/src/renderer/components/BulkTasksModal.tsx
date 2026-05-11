@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import api from '../lib/api';
+import { useDeviceStore } from '../store/useDeviceStore';
+import type { DeviceInfo } from '../../shared/types';
 
 type TaskType = 'range' | 'single' | 'jobs';
 
@@ -86,6 +88,39 @@ function parseCsv(text: string): Record<string, string>[] {
   return out;
 }
 
+/**
+ * Pick the best human-readable identifier to put in the `device` column of an
+ * exported CSV. Mirrors the matching order used by the backend bulk-upload
+ * endpoint (IP → deviceId → nickname), so a downloaded file will re-upload
+ * cleanly without manual editing.
+ */
+function deviceKey(d: DeviceInfo): string {
+  return d.ip || d.deviceId || d.nickname || '';
+}
+
+/**
+ * Build CSV rows for the given task type by flattening every device's
+ * scrapeTasks array. Rows match the upload format for the same type.
+ */
+function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
+  const rows: string[][] = [];
+  for (const d of devices) {
+    const key = deviceKey(d);
+    if (!key) continue;
+    for (const t of d.scrapeTasks || []) {
+      if (t.type !== type) continue;
+      if (type === 'range') {
+        rows.push([key, String(t.startPin || ''), String(t.endPin || '')]);
+      } else if (type === 'single') {
+        rows.push([key, String(t.startPin || '')]);
+      } else {
+        rows.push([key, String(t.startPin || ''), String(t.jobs ?? 3)]);
+      }
+    }
+  }
+  return rows;
+}
+
 // ─── Per-type config ──────────────────────────────────────────────────────
 
 interface TabConfig {
@@ -144,13 +179,42 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
   const [result, setResult] = useState<BulkResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
+  const devices = useDeviceStore((s) => s.devices);
+  const fetchDevices = useDeviceStore((s) => s.fetchDevices);
+
   const tab = TABS.find((t) => t.type === activeTab)!;
+
+  // Counts of CSV rows that "Download Current" would produce for each tab.
+  // Recomputed when devices change so the buttons show live counts.
+  const exportCounts = useMemo(() => ({
+    range:  exportRows(devices, 'range').length,
+    single: exportRows(devices, 'single').length,
+    jobs:   exportRows(devices, 'jobs').length,
+  }), [devices]);
 
   const handleDownloadTemplate = () => {
     downloadCsv(
       `task-template-${tab.type}.csv`,
       tab.headerColumns,
       tab.templateRows,
+    );
+  };
+
+  const handleDownloadCurrent = async () => {
+    // Refresh first so we export the most recent server state, not whatever
+    // happened to be cached in the store. Cheap — same call DevicesPage uses.
+    try { await fetchDevices(true); } catch { /* fall through with stale data */ }
+    const latest = useDeviceStore.getState().devices;
+    const rows = exportRows(latest, tab.type);
+    if (rows.length === 0) {
+      alert(`No ${tab.label} tasks currently configured across any device — nothing to download.`);
+      return;
+    }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    downloadCsv(
+      `tasks-current-${tab.type}-${ts}.csv`,
+      tab.headerColumns,
+      rows,
     );
   };
 
@@ -263,6 +327,22 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               Download {tab.label} Template
+            </button>
+
+            <button
+              onClick={handleDownloadCurrent}
+              disabled={exportCounts[tab.type] === 0}
+              title={
+                exportCounts[tab.type] === 0
+                  ? `No ${tab.label.toLowerCase()} tasks currently configured`
+                  : `Export every device's existing ${tab.label.toLowerCase()} tasks as a CSV (can be re-uploaded as-is to restore)`
+              }
+              className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-6h13M9 11V5l-7 7 7 7v-6" transform="rotate(180 12 12)" />
+              </svg>
+              Download Current ({exportCounts[tab.type].toLocaleString()})
             </button>
 
             <label className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-3 py-2 rounded-lg cursor-pointer transition-colors disabled:opacity-50">
