@@ -463,6 +463,159 @@ router.patch('/devices/:deviceId/scrape-config', adminAuth, async (req, res) => 
 });
 
 // ── PATCH /api/admin/devices/:deviceId/scrape-tasks ── save multiple scrape tasks
+/**
+ * POST /api/admin/devices/bulk-tasks
+ *
+ * Replace scrapeTasks across many devices in one shot. Used by the admin's
+ * "Bulk Tasks" CSV upload — three separate flows (range / single / jobs)
+ * share this single backend entry by sending `type` and a flat row array.
+ *
+ * Body:
+ *   {
+ *     type: 'range' | 'single' | 'jobs',
+ *     rows: [
+ *       { device: '187.127.165.150', startPin: '700001', endPin: '700100' },     // range
+ *       { device: '187.127.165.150', startPin: '700001' },                        // single
+ *       { device: '187.127.165.150', startPin: '700001', jobs: 5 },               // jobs
+ *       ...
+ *     ]
+ *   }
+ *
+ * Device matching: `device` may be an IP, the device.deviceId, or a nickname.
+ * Tried in that order. Multiple rows for the same device are grouped into
+ * one scrapeTasks array; the device's full scrapeTasks is REPLACED (not
+ * appended) — matching the operator's "remove/override, not append" intent.
+ *
+ * Response:
+ *   { success, devicesUpdated, rowsAccepted, rowsRejected, errors[] }
+ */
+router.post('/devices/bulk-tasks', adminAuth, async (req, res) => {
+  try {
+    const { type, rows } = req.body || {};
+    if (type !== 'range' && type !== 'single' && type !== 'jobs') {
+      return res.status(400).json({ error: "type must be 'range', 'single', or 'jobs'" });
+    }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'rows array required (and must not be empty)' });
+    }
+    if (rows.length > 5000) {
+      return res.status(413).json({ error: `Too many rows (${rows.length}); cap is 5000 per upload` });
+    }
+
+    const errors = [];
+    // Group rows by deviceKey. Validate each before adding.
+    /** @type {Map<string, Array<{type:string,startPin:string,endPin:string,jobs:number}>>} */
+    const grouped = new Map();
+    let rowsRejected = 0;
+
+    rows.forEach((raw, idx) => {
+      const lineNo = idx + 2; // 1 = header, 2 = first data row (matches spreadsheet row numbers)
+      const deviceKey = String(raw?.device ?? '').trim();
+      const startPinStr = String(raw?.startPin ?? '').trim();
+      if (!deviceKey) { errors.push(`row ${lineNo}: missing 'device'`); rowsRejected++; return; }
+      if (!startPinStr) { errors.push(`row ${lineNo}: missing 'startPin'`); rowsRejected++; return; }
+      const startPinNum = Number(startPinStr);
+      if (!Number.isInteger(startPinNum) || startPinNum < 100000 || startPinNum > 999999) {
+        errors.push(`row ${lineNo}: startPin must be a 6-digit integer (got "${startPinStr}")`);
+        rowsRejected++;
+        return;
+      }
+
+      const task = { type, startPin: startPinStr, endPin: '', jobs: 0 };
+
+      if (type === 'range') {
+        const endPinStr = String(raw?.endPin ?? '').trim();
+        if (!endPinStr) { errors.push(`row ${lineNo}: missing 'endPin' for range task`); rowsRejected++; return; }
+        const endPinNum = Number(endPinStr);
+        if (!Number.isInteger(endPinNum) || endPinNum < 100000 || endPinNum > 999999) {
+          errors.push(`row ${lineNo}: endPin must be a 6-digit integer (got "${endPinStr}")`);
+          rowsRejected++;
+          return;
+        }
+        if (endPinNum < startPinNum) {
+          errors.push(`row ${lineNo}: endPin (${endPinNum}) must be ≥ startPin (${startPinNum})`);
+          rowsRejected++;
+          return;
+        }
+        task.endPin = endPinStr;
+      } else if (type === 'jobs') {
+        const jobsNum = Number(raw?.jobs);
+        if (!Number.isInteger(jobsNum) || jobsNum < 1 || jobsNum > 999) {
+          errors.push(`row ${lineNo}: jobs must be an integer between 1 and 999 (got "${raw?.jobs}")`);
+          rowsRejected++;
+          return;
+        }
+        task.jobs = jobsNum;
+      }
+      // 'single' needs only startPin — already validated.
+
+      if (!grouped.has(deviceKey)) grouped.set(deviceKey, []);
+      grouped.get(deviceKey).push(task);
+    });
+
+    if (grouped.size === 0) {
+      return res.status(400).json({ error: 'No valid rows after validation', errors });
+    }
+
+    // Resolve deviceKey → device document (try IP, then deviceId, then nickname).
+    const keys = [...grouped.keys()];
+    const deviceDocs = await Device.find(
+      {
+        $or: [
+          { ip: { $in: keys } },
+          { deviceId: { $in: keys } },
+          { nickname: { $in: keys } },
+        ],
+      },
+      { _id: 1, deviceId: 1, ip: 1, nickname: 1 }
+    ).lean();
+
+    // Build a map from any of {ip, deviceId, nickname} → device _id
+    const keyToId = new Map();
+    for (const d of deviceDocs) {
+      if (d.ip)       keyToId.set(d.ip, d._id);
+      if (d.deviceId) keyToId.set(d.deviceId, d._id);
+      if (d.nickname) keyToId.set(d.nickname, d._id);
+    }
+
+    let devicesUpdated = 0;
+    const devicesNotFound = [];
+
+    // Bulk write — one updateOne per device, fast even for ~hundreds of devices.
+    const ops = [];
+    for (const [key, tasks] of grouped.entries()) {
+      const id = keyToId.get(key);
+      if (!id) { devicesNotFound.push(key); continue; }
+      ops.push({
+        updateOne: {
+          filter: { _id: id },
+          update: { $set: { scrapeTasks: tasks } },
+        },
+      });
+    }
+
+    if (ops.length > 0) {
+      const result = await Device.bulkWrite(ops, { ordered: false });
+      devicesUpdated = result.modifiedCount || 0;
+    }
+
+    for (const k of devicesNotFound) errors.push(`device "${k}" not found (tried IP/deviceId/nickname)`);
+
+    res.json({
+      success: true,
+      type,
+      devicesUpdated,
+      devicesNotFound: devicesNotFound.length,
+      rowsAccepted: rows.length - rowsRejected,
+      rowsRejected,
+      errors,
+    });
+  } catch (err) {
+    console.error('[admin/devices/bulk-tasks] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
 router.patch('/devices/:deviceId/scrape-tasks', adminAuth, async (req, res) => {
   try {
     const { tasks } = req.body;

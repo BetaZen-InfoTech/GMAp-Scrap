@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useDeviceStore } from '../store/useDeviceStore';
 import DeviceCard from '../components/DeviceCard';
 import Spinner from '../components/Spinner';
+import BulkTasksModal from '../components/BulkTasksModal';
 import api from '../lib/api';
 
 interface DevicesPageProps {
@@ -20,6 +21,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const [search, setSearch] = useState('');
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [showAddVps, setShowAddVps] = useState(false);
+  const [showBulkTasks, setShowBulkTasks] = useState(false);
   const [addIp, setAddIp] = useState('');
   const [addPw, setAddPw] = useState('');
   const [addPin, setAddPin] = useState('');
@@ -216,6 +218,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
             {archiveMode === 'hide' ? 'Show Archived' : archiveMode === 'show' ? 'Only Archived' : 'Hide Archived'}
           </button>
           <button
+            onClick={() => setShowBulkTasks(true)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white transition-colors"
+            title="Upload a CSV to assign tasks to many devices at once. Replaces each matched device's task list."
+          >
+            ↥ Bulk Tasks
+          </button>
+          <button
             onClick={() => setShowAddVps(!showAddVps)}
             className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
               showAddVps ? 'bg-green-600 text-white' : 'bg-green-700 hover:bg-green-600 text-white'
@@ -231,6 +240,13 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
           </button>
         </div>
       </div>
+
+      {showBulkTasks && (
+        <BulkTasksModal
+          onClose={() => setShowBulkTasks(false)}
+          onUploaded={() => fetchDevices(archiveMode !== 'hide')}
+        />
+      )}
 
       {/* Add VPS form */}
       {showAddVps && (
