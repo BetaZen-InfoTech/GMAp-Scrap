@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useComingPincodeStore, PincodeRowStatus } from '../store/useComingPincodeStore';
 import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
@@ -142,6 +142,22 @@ const ComingPincodesPage: React.FC = () => {
 
   const hasFilters = filters.state || filters.district || filters.statuses.length > 0;
 
+  // Per-page stats — counted from the records currently visible on screen.
+  // `counts` (above) is the global total across the whole filtered set;
+  // operators also want to know what's on THIS page so they don't have to
+  // count manually. Recomputed only when the visible rows change.
+  const pageCounts = useMemo(() => {
+    const buckets = { running: 0, completed: 0, stop: 0, pending: 0 } as Record<PincodeRowStatus, number>;
+    for (const p of pincodes) {
+      if (p.status in buckets) buckets[p.status]++;
+    }
+    return buckets;
+  }, [pincodes]);
+
+  // Position of the current page in the filtered set, for the "Showing 2701-2800" line
+  const pageStart = pincodes.length === 0 ? 0 : (page - 1) * limit + 1;
+  const pageEnd   = pageStart === 0 ? 0 : pageStart + pincodes.length - 1;
+
   const CHIPS: { key: PincodeRowStatus; label: string; dot: string; border: string }[] = [
     { key: 'running',   label: 'Running',   dot: 'bg-blue-400 animate-pulse', border: 'border-blue-800/60'    },
     { key: 'completed', label: 'Completed', dot: 'bg-emerald-400',            border: 'border-emerald-800/60' },
@@ -183,7 +199,7 @@ const ComingPincodesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Summary chips (clickable = toggle status filter) ── */}
+      {/* ── Summary chips — GLOBAL across the filtered set (clickable = toggle status filter) ── */}
       <div className="flex flex-wrap gap-3">
         {CHIPS.map(({ key, label, dot, border }) => (
           <StatChip
@@ -197,6 +213,22 @@ const ComingPincodesPage: React.FC = () => {
           />
         ))}
       </div>
+
+      {/* ── Per-page stats — what's actually on screen right now ── */}
+      {pincodes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 -mt-1 text-xs text-slate-400">
+          <span className="font-medium text-slate-500 uppercase tracking-wider">
+            This page · {pageStart.toLocaleString()}–{pageEnd.toLocaleString()} of {total.toLocaleString()}
+          </span>
+          {CHIPS.map(({ key, label, dot }) => (
+            <span key={key} className="inline-flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+              <span className="tabular-nums text-slate-300 font-semibold">{pageCounts[key].toLocaleString()}</span>
+              <span>{label}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* ── Filters ── */}
       <div className="flex flex-wrap items-center gap-3">
