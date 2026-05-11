@@ -29,6 +29,18 @@ export interface Filters {
   statuses: PincodeRowStatus[];
 }
 
+export interface SampleRow extends PincodeRow {
+  pageNumber:  number;
+  sourceIndex: number;
+}
+
+export interface SampleResult {
+  samples:     SampleRow[];
+  step:        number;
+  total:       number;
+  sourceCount: number;
+}
+
 interface ComingPincodeState {
   pincodes:  PincodeRow[];
   total:     number;
@@ -48,6 +60,13 @@ interface ComingPincodeState {
   setLimit:       (limit: number) => void;
   setFilters:     (f: Partial<Filters>) => void;
   clearFilters:   () => void;
+
+  /**
+   * Download an Excel file containing the first row of every page (i.e. every
+   * `step`-th pincode). The sheet name embeds the step so the operator can
+   * tell the sampling rate at a glance. Uses the same filters as the page.
+   */
+  downloadSampleExcel: (step: number) => Promise<{ samples: number; sourceCount: number }>;
 }
 
 const DEFAULT_FILTERS: Filters = { state: '', district: '', statuses: [] };
@@ -129,5 +148,47 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
       counts:    { ...EMPTY_COUNTS },
       error:     null,
     });
+  },
+
+  downloadSampleExcel: async (step) => {
+    const { filters } = get();
+    const params: Record<string, string> = { step: String(step) };
+    if (filters.state)              params.state        = filters.state;
+    if (filters.district)           params.district     = filters.district;
+    if (filters.statuses.length)    params.statusFilter = filters.statuses.join(',');
+
+    const { data } = await api.get<SampleResult>('/api/admin/pincodes/coming-status/sample', { params });
+    const samples = data.samples || [];
+    if (samples.length === 0) {
+      throw new Error('No pincodes match the current filters — nothing to download.');
+    }
+
+    const XLSX = await import('xlsx');
+    const rows = samples.map((s) => ({
+      'Page #':       s.pageNumber,
+      'Source Index': s.sourceIndex,
+      'Pincode':      s.pincode,
+      'District':     s.district || '',
+      'State':        s.stateName || '',
+      'Status':       s.status,
+      'Completed Rounds':   (s.completedRounds || []).join(','),
+      'Completed Searches': s.completedSearches,
+      'Total Niches':       s.totalNiches,
+      'Last Activity': s.lastActivity || '',
+      'Last Run At':   s.lastRunAt || '',
+      'Updated At':    s.updatedAt || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    // Sheet name = "Every <step> (<n> rows)" — encodes the sampling rate.
+    // Excel sheet names cap at 31 chars and disallow []:*?/\.
+    const sheetName = `Every ${step} (${samples.length} rows)`.slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    XLSX.writeFile(wb, `coming-pincodes-sample-step${step}-${ts}.xlsx`);
+
+    return { samples: samples.length, sourceCount: data.sourceCount };
   },
 }));

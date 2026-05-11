@@ -82,7 +82,28 @@ const ComingPincodesPage: React.FC = () => {
     states, districts,
     fetchPincodes, fetchStates, fetchDistricts,
     setLimit, setFilters, clearFilters,
+    downloadSampleExcel,
   } = useComingPincodeStore();
+
+  const [downloading, setDownloading] = React.useState(false);
+
+  const handleDownload = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const result = await downloadSampleExcel(limit);
+      alert(
+        `Downloaded ${result.samples.toLocaleString()} sampled pincode(s) — one every ${limit} ` +
+        `from ${result.sourceCount.toLocaleString()} matching the current filters.`
+      );
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string };
+      const msg = e?.response?.data?.error || e?.message || 'Download failed';
+      alert(`Download failed: ${msg}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // Load states and all pincodes on mount
   useEffect(() => {
@@ -137,16 +158,29 @@ const ComingPincodesPage: React.FC = () => {
           <h2 className="text-lg font-bold text-white">Coming Pincodes</h2>
           <p className="text-sm text-slate-500 mt-0.5">{total.toLocaleString()} pincodes</p>
         </div>
-        <button
-          onClick={() => fetchPincodes(page, filters.state, filters.district, filters.statuses)}
-          disabled={loading}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
-        >
-          <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDownload}
+            disabled={downloading || loading || total === 0}
+            title={`Sample one pincode every ${limit} (first row of each page at the current page size). Sheet name encodes the step.`}
+            className="flex items-center gap-1.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-green-50 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {downloading ? 'Downloading…' : `Download Excel (every ${limit})`}
+          </button>
+          <button
+            onClick={() => fetchPincodes(page, filters.state, filters.district, filters.statuses)}
+            disabled={loading}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+          >
+            <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* ── Summary chips (clickable = toggle status filter) ── */}
