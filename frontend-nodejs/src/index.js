@@ -418,6 +418,16 @@ async function main() {
     } else {
       console.log(chalk.cyan(`  Using CLI args: ${startPincode} → ${endPincode}`));
     }
+  } else if (!process.stdin.isTTY) {
+    // Running under PM2 / systemd / nohup — no terminal attached, no way for the
+    // operator to answer a prompt. Falling into readline here would hang the
+    // process forever, making PM2 show it as "running" while it scrapes nothing.
+    // Fail fast so the operator sees the issue in pm2 logs.
+    rl.close();
+    console.log(chalk.red('\n  CLI args missing AND no terminal attached.'));
+    console.log(chalk.red('  Pass start + end as args: `npm start -- "<nickname>" <startPincode> <endPincodeOrJobs>`'));
+    console.log(chalk.red('  Or run interactively in a terminal.'));
+    process.exit(2);
   } else {
     try {
       startPincode = parseInt(await ask(rl, 'Enter Starting Pincode : '), 10);

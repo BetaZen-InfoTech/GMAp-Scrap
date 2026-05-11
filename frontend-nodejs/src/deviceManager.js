@@ -21,7 +21,21 @@ function loadDevice() {
 }
 
 function saveDevice(data) {
-  fs.writeFileSync(DEVICE_FILE, JSON.stringify(data, null, 2), 'utf8');
+  // Atomic write — when multiple PM2 processes start in parallel on the same
+  // VPS, they all call ensureDevice() and may race on this file. Write to a
+  // per-pid temp file first, then rename (POSIX-atomic) so concurrent
+  // readers/writers never see a partially-written JSON document.
+  const json = JSON.stringify(data, null, 2);
+  const tmp  = `${DEVICE_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, json, 'utf8');
+  try {
+    fs.renameSync(tmp, DEVICE_FILE);
+  } catch (err) {
+    // If rename fails (e.g. cross-device, very rare here since same FS),
+    // fall back to direct write so we still persist the deviceId.
+    try { fs.unlinkSync(tmp); } catch (_) { /* ignore */ }
+    fs.writeFileSync(DEVICE_FILE, json, 'utf8');
+  }
 }
 
 // ── Network helpers ───────────────────────────────────────────────────────────

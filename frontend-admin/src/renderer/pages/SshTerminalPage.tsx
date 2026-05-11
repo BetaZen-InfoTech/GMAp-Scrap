@@ -270,11 +270,14 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       else if (task.type === 'single') thirdArg = String(task.startPin); // same pin for single
       else thirdArg = String(task.jobs || 3); // jobs mode
       const startPin = String(task.startPin);
-      // pm2 start npm --name <name> -- start -- <nickname> <startPin> <thirdArg>
-      // Each `--` is a parse boundary: first separates pm2 args from npm args,
-      // second separates `npm start` args from the script's argv.
+      // Invoke node directly via PM2 — earlier `pm2 start npm -- start --` had
+      // a parsing layer (PM2 → npm → script) where args occasionally got
+      // dropped or mis-quoted under PM2's `pm2 start <interpreter>` mode,
+      // causing the script to fall into its no-args branch and (under PM2's
+      // non-TTY stdin) hang on the interactive prompt forever.
+      // `pm2 start src/index.js -- <args>` skips the npm layer entirely.
       segments.push(
-        `pm2 start npm --name ${shEscape(name)} -- start -- ${escapedNick} ${shEscape(startPin)} ${shEscape(thirdArg)}`
+        `pm2 start src/index.js --name ${shEscape(name)} -- ${escapedNick} ${shEscape(startPin)} ${shEscape(thirdArg)}`
       );
       segments.push('sleep 0.4');
     });
