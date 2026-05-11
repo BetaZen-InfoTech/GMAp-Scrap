@@ -557,53 +557,77 @@ router.post('/devices/bulk-tasks', adminAuth, async (req, res) => {
       return res.status(400).json({ error: 'No valid rows after validation', errors });
     }
 
-    // Resolve deviceKey → device document (try IP, then deviceId, then nickname).
+    // Resolve deviceKey → device document. Match against ANY known identifier:
+    // primary `ip` (first registration), the `ips` array (all observed IPs —
+    // critical for VPS that reconnect from a new IP), `deviceId`, or `nickname`.
+    // Previously only `ip` was checked, so a CSV row using the device's
+    // current IP would silently fall into `devicesNotFound` if the device
+    // had been re-registered from a different IP at some point.
     const keys = [...grouped.keys()];
     const deviceDocs = await Device.find(
       {
         $or: [
-          { ip: { $in: keys } },
+          { ip:       { $in: keys } },
+          { ips:      { $in: keys } },
           { deviceId: { $in: keys } },
           { nickname: { $in: keys } },
         ],
       },
-      { _id: 1, deviceId: 1, ip: 1, nickname: 1 }
+      { _id: 1, deviceId: 1, ip: 1, ips: 1, nickname: 1 }
     ).lean();
 
-    // Build a map from any of {ip, deviceId, nickname} → device _id
+    // Build a map from any of {ip, every entry in ips[], deviceId, nickname}
+    // → device _id, so a row using ANY known identifier resolves.
     const keyToId = new Map();
     for (const d of deviceDocs) {
       if (d.ip)       keyToId.set(d.ip, d._id);
       if (d.deviceId) keyToId.set(d.deviceId, d._id);
       if (d.nickname) keyToId.set(d.nickname, d._id);
+      if (Array.isArray(d.ips)) {
+        for (const ip of d.ips) if (ip) keyToId.set(ip, d._id);
+      }
     }
 
     let devicesUpdated = 0;
+    let devicesMatched = 0;
     const devicesNotFound = [];
 
     // Bulk write — one updateOne per device, fast even for ~hundreds of devices.
-    const ops = [];
+    // Dedupe by _id in case multiple keys (ip/nickname/deviceId) resolved to
+    // the same device — we only want one op per device.
+    const opsByDeviceId = new Map();
     for (const [key, tasks] of grouped.entries()) {
       const id = keyToId.get(key);
       if (!id) { devicesNotFound.push(key); continue; }
-      ops.push({
+      const idStr = String(id);
+      // If two keys map to the same device, the later one wins (operator
+      // probably intended one task list per device anyway).
+      opsByDeviceId.set(idStr, {
         updateOne: {
           filter: { _id: id },
           update: { $set: { scrapeTasks: tasks } },
         },
       });
     }
+    const ops = [...opsByDeviceId.values()];
 
     if (ops.length > 0) {
       const result = await Device.bulkWrite(ops, { ordered: false });
+      // matchedCount = devices the filter found (i.e. successfully persisted
+      //                even if the new value happened to equal the old value)
+      // modifiedCount = subset where the value actually changed
+      // Both numbers are useful: matched tells the user "saved", modified
+      // tells them "something actually differed".
+      devicesMatched = result.matchedCount  || 0;
       devicesUpdated = result.modifiedCount || 0;
     }
 
-    for (const k of devicesNotFound) errors.push(`device "${k}" not found (tried IP/deviceId/nickname)`);
+    for (const k of devicesNotFound) errors.push(`device "${k}" not found (tried IP/ips/deviceId/nickname)`);
 
     res.json({
       success: true,
       type,
+      devicesMatched,
       devicesUpdated,
       devicesNotFound: devicesNotFound.length,
       rowsAccepted: rows.length - rowsRejected,

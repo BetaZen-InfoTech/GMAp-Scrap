@@ -7,6 +7,9 @@ type TaskType = 'range' | 'single' | 'jobs';
 
 interface BulkResult {
   type: TaskType;
+  /** Devices the filter matched (i.e. persisted, even if unchanged). */
+  devicesMatched?: number;
+  /** Devices where the new task list actually differed from the old. */
   devicesUpdated: number;
   devicesNotFound: number;
   rowsAccepted: number;
@@ -121,6 +124,34 @@ function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
   return rows;
 }
 
+/**
+ * Combined export — every task across every device, all three types in one
+ * CSV with a `type` column. Intended as a full-state backup for the operator.
+ * Not directly re-uploadable through the per-type upload flow (since each
+ * upload is type-locked); use it as a snapshot.
+ *
+ * Header: device, type, startPin, endPin, jobs
+ *   - endPin is empty for `single` and `jobs`
+ *   - jobs   is empty for `single` and `range`
+ */
+function exportAllRows(devices: DeviceInfo[]): string[][] {
+  const rows: string[][] = [];
+  for (const d of devices) {
+    const key = deviceKey(d);
+    if (!key) continue;
+    for (const t of d.scrapeTasks || []) {
+      if (t.type === 'range') {
+        rows.push([key, 'range', String(t.startPin || ''), String(t.endPin || ''), '']);
+      } else if (t.type === 'single') {
+        rows.push([key, 'single', String(t.startPin || ''), '', '']);
+      } else if (t.type === 'jobs') {
+        rows.push([key, 'jobs', String(t.startPin || ''), '', String(t.jobs ?? 3)]);
+      }
+    }
+  }
+  return rows;
+}
+
 // ─── Per-type config ──────────────────────────────────────────────────────
 
 interface TabConfig {
@@ -192,6 +223,8 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
     jobs:   exportRows(devices, 'jobs').length,
   }), [devices]);
 
+  const totalAllTasks = exportCounts.range + exportCounts.single + exportCounts.jobs;
+
   const handleDownloadTemplate = () => {
     downloadCsv(
       `task-template-${tab.type}.csv`,
@@ -214,6 +247,28 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
     downloadCsv(
       `tasks-current-${tab.type}-${ts}.csv`,
       tab.headerColumns,
+      rows,
+    );
+  };
+
+  /**
+   * Combined export — single CSV with every task across all three types.
+   * Header: device, type, startPin, endPin, jobs.
+   * Designed as a full-state backup snapshot the operator can keep alongside
+   * the per-type CSVs for audit / rollback context.
+   */
+  const handleDownloadAll = async () => {
+    try { await fetchDevices(true); } catch { /* fall through */ }
+    const latest = useDeviceStore.getState().devices;
+    const rows = exportAllRows(latest);
+    if (rows.length === 0) {
+      alert('No tasks currently configured across any device — nothing to download.');
+      return;
+    }
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    downloadCsv(
+      `tasks-current-all-${ts}.csv`,
+      ['device', 'type', 'startPin', 'endPin', 'jobs'],
       rows,
     );
   };
@@ -244,8 +299,14 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
 
       const rows = parsed.map(tab.rowToPayload);
       const res = await api.post('/api/admin/devices/bulk-tasks', { type: tab.type, rows });
-      setResult(res.data as BulkResult);
-      if ((res.data as BulkResult).devicesUpdated > 0) onUploaded();
+      const data = res.data as BulkResult;
+      setResult(data);
+      // Always refresh after a successful HTTP response — even if modifiedCount
+      // is 0 (e.g. re-uploading an identical CSV), the matched devices were
+      // still persisted. The previous `devicesUpdated > 0` gate caused the
+      // page to look frozen when re-uploading a downloaded CSV unchanged.
+      const matched = data.devicesMatched ?? data.devicesUpdated;
+      if (matched > 0) onUploaded();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string; errors?: string[] } }; message?: string };
       const msg = e?.response?.data?.error || e?.message || 'Upload failed';
@@ -268,7 +329,7 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-2xl shadow-xl">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-slate-800 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold text-white">Bulk Task Upload</h3>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -276,15 +337,32 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
               Multiple rows per device build a multi-task list.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors"
-            aria-label="Close"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleDownloadAll}
+              disabled={totalAllTasks === 0}
+              title={
+                totalAllTasks === 0
+                  ? 'No tasks currently configured'
+                  : 'Export every device\'s full task list (all 3 types in one CSV) — for backup / audit'
+              }
+              className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Download All Tasks ({totalAllTasks.toLocaleString()})
+            </button>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-white transition-colors"
+              aria-label="Close"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -372,8 +450,37 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
 
           {result && (
             <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-2">
+              {(() => {
+                const matched = result.devicesMatched ?? result.devicesUpdated;
+                if (matched > 0) {
+                  const sameAsBefore = matched - result.devicesUpdated;
+                  return (
+                    <div className="px-3 py-2 rounded bg-emerald-900/30 border border-emerald-800/60 text-emerald-200 text-xs">
+                      <strong>Saved.</strong> {matched.toLocaleString()} device(s) persisted in MongoDB.
+                      {sameAsBefore > 0 && (
+                        <span className="text-emerald-300/70">
+                          {' '}({sameAsBefore.toLocaleString()} had no actual diff — same as before.)
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
+                if (result.devicesNotFound > 0) {
+                  return (
+                    <div className="px-3 py-2 rounded bg-red-900/40 border border-red-800/60 text-red-200 text-xs">
+                      <strong>Nothing saved.</strong> The {result.devicesNotFound.toLocaleString()} `device` value(s)
+                      in your CSV didn't match any registered IP, deviceId, or nickname. See the warnings list below.
+                    </div>
+                  );
+                }
+                return (
+                  <div className="px-3 py-2 rounded bg-yellow-900/30 border border-yellow-800/60 text-yellow-200 text-xs">
+                    <strong>Nothing saved.</strong> No valid rows after validation.
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <Stat label="Devices updated" value={result.devicesUpdated} ok={result.devicesUpdated > 0} />
+                <Stat label="Devices saved" value={result.devicesMatched ?? result.devicesUpdated} ok={(result.devicesMatched ?? result.devicesUpdated) > 0} />
                 <Stat label="Devices not found" value={result.devicesNotFound} bad={result.devicesNotFound > 0} />
                 <Stat label="Rows accepted" value={result.rowsAccepted} ok={result.rowsAccepted > 0} />
                 <Stat label="Rows rejected" value={result.rowsRejected} bad={result.rowsRejected > 0} />
