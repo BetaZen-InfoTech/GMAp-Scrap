@@ -127,8 +127,12 @@ function taskStatusLabel(t: ScrapeTask): 'running' | 'complete' | 'stop' | 'none
  * scrapeTasks array. Rows include a `status` column appended after the
  * upload-format columns. The backend bulk-upload endpoint ignores unknown
  * columns, so a downloaded file with `status` will still re-upload cleanly.
+ *
+ * `excludeCompleted` — when true, tasks with status === 'complete' are
+ * skipped. Useful when the operator wants a backup of only the work that's
+ * still in progress / pending.
  */
-function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
+function exportRows(devices: DeviceInfo[], type: TaskType, excludeCompleted = false): string[][] {
   const rows: string[][] = [];
   for (const d of devices) {
     const key = deviceKey(d);
@@ -136,6 +140,7 @@ function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
     for (const t of d.scrapeTasks || []) {
       if (t.type !== type) continue;
       const status = taskStatusLabel(t);
+      if (excludeCompleted && status === 'complete') continue;
       if (type === 'range') {
         rows.push([key, String(t.startPin || ''), String(t.endPin || ''), status]);
       } else if (type === 'single') {
@@ -153,19 +158,15 @@ function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
  * CSV. Includes a `status` column for audit. Intended as a full-state
  * backup; not directly re-uploadable through the per-type upload flow
  * since each upload is type-locked.
- *
- * Header: device, type, startPin, endPin, jobs, status
- *   - endPin is empty for `single` and `jobs`
- *   - jobs   is empty for `single` and `range`
- *   - status is running | complete | stop | none
  */
-function exportAllRows(devices: DeviceInfo[]): string[][] {
+function exportAllRows(devices: DeviceInfo[], excludeCompleted = false): string[][] {
   const rows: string[][] = [];
   for (const d of devices) {
     const key = deviceKey(d);
     if (!key) continue;
     for (const t of d.scrapeTasks || []) {
       const status = taskStatusLabel(t);
+      if (excludeCompleted && status === 'complete') continue;
       if (t.type === 'range') {
         rows.push([key, 'range', String(t.startPin || ''), String(t.endPin || ''), '', status]);
       } else if (t.type === 'single') {
@@ -243,20 +244,41 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
   const [result, setResult] = useState<BulkResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
-  const devices = useDeviceStore((s) => s.devices);
+  const allDevices = useDeviceStore((s) => s.devices);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
+  const [excludeCompleted, setExcludeCompleted] = useState(false);
+  const [clearingCompleted, setClearingCompleted] = useState(false);
+
+  // Filter out archived devices to match what the backend endpoints operate on
+  // (bulk-tasks and clear-completed-tasks both skip archived). Otherwise the
+  // UI counts on the button would over-report and confuse the operator.
+  const devices = useMemo(() => allDevices.filter((d) => !d.isArchived), [allDevices]);
 
   const tab = TABS.find((t) => t.type === activeTab)!;
 
   // Counts of CSV rows that "Download Current" would produce for each tab.
-  // Recomputed when devices change so the buttons show live counts.
+  // When `excludeCompleted` is on, completed tasks are filtered out so the
+  // operator can see (and download) only in-progress / pending work.
   const exportCounts = useMemo(() => ({
-    range:  exportRows(devices, 'range').length,
-    single: exportRows(devices, 'single').length,
-    jobs:   exportRows(devices, 'jobs').length,
-  }), [devices]);
+    range:  exportRows(devices, 'range',  excludeCompleted).length,
+    single: exportRows(devices, 'single', excludeCompleted).length,
+    jobs:   exportRows(devices, 'jobs',   excludeCompleted).length,
+  }), [devices, excludeCompleted]);
 
   const totalAllTasks = exportCounts.range + exportCounts.single + exportCounts.jobs;
+
+  // How many completed tasks would be removed by "Delete Completed Tasks".
+  // Only counts range + single (matches the backend's conservative filter).
+  const completedToRemove = useMemo(() => {
+    let n = 0;
+    for (const d of devices) {
+      for (const t of d.scrapeTasks || []) {
+        if (t.type === 'jobs') continue;
+        if (taskStatusLabel(t) === 'complete') n++;
+      }
+    }
+    return n;
+  }, [devices]);
 
   const handleDownloadTemplate = () => {
     downloadCsv(
@@ -271,14 +293,19 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
     // happened to be cached in the store. Cheap — same call DevicesPage uses.
     try { await fetchDevices(true); } catch { /* fall through with stale data */ }
     const latest = useDeviceStore.getState().devices;
-    const rows = exportRows(latest, tab.type);
+    const rows = exportRows(latest, tab.type, excludeCompleted);
     if (rows.length === 0) {
-      alert(`No ${tab.label} tasks currently configured across any device — nothing to download.`);
+      alert(
+        excludeCompleted
+          ? `No incomplete ${tab.label} tasks to download.`
+          : `No ${tab.label} tasks currently configured across any device — nothing to download.`
+      );
       return;
     }
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const suffix = excludeCompleted ? '-incomplete' : '';
     downloadCsv(
-      `tasks-current-${tab.type}-${ts}.csv`,
+      `tasks-current-${tab.type}${suffix}-${ts}.csv`,
       DOWNLOAD_HEADERS[tab.type],
       rows,
     );
@@ -293,17 +320,46 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
   const handleDownloadAll = async () => {
     try { await fetchDevices(true); } catch { /* fall through */ }
     const latest = useDeviceStore.getState().devices;
-    const rows = exportAllRows(latest);
+    const rows = exportAllRows(latest, excludeCompleted);
     if (rows.length === 0) {
-      alert('No tasks currently configured across any device — nothing to download.');
+      alert(excludeCompleted ? 'No incomplete tasks to download.' : 'No tasks currently configured across any device — nothing to download.');
       return;
     }
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const suffix = excludeCompleted ? '-incomplete' : '';
     downloadCsv(
-      `tasks-current-all-${ts}.csv`,
+      `tasks-current-all${suffix}-${ts}.csv`,
       ['device', 'type', 'startPin', 'endPin', 'jobs', 'status'],
       rows,
     );
+  };
+
+  const handleClearCompleted = async () => {
+    if (completedToRemove === 0) {
+      alert('No completed tasks to delete.');
+      return;
+    }
+    const ok = window.confirm(
+      `Delete ${completedToRemove.toLocaleString()} completed task(s) across all devices?\n\n` +
+      `This removes range + single tasks whose status is 'complete' from each device's task list. ` +
+      `Jobs-type tasks are NOT touched (they have multiple sub-trackings). ` +
+      `The scrape-tracking history is preserved — only the task slots in the device config are cleared.\n\n` +
+      `This action cannot be undone.`
+    );
+    if (!ok) return;
+    setClearingCompleted(true);
+    try {
+      const res = await api.post('/api/admin/devices/clear-completed-tasks');
+      const { devicesModified, tasksRemoved } = res.data as { devicesModified: number; tasksRemoved: number };
+      alert(`Removed ${tasksRemoved.toLocaleString()} completed task(s) from ${devicesModified.toLocaleString()} device(s).`);
+      onUploaded(); // reuse the same parent callback to refresh device cards
+      await fetchDevices(true);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string };
+      alert(`Failed to clear completed tasks: ${e?.response?.data?.error || e?.message || 'Unknown error'}`);
+    } finally {
+      setClearingCompleted(false);
+    }
   };
 
   const handleUpload = async (file: File) => {
@@ -396,6 +452,34 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
               </svg>
             </button>
           </div>
+        </div>
+
+        {/* Filter + cleanup bar — applies across all tabs */}
+        <div className="px-5 py-2 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={excludeCompleted}
+              onChange={(e) => setExcludeCompleted(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+            />
+            <span>Exclude completed tasks from downloads</span>
+          </label>
+          <button
+            onClick={handleClearCompleted}
+            disabled={completedToRemove === 0 || clearingCompleted}
+            title={
+              completedToRemove === 0
+                ? 'No completed tasks to delete'
+                : `Delete ${completedToRemove} completed range/single task(s) across all devices`
+            }
+            className="flex items-center gap-1.5 bg-red-700 hover:bg-red-600 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+            </svg>
+            {clearingCompleted ? 'Deleting…' : `Delete Completed (${completedToRemove.toLocaleString()})`}
+          </button>
         </div>
 
         {/* Tabs */}

@@ -603,6 +603,87 @@ router.patch('/devices/:deviceId/scrape-config', adminAuth, async (req, res) => 
  * Response:
  *   { success, devicesUpdated, rowsAccepted, rowsRejected, errors[] }
  */
+/**
+ * POST /api/admin/devices/clear-completed-tasks
+ *
+ * Removes from every device's scrapeTasks array any `range` or `single` task
+ * whose corresponding ScrapeTracking record is status='completed'. Keeps
+ * `jobs`-type tasks untouched (they have N sub-trackings; the "fully done"
+ * decision is non-trivial — operator can clean those manually).
+ *
+ * Returns: { success, devicesModified, tasksRemoved }.
+ */
+router.post('/devices/clear-completed-tasks', adminAuth, async (req, res) => {
+  try {
+    const devices = await Device.find(
+      { isArchived: { $ne: true } },
+      { deviceId: 1, scrapeTasks: 1 }
+    ).lean();
+
+    if (devices.length === 0) {
+      return res.json({ success: true, devicesModified: 0, tasksRemoved: 0 });
+    }
+
+    // One query for every relevant tracking doc, grouped client-side
+    const deviceIds = devices.map((d) => d.deviceId);
+    const tracks = await ScrapeTracking.find(
+      { deviceId: { $in: deviceIds } },
+      { deviceId: 1, startPincode: 1, endPincode: 1, status: 1 }
+    ).lean();
+
+    const tracksByDevice = {};
+    for (const t of tracks) {
+      (tracksByDevice[t.deviceId] = tracksByDevice[t.deviceId] || []).push(t);
+    }
+
+    let tasksRemoved = 0;
+    const ops = [];
+    for (const d of devices) {
+      const oldTasks = d.scrapeTasks || [];
+      if (oldTasks.length === 0) continue;
+      const myTracks = tracksByDevice[d.deviceId] || [];
+
+      const newTasks = oldTasks.filter((t) => {
+        // Always keep 'jobs' tasks — they map to multiple chunks, deciding
+        // "is this whole task done?" needs more bookkeeping than this
+        // simple cleanup is meant to do.
+        if (t.type === 'jobs') return true;
+        const startPin = Number(t.startPin);
+        if (!Number.isFinite(startPin)) return true;
+        const endPin = t.type === 'range' ? Number(t.endPin) : startPin;
+        if (!Number.isFinite(endPin)) return true;
+        const match = myTracks.find(
+          (tr) => tr.startPincode === startPin && tr.endPincode === endPin
+        );
+        // Keep if no tracking doc exists OR it's not completed.
+        return !match || match.status !== 'completed';
+      });
+
+      const removedHere = oldTasks.length - newTasks.length;
+      if (removedHere > 0) {
+        tasksRemoved += removedHere;
+        ops.push({
+          updateOne: {
+            filter: { _id: d._id },
+            update: { $set: { scrapeTasks: newTasks } },
+          },
+        });
+      }
+    }
+
+    let devicesModified = 0;
+    if (ops.length > 0) {
+      const result = await Device.bulkWrite(ops, { ordered: false });
+      devicesModified = result.modifiedCount || 0;
+    }
+
+    res.json({ success: true, devicesModified, tasksRemoved });
+  } catch (err) {
+    console.error('[admin/devices/clear-completed-tasks] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
 router.post('/devices/bulk-tasks', adminAuth, async (req, res) => {
   try {
     const { type, rows } = req.body || {};
