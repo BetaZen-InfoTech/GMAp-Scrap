@@ -964,14 +964,17 @@ router.get('/analytics', async (req, res) => {
       topPincodes,
       topCategories,
       sessionStats,
-      jobsRunning,
-      jobsCompleted,
       pincodesCovered,
     ] = await Promise.all([
       ScrapedData.countDocuments(),
       ScrapedData.countDocuments({ isDuplicate: true }),
-      Device.countDocuments({ isActive: true }),
-      Device.countDocuments({ isActive: false }),
+      // "Active" / "Inactive" on the Devices page = currently-online vs not,
+      // among non-archived devices. The previous query used `isActive`, a
+      // soft-delete flag that defaults to true on creation and never changes
+      // — so it over-counted by including every archived/decommissioned VPS.
+      // Aligning both counts with the Devices page semantics.
+      Device.countDocuments({ status: 'online',          isArchived: { $ne: true } }),
+      Device.countDocuments({ status: { $ne: 'online' }, isArchived: { $ne: true } }),
       ScrapedData.aggregate([
         { $group: { _id: '$deviceId', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
@@ -999,9 +1002,16 @@ router.get('/analytics', async (req, res) => {
           },
         },
       ]),
-      ScrapeTracking.countDocuments({ status: { $in: ['running', 'paused'] } }),
-      ScrapeTracking.countDocuments({ status: 'completed' }),
       ScrapedData.distinct('pincode', { pincode: { $ne: null } }),
+    ]);
+
+    // Scope job counts to non-archived devices only — otherwise stale
+    // tracking docs from old / decommissioned VPSes show up in "Jobs
+    // Running", inflating the dashboard number.
+    const liveDeviceIds = await Device.distinct('deviceId', { isArchived: { $ne: true } });
+    const [jobsRunningLive, jobsCompletedLive] = await Promise.all([
+      ScrapeTracking.countDocuments({ deviceId: { $in: liveDeviceIds }, status: { $in: ['running', 'paused'] } }),
+      ScrapeTracking.countDocuments({ deviceId: { $in: liveDeviceIds }, status: 'completed' }),
     ]);
 
     // Enrich recordsPerDevice with hostnames + nicknames
@@ -1033,8 +1043,8 @@ router.get('/analytics', async (req, res) => {
           ? parseFloat(((sessionStat.completed / sessionStat.total) * 100).toFixed(1))
           : 0,
       avgSessionDurationMs: Math.round(sessionStat.avgDurationMs || 0),
-      jobsInProgress: jobsRunning,
-      jobsCompleted,
+      jobsInProgress: jobsRunningLive,
+      jobsCompleted: jobsCompletedLive,
       pincodesCovered: Array.isArray(pincodesCovered) ? pincodesCovered.length : 0,
     });
   } catch (err) {
