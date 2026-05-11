@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import api from '../lib/api';
 import { useDeviceStore } from '../store/useDeviceStore';
-import type { DeviceInfo } from '../../shared/types';
+import type { DeviceInfo, ScrapeTask } from '../../shared/types';
 
 type TaskType = 'range' | 'single' | 'jobs';
 
@@ -102,8 +102,31 @@ function deviceKey(d: DeviceInfo): string {
 }
 
 /**
+ * Map a task's join-time `progress` field to a 4-state label suitable for
+ * an audit CSV. The labels are deliberately concise so they fit in one
+ * spreadsheet column:
+ *
+ *   running  — actively scraping right now
+ *   complete — finished (status === 'completed')
+ *   stop     — paused / stopped — has partial progress, not actively running
+ *   none     — no scrape-tracking record yet, hasn't started
+ *
+ * Status is read-only — the bulk upload endpoint ignores any `status`
+ * column it sees in the CSV.
+ */
+function taskStatusLabel(t: ScrapeTask): 'running' | 'complete' | 'stop' | 'none' {
+  const s = t.progress?.status;
+  if (!s) return 'none';
+  if (s === 'completed') return 'complete';
+  if (s === 'running')   return 'running';
+  return 'stop'; // 'paused' | 'stop' | 'stopped'
+}
+
+/**
  * Build CSV rows for the given task type by flattening every device's
- * scrapeTasks array. Rows match the upload format for the same type.
+ * scrapeTasks array. Rows include a `status` column appended after the
+ * upload-format columns. The backend bulk-upload endpoint ignores unknown
+ * columns, so a downloaded file with `status` will still re-upload cleanly.
  */
 function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
   const rows: string[][] = [];
@@ -112,12 +135,13 @@ function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
     if (!key) continue;
     for (const t of d.scrapeTasks || []) {
       if (t.type !== type) continue;
+      const status = taskStatusLabel(t);
       if (type === 'range') {
-        rows.push([key, String(t.startPin || ''), String(t.endPin || '')]);
+        rows.push([key, String(t.startPin || ''), String(t.endPin || ''), status]);
       } else if (type === 'single') {
-        rows.push([key, String(t.startPin || '')]);
+        rows.push([key, String(t.startPin || ''), status]);
       } else {
-        rows.push([key, String(t.startPin || ''), String(t.jobs ?? 3)]);
+        rows.push([key, String(t.startPin || ''), String(t.jobs ?? 3), status]);
       }
     }
   }
@@ -126,13 +150,14 @@ function exportRows(devices: DeviceInfo[], type: TaskType): string[][] {
 
 /**
  * Combined export — every task across every device, all three types in one
- * CSV with a `type` column. Intended as a full-state backup for the operator.
- * Not directly re-uploadable through the per-type upload flow (since each
- * upload is type-locked); use it as a snapshot.
+ * CSV. Includes a `status` column for audit. Intended as a full-state
+ * backup; not directly re-uploadable through the per-type upload flow
+ * since each upload is type-locked.
  *
- * Header: device, type, startPin, endPin, jobs
+ * Header: device, type, startPin, endPin, jobs, status
  *   - endPin is empty for `single` and `jobs`
  *   - jobs   is empty for `single` and `range`
+ *   - status is running | complete | stop | none
  */
 function exportAllRows(devices: DeviceInfo[]): string[][] {
   const rows: string[][] = [];
@@ -140,17 +165,25 @@ function exportAllRows(devices: DeviceInfo[]): string[][] {
     const key = deviceKey(d);
     if (!key) continue;
     for (const t of d.scrapeTasks || []) {
+      const status = taskStatusLabel(t);
       if (t.type === 'range') {
-        rows.push([key, 'range', String(t.startPin || ''), String(t.endPin || ''), '']);
+        rows.push([key, 'range', String(t.startPin || ''), String(t.endPin || ''), '', status]);
       } else if (t.type === 'single') {
-        rows.push([key, 'single', String(t.startPin || ''), '', '']);
+        rows.push([key, 'single', String(t.startPin || ''), '', '', status]);
       } else if (t.type === 'jobs') {
-        rows.push([key, 'jobs', String(t.startPin || ''), '', String(t.jobs ?? 3)]);
+        rows.push([key, 'jobs', String(t.startPin || ''), '', String(t.jobs ?? 3), status]);
       }
     }
   }
   return rows;
 }
+
+/** Headers used when downloading CURRENT (includes `status`). */
+const DOWNLOAD_HEADERS: Record<TaskType, string[]> = {
+  range:  ['device', 'startPin', 'endPin', 'status'],
+  single: ['device', 'startPin', 'status'],
+  jobs:   ['device', 'startPin', 'jobs', 'status'],
+};
 
 // ─── Per-type config ──────────────────────────────────────────────────────
 
@@ -246,16 +279,16 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     downloadCsv(
       `tasks-current-${tab.type}-${ts}.csv`,
-      tab.headerColumns,
+      DOWNLOAD_HEADERS[tab.type],
       rows,
     );
   };
 
   /**
-   * Combined export — single CSV with every task across all three types.
-   * Header: device, type, startPin, endPin, jobs.
-   * Designed as a full-state backup snapshot the operator can keep alongside
-   * the per-type CSVs for audit / rollback context.
+   * Combined export — single CSV with every task across all three types,
+   * plus a `status` column (running / complete / stop / none) for audit.
+   * Header: device, type, startPin, endPin, jobs, status. Designed as a
+   * full-state backup snapshot.
    */
   const handleDownloadAll = async () => {
     try { await fetchDevices(true); } catch { /* fall through */ }
@@ -268,7 +301,7 @@ const BulkTasksModal: React.FC<BulkTasksModalProps> = ({ onClose, onUploaded }) 
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     downloadCsv(
       `tasks-current-all-${ts}.csv`,
-      ['device', 'type', 'startPin', 'endPin', 'jobs'],
+      ['device', 'type', 'startPin', 'endPin', 'jobs', 'status'],
       rows,
     );
   };
