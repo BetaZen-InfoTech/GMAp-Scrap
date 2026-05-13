@@ -1,5 +1,6 @@
 const express = require('express');
 const os = require('os');
+const v8 = require('v8');
 const mongoose = require('mongoose');
 
 const router = express.Router();
@@ -40,6 +41,8 @@ function escapeHtml(str) {
 
 function snapshot() {
   const processMem = process.memoryUsage();
+  const heapStats = v8.getHeapStatistics();
+  const heapLimit = heapStats.heap_size_limit;
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
   const usedMem = totalMem - freeMem;
@@ -80,12 +83,13 @@ function snapshot() {
       processRss: formatBytes(processMem.rss),
       processHeapUsed: formatBytes(processMem.heapUsed),
       processHeapTotal: formatBytes(processMem.heapTotal),
+      processHeapLimit: formatBytes(heapLimit),
       processExternal: formatBytes(processMem.external),
       systemTotal: formatBytes(totalMem),
       systemUsed: formatBytes(usedMem),
       systemFree: formatBytes(freeMem),
       systemUsedPct: totalMem ? +((usedMem / totalMem) * 100).toFixed(2) : 0,
-      processHeapPct: processMem.heapTotal ? +((processMem.heapUsed / processMem.heapTotal) * 100).toFixed(2) : 0,
+      processHeapPct: heapLimit ? +((processMem.heapUsed / heapLimit) * 100).toFixed(2) : 0,
     },
     mongo: {
       state: mongoState,
@@ -307,7 +311,7 @@ function render(data) {
       <div class="card">
         <h2 class="${heapBarClass === 'bar-bad' ? 'bad' : heapBarClass === 'bar-warn' ? 'warn' : 'ok'}"><span class="dot"></span>Process memory</h2>
         <div class="big-stat">${e(memory.processRss)}</div>
-        <div class="big-stat-label">rss · heap ${e(memory.processHeapUsed)} / ${e(memory.processHeapTotal)}</div>
+        <div class="big-stat-label">rss · heap ${e(memory.processHeapUsed)} / ${e(memory.processHeapLimit)} limit</div>
         <div class="bar-wrap">
           <div class="bar-top">
             <span>heap used</span><span>${memory.processHeapPct}%</span>

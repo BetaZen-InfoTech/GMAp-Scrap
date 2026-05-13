@@ -1,5 +1,6 @@
 const express = require('express');
 const os = require('os');
+const v8 = require('v8');
 const mongoose = require('mongoose');
 
 const router = express.Router();
@@ -44,6 +45,8 @@ function formatSeconds(seconds) {
  */
 router.get('/', (_req, res) => {
   const processMem = process.memoryUsage();
+  const heapStats = v8.getHeapStatistics();
+  const heapLimit = heapStats.heap_size_limit;
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
   const usedMem = totalMem - freeMem;
@@ -88,6 +91,9 @@ router.get('/', (_req, res) => {
         heapTotalFormatted: formatBytes(processMem.heapTotal),
         heapUsed: processMem.heapUsed,
         heapUsedFormatted: formatBytes(processMem.heapUsed),
+        heapLimit,
+        heapLimitFormatted: formatBytes(heapLimit),
+        heapUsagePercent: heapLimit ? +((processMem.heapUsed / heapLimit) * 100).toFixed(2) : null,
         external: processMem.external,
         externalFormatted: formatBytes(processMem.external),
         arrayBuffers: processMem.arrayBuffers,

@@ -6,7 +6,7 @@ const APP_VERSION = __APP_VERSION__ || '0.0.0';
 
 export type Route = 'dashboard' | 'devices' | 'device-detail' | 'sessions' | 'jobs' | 'categories'
   | 'pincode-details' | 'scraped-pincodes' | 'scrap-database' | 'duplicates' | 'website-scraper'
-  | 'coming-pincodes' | 'ssh-terminal' | 'google-category';
+  | 'coming-pincodes' | 'ssh-terminal' | 'google-category' | 'server-info';
 
 interface SidebarProps {
   currentRoute: Route;
@@ -144,6 +144,17 @@ const navItems: { route: Route; label: string; icon: React.ReactNode }[] = [
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round"
           d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+      </svg>
+    ),
+  },
+  {
+    route: 'server-info' as Route,
+    label: 'Server Info',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round"
+          d="M5 12a2 2 0 012-2h10a2 2 0 012 2v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2zM5 6a2 2 0 012-2h10a2 2 0 012 2v0a2 2 0 01-2 2H7a2 2 0 01-2-2v0zM5 18a2 2 0 012-2h10a2 2 0 012 2v0a2 2 0 01-2 2H7a2 2 0 01-2-2v0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6h.01M9 12h.01M9 18h.01" />
       </svg>
     ),
   },
