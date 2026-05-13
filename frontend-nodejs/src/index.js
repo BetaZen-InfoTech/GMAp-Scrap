@@ -17,10 +17,15 @@
 
 const readline = require('readline');
 const { v4: uuidv4 } = require('uuid');
-const axios  = require('axios');
 const chalk  = require('chalk');
 
-const { API_BASE_URL, APP_STATE, SETTINGS } = require('./config');
+const { MONGODB_URI, APP_STATE, SETTINGS } = require('./config');
+const { connectDB, disconnectDB } = require('./db');
+const PinCode        = require('./models/PinCode');
+const BusinessNiche  = require('./models/BusinessNiche');
+const SessionStats   = require('./models/SessionStats');
+const ScrapeTracking = require('./models/ScrapeTracking');
+const SearchStatus   = require('./models/SearchStatus');
 const { ScraperEngine }          = require('./scraper');
 const { sendBatch }              = require('./batchSender');
 const { getSystemStats, LiveMonitor } = require('./monitor');
@@ -44,11 +49,19 @@ function isShuttingDown() {
 async function runShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  try { if (liveMonitor) { liveMonitor.stop(); liveMonitor = null; } } catch (_) { /* ignore */ }
+  // Wait for the live monitor's final stats batch BEFORE closing the mongoose
+  // connection — otherwise the in-flight write races disconnectDB and is lost.
+  try {
+    if (liveMonitor) {
+      await liveMonitor.stop();
+      liveMonitor = null;
+    }
+  } catch (_) { /* ignore */ }
   console.log(chalk.yellow(`\n  Received ${signal} — flushing pending work, closing browsers…`));
   for (const task of shutdownTasks) {
     try { await task(); } catch (err) { console.error(chalk.red(`  Shutdown task failed: ${err.message}`)); }
   }
+  try { await disconnectDB(); } catch (_) { /* ignore */ }
   console.log(chalk.gray('  Shutdown complete.'));
   process.exit(0);
 }
@@ -138,29 +151,73 @@ async function printStats(label) {
   } catch { /* ignore */ }
 }
 
-// ── API helpers ───────────────────────────────────────────────────────────────
+// ── DB helpers (replace the old HTTP API layer) ──────────────────────────────
+//
+// All operations talk to MongoDB through mongoose. Behaviour mirrors the old
+// backend routes exactly — same shapes, same filters, same defensive sort —
+// so callers downstream (executeJob, runSession, etc.) didn't have to change.
 
 async function fetchPincodes(start, end, limit) {
-  const params = { start, end };
-  if (limit) params.limit = limit;
-  const res = await axios.get(`${API_BASE_URL}/api/pincodes/range`, {
-    params, timeout: 30000,
-  });
-  const arr = Array.isArray(res.data) ? res.data : [];
-  // Defensive client-side ascending sort (0 → 9). The backend also sorts,
-  // but we re-sort here so the guarantee survives any backend/DB change.
+  const pipeline = [
+    { $match: { Pincode: { $gte: start, $lte: end } } },
+    { $sort:  { Pincode: 1 } },
+    {
+      $group: {
+        _id:       '$Pincode',
+        District:  { $first: '$District' },
+        StateName: { $first: '$StateName' },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ];
+  if (limit && limit > 0) pipeline.push({ $limit: limit });
+  pipeline.push({ $project: { _id: 0, Pincode: '$_id', District: 1, StateName: 1 } });
+
+  const arr = await PinCode.aggregate(pipeline);
+  // Defensive ASC sort — group output is not guaranteed ordered.
   arr.sort((a, b) => Number(a.Pincode) - Number(b.Pincode));
   return arr;
 }
 
 async function fetchNiches() {
-  const res = await axios.get(`${API_BASE_URL}/api/niches`, { timeout: 30000 });
-  return Array.isArray(res.data) ? res.data : [];
+  return BusinessNiche.find(
+    {},
+    { Category: 1, SubCategory: 1, _id: 0 }
+  ).sort({ Category: 1, SubCategory: 1 }).lean();
 }
 
 async function postSessionStats(payload) {
   try {
-    await axios.post(`${API_BASE_URL}/api/scraped-data/session-stats`, payload, { timeout: 15000 });
+    const { pincode, category, subCategory, round } = payload;
+    if (pincode == null || !category || !subCategory) return;
+
+    const $set = {};
+    const setFields = [
+      'sessionId', 'jobId', 'deviceId', 'keyword',
+      'pincode', 'district', 'stateName',
+      'category', 'subCategory',
+      'status',
+      'startedAt', 'completedAt', 'durationMs',
+    ];
+    for (const key of setFields) {
+      if (payload[key] !== undefined) $set[key] = payload[key];
+    }
+
+    const $inc = {};
+    const incFields = ['totalRecords', 'insertedRecords', 'duplicateRecords', 'batchesSent'];
+    for (const key of incFields) {
+      if (payload[key] !== undefined && payload[key] > 0) $inc[key] = payload[key];
+    }
+
+    const update = { $set };
+    if (Object.keys($inc).length > 0) update.$inc = $inc;
+    if (round != null) update.$addToSet = { rounds: round };
+
+    await SessionStats.findOneAndUpdate(
+      { pincode, category, subCategory },
+      update,
+      { upsert: true, new: true }
+    );
   } catch { /* fire-and-forget */ }
 }
 
@@ -168,43 +225,77 @@ async function postSessionStats(payload) {
 
 async function createJobTracking(jobId, deviceId, startPincode, endPincode, totalSearches) {
   try {
-    await axios.post(`${API_BASE_URL}/api/scrape-tracking`, {
-      jobId, deviceId, startPincode, endPincode, totalSearches,
-    }, { timeout: 15000 });
-  } catch { /* fire-and-forget */ }
+    await ScrapeTracking.create({
+      jobId, deviceId, startPincode, endPincode,
+      totalSearches: totalSearches ?? 0,
+      completedSearches: 0,
+      pincodeIndex: 0,
+      nicheIndex: 0,
+      round: 1,
+      status: 'running',
+    });
+  } catch { /* fire-and-forget — unique index may bounce concurrent inserts */ }
 }
 
 async function updateJobProgress(jobId, update) {
   try {
-    await axios.patch(`${API_BASE_URL}/api/scrape-tracking/${jobId}`, update, { timeout: 10000 });
+    const allowed = ['pincodeIndex', 'nicheIndex', 'round', 'completedSearches', 'status'];
+    const $set = {};
+    for (const key of allowed) {
+      if (update[key] !== undefined) $set[key] = update[key];
+    }
+    if (Object.keys($set).length === 0) return;
+    await ScrapeTracking.findOneAndUpdate(
+      { jobId, status: { $ne: 'completed' } },
+      { $set },
+      { new: true }
+    );
   } catch { /* fire-and-forget */ }
 }
 
 async function markSearchComplete(jobId, data) {
   try {
-    await axios.post(`${API_BASE_URL}/api/scrape-tracking/${jobId}/search-complete`, data, { timeout: 10000 });
+    const { deviceId, pincode, district, stateName, category, subCategory, round, sessionId } = data;
+    if (pincode == null || !category || !subCategory || round == null) return;
+
+    const existing = await SearchStatus.findOne({ pincode, category, subCategory }).lean();
+    const updateOps = {
+      $set: { jobId, deviceId, district, stateName, sessionId, status: 'completed' },
+      $addToSet: { rounds: round },
+      $unset: { round: '' },
+    };
+    if (existing?.round != null && (!existing.rounds || !existing.rounds.includes(existing.round))) {
+      updateOps.$addToSet = { rounds: { $each: [existing.round, round] } };
+    }
+
+    await SearchStatus.findOneAndUpdate(
+      { pincode, category, subCategory },
+      updateOps,
+      { upsert: true, new: true }
+    );
   } catch { /* fire-and-forget */ }
 }
 
 async function fetchExistingJob(deviceId, startPincode, endPincode) {
   try {
-    const params = {};
-    if (startPincode != null) params.startPincode = startPincode;
-    if (endPincode != null) params.endPincode = endPincode;
-    const res = await axios.get(`${API_BASE_URL}/api/scrape-tracking/${deviceId}`, { params, timeout: 10000 });
-    return res.data || null;
+    const filter = { deviceId };
+    if (startPincode != null) filter.startPincode = Number(startPincode);
+    if (endPincode   != null) filter.endPincode   = Number(endPincode);
+    const doc = await ScrapeTracking.findOne(filter, null, { sort: { createdAt: -1 } }).lean();
+    return doc || null;
   } catch { return null; }
 }
 
-// Fetch all completed searches globally for given pincodes
 async function fetchCompletedSearchesGlobal(pincodes) {
   try {
-    const res = await axios.post(
-      `${API_BASE_URL}/api/scrape-tracking/completed-searches-global`,
-      { pincodes },
-      { timeout: 30000 }
-    );
-    return Array.isArray(res.data) ? res.data : [];
+    const filter = { status: 'completed' };
+    if (Array.isArray(pincodes) && pincodes.length > 0) {
+      filter.pincode = { $in: pincodes };
+    }
+    return await SearchStatus.find(
+      filter,
+      { pincode: 1, category: 1, subCategory: 1, rounds: 1, round: 1, _id: 0 }
+    ).lean();
   } catch { return []; }
 }
 
@@ -351,13 +442,19 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
+/** Redact credentials when printing a MongoDB URI to the terminal. */
+function redactMongoUri(uri) {
+  if (!uri) return '(missing)';
+  return uri.replace(/(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@/i, '$1$2:***@');
+}
+
 async function main() {
   const CLI_VERSION = require('../package.json').version;
   const timeStr = new Date().toLocaleString('en-IN');
   const lines = [
     `   Ver  : v${CLI_VERSION}`,
     `   ENV  : ${APP_STATE.toUpperCase()}`,
-    `   API  : ${API_BASE_URL}`,
+    `   DB   : ${redactMongoUri(MONGODB_URI)}`,
     `   Time : ${timeStr}`,
   ];
   const boxW = Math.max(52, ...lines.map(l => l.length + 2));
@@ -375,6 +472,17 @@ async function main() {
 
   await printStats('Startup');
   console.log('');
+
+  // ── Connect to MongoDB before anything else ─────────────────────────────
+  process.stdout.write(chalk.cyan(`  Connecting to MongoDB…  `));
+  try {
+    await connectDB();
+    console.log(chalk.green('✓'));
+  } catch (err) {
+    console.log(chalk.red(`✗\n  MongoDB connection failed: ${err.message}`));
+    console.log(chalk.yellow(`  Check ${APP_STATE.toUpperCase()}_MONGODB_URI in .env`));
+    process.exit(1);
+  }
 
   // ── CLI args: npm start -- "hostname" startPincode endPincode ───────────
   //   e.g.  node src/index.js "DEMO PC 1" 700061 700062
@@ -455,8 +563,8 @@ async function main() {
     process.exit(1);
   }
 
-  // ── Fetch data ────────────────────────────────────────────────────────────
-  console.log(chalk.cyan(`\nFetching data from ${API_BASE_URL} …`));
+  // ── Fetch data directly from MongoDB ─────────────────────────────────────
+  console.log(chalk.cyan(`\nFetching pincodes + niches from MongoDB …`));
 
   let allPincodes, niches;
   try {
@@ -467,8 +575,8 @@ async function main() {
       fetchNiches(),
     ]);
   } catch (err) {
-    console.log(chalk.red(`\nAPI error: ${err.message}`));
-    console.log(chalk.yellow(`Ensure backend is running at ${API_BASE_URL}`));
+    console.log(chalk.red(`\nDB error: ${err.message}`));
+    console.log(chalk.yellow(`Verify ${APP_STATE.toUpperCase()}_MONGODB_URI in .env and that the cluster is reachable.`));
     process.exit(1);
   }
 
@@ -707,7 +815,7 @@ async function main() {
   const jobResults = await Promise.all(jobDefs.map(jobDef => executeJob(jobDef)));
 
   // ── Done ──────────────────────────────────────────────────────────────────
-  liveMonitor.stop();
+  await liveMonitor.stop();
   liveMonitor = null;
 
   // Aggregate stats across all jobs

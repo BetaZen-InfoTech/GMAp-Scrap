@@ -16,6 +16,7 @@ const PAGE_TITLES: Record<Route, string> = {
   'coming-pincodes': 'Coming Pincodes',
   'ssh-terminal': 'SSH Terminal',
   'google-category': 'Google Category',
+  'server-info': 'Server Info',
 };
 
 interface LayoutProps {

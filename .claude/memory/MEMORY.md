@@ -62,3 +62,6 @@
 ## User Preferences
 - API endpoints hardcoded in code, not user-configurable
 - Only update frontend/, frontend-admin/, frontend-nodejs/, backend/ directories
+
+## Git / Deploy
+- [Git push needs explicit permission](feedback_git_push_permission.md) — never push without an explicit ask for that specific push

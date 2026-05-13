@@ -1,8 +1,8 @@
 'use strict';
 
-const si    = require('systeminformation');
-const axios = require('axios');
-const { API_BASE_URL } = require('./config');
+const si = require('systeminformation');
+const DeviceHistory = require('./models/DeviceHistory');
+const Device = require('./models/Device');
 
 // Previous network sample for speed calculation
 let _prevNetRx   = 0;
@@ -69,16 +69,47 @@ function fmtSize(mb) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb} MB`;
 }
 
-// ── Server upload (batched) ───────────────────────────────────────────────────
-
+// ── DB upload (batched) ───────────────────────────────────────────────────────
+//
+// Mirrors the old POST /api/device-history route: push the buffered snapshots
+// into today's per-device document and update `latestStats` on the Device doc.
+// Fire-and-forget — never block the live bar.
 async function flushStatsToServer(deviceId, statsBuffer) {
   if (!deviceId || statsBuffer.length === 0) return;
   try {
-    await axios.post(
-      `${API_BASE_URL}/api/device-history`,
-      { deviceId, stats: statsBuffer },
-      { timeout: 10000 }
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    await DeviceHistory.updateOne(
+      { deviceId, date: today },
+      { $push: { stats: { $each: statsBuffer } } },
+      { upsert: true }
     );
+
+    const latest = statsBuffer[statsBuffer.length - 1];
+    if (latest) {
+      Device.updateOne(
+        { deviceId },
+        {
+          $set: {
+            lastSeenAt: new Date(),
+            status: 'online',
+            latestStats: {
+              cpuUsedPercent:  latest.cpuUsedPercent  ?? 0,
+              ramTotalMB:      latest.ramTotalMB      ?? 0,
+              ramUsedMB:       latest.ramUsedMB       ?? 0,
+              ramUsedPercent:  latest.ramUsedPercent  ?? 0,
+              diskTotalGB:     latest.diskTotalGB     ?? 0,
+              diskUsedGB:      latest.diskUsedGB      ?? 0,
+              diskUsedPercent: latest.diskUsedPercent ?? 0,
+              networkSentMB:   latest.networkSentMB   ?? 0,
+              networkRecvMB:   latest.networkRecvMB   ?? 0,
+              netDownKBps:     latest.netDownKBps     ?? 0,
+              netUpKBps:       latest.netUpKBps       ?? 0,
+              updatedAt:       new Date(),
+            },
+          },
+        }
+      ).catch(() => { /* fire-and-forget */ });
+    }
   } catch { /* fire-and-forget */ }
 }
 
@@ -117,12 +148,18 @@ class LiveMonitor {
     this._flushTimer = setInterval(() => this._flush(), 30_000);
   }
 
+  /**
+   * Stop the monitor. Returns a promise that resolves once the final stats
+   * batch has been written to MongoDB — callers (e.g. runShutdown) should
+   * await it before disconnecting the mongoose connection, otherwise the
+   * last write races with disconnect and is silently lost.
+   */
   stop() {
     this.active = false;
     if (this.interval)    { clearInterval(this.interval);    this.interval    = null; }
     if (this._flushTimer) { clearInterval(this._flushTimer); this._flushTimer = null; }
     process.stdout.write('\r\x1b[2K');
-    this._flush();  // send remaining snapshots on exit
+    return this._flush();  // send remaining snapshots on exit
   }
 
   /** Print a message above the live bar. Use instead of console.log. */
@@ -167,9 +204,9 @@ class LiveMonitor {
   }
 
   _flush() {
-    if (this._buffer.length === 0) return;
+    if (this._buffer.length === 0) return Promise.resolve();
     const batch = this._buffer.splice(0);
-    flushStatsToServer(this._deviceId, batch);
+    return flushStatsToServer(this._deviceId, batch);
   }
 
   _format(s) {

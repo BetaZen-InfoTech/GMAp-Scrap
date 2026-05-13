@@ -200,6 +200,39 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   // ── Quick Actions ──
   const [showActions, setShowActions] = useState(false);
 
+  // ── Editable .env template (persisted to localStorage) ──
+  // The "Set .env (prod)" action heredocs this content into
+  // ~/GMAp-Scrap/frontend-nodejs/.env on every selected device. Admins can
+  // tweak it via the gear next to the button without code changes.
+  // CLI v1.6.0+ connects directly to MongoDB (no HTTP backend in the path).
+  // Storage key is versioned so old admin installs don't carry the legacy
+  // API_URL template forward after the upgrade.
+  const ENV_STORAGE_KEY = 'gmap_admin_env_prod_template_v2';
+  const DEFAULT_ENV_PROD = [
+    'APP_STATE=prod',
+    'LOCAL_MONGODB_URI=mongodb://127.0.0.1:27017/gmap-scrap',
+    'DEV_MONGODB_URI=mongodb://127.0.0.1:27017/gmap-scrap',
+    'PROD_MONGODB_URI=mongodb+srv://user:password@cluster0.example.mongodb.net/gmap-scrap?retryWrites=true&w=majority',
+    'HEADLESS=true',
+  ].join('\n');
+  const [envContent, setEnvContent] = useState<string>(() => {
+    try {
+      return localStorage.getItem(ENV_STORAGE_KEY) || DEFAULT_ENV_PROD;
+    } catch {
+      return DEFAULT_ENV_PROD;
+    }
+  });
+  const [showEnvEditor, setShowEnvEditor] = useState(false);
+  const [envDraft, setEnvDraft] = useState(envContent);
+
+  const persistEnv = (next: string) => {
+    setEnvContent(next);
+    try { localStorage.setItem(ENV_STORAGE_KEY, next); } catch { /* ignore */ }
+  };
+
+  const buildSetEnvCmd = (body: string) =>
+    `cd ~/GMAp-Scrap/frontend-nodejs && cat > .env << 'ENVEOF'\n${body}\nENVEOF`;
+
   const quickActions = [
     {
       label: 'Install Node.js',
@@ -229,7 +262,8 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       label: 'Set .env (prod)',
       icon: '5',
       color: 'bg-amber-700 hover:bg-amber-600',
-      cmd: `cd ~/GMAp-Scrap/frontend-nodejs && cat > .env << 'ENVEOF'\nAPP_STATE=prod\nLOCAL_API_URL=http://127.0.0.1:5000\nDEV_API_URL=http://127.0.0.1:5000\nPROD_API_URL=https://gmap-scrap-backend-api.betazeninfotech.com\nHEADLESS=true\nENVEOF`,
+      cmd: buildSetEnvCmd(envContent),
+      editable: true,
     },
     {
       label: 'Install PM2',
@@ -416,16 +450,29 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
             {quickActions.map((action) => (
-              <button
-                key={action.label}
-                onClick={() => runActionAll(action.cmd)}
-                className={`${action.color} text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors text-left`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">{action.icon}</span>
-                  <span>{action.label}</span>
-                </div>
-              </button>
+              <div key={action.label} className="relative">
+                <button
+                  onClick={() => runActionAll(action.cmd)}
+                  className={`${action.color} text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors text-left w-full`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">{action.icon}</span>
+                    <span>{action.label}</span>
+                  </div>
+                </button>
+                {action.editable && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setEnvDraft(envContent); setShowEnvEditor(true); }}
+                    title="Edit .env template"
+                    className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded-md bg-black/30 hover:bg-black/50 text-white/90 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
           <div className="mt-3 flex items-center gap-3">
@@ -635,6 +682,80 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
           </div>
         </div>
       </div>
+
+      {/* .env template editor modal */}
+      {showEnvEditor && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowEnvEditor(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-white">Edit .env (prod) template</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Saved locally on this admin machine. Used by the &quot;Set .env (prod)&quot; action for every selected device.</p>
+              </div>
+              <button
+                onClick={() => setShowEnvEditor(false)}
+                className="text-slate-500 hover:text-white transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex-1 overflow-y-auto">
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Contents of <code className="text-amber-400">~/GMAp-Scrap/frontend-nodejs/.env</code></label>
+              <textarea
+                value={envDraft}
+                onChange={(e) => setEnvDraft(e.target.value)}
+                spellCheck={false}
+                rows={12}
+                className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-slate-100 focus:outline-none focus:border-blue-500 resize-y"
+                placeholder="KEY=value"
+              />
+              <p className="text-[11px] text-slate-500 mt-2">
+                Tip: lines are heredoc&apos;d verbatim — avoid using <code className="text-amber-400">ENVEOF</code> as a literal value.
+              </p>
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between gap-2">
+              <button
+                onClick={() => setEnvDraft(DEFAULT_ENV_PROD)}
+                className="text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                Reset to default
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowEnvEditor(false)}
+                  className="text-xs bg-slate-700 hover:bg-slate-600 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { persistEnv(envDraft); setShowEnvEditor(false); }}
+                  className="text-xs bg-amber-600 hover:bg-amber-500 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => { persistEnv(envDraft); window.electronAPI.sshCommandAll(buildSetEnvCmd(envDraft)); setShowEnvEditor(false); }}
+                  className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                  title="Save and push to all connected devices"
+                >
+                  Save &amp; Push
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

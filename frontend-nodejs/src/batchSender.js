@@ -1,79 +1,156 @@
-const axios = require('axios');
-const { API_BASE_URL } = require('./config');
+'use strict';
 
-const RETRY_DELAYS = [1000, 2000, 4000];
+const ScrapedData = require('./models/ScrapedData');
+const Device = require('./models/Device');
+const { fixPhoneNumber } = require('./utils/phoneFixer');
 
-/** HTTP status codes where retrying the request is pointless. */
-function isFatalStatus(status) {
-  return status === 400 || status === 401 || status === 403 || status === 404 || status === 413 || status === 422;
+/**
+ * Duplicate keys from 5 fields.
+ * Key 1: Phone + Rating + Reviews + Category + PlusCode
+ * Key 2: Email + Rating + Reviews + Category + PlusCode
+ */
+function dupKeys(phone, email, rating, reviews, category, plusCode) {
+  const keys = [];
+  if (phone) keys.push(`P|${phone}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`);
+  if (email) keys.push(`E|${email}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`);
+  return keys;
+}
+
+/** Extract a 6-digit Indian pincode from an address string. */
+function extractPincode(address) {
+  if (!address) return null;
+  const match = address.match(/\b(\d{6})\b/);
+  return match ? match[1] : null;
+}
+
+/** Fire-and-forget: bump device's lastSeenAt + status */
+function touchDevice(deviceId) {
+  if (!deviceId) return;
+  Device.updateOne(
+    { deviceId },
+    { $set: { lastSeenAt: new Date(), status: 'online' } }
+  ).catch(() => { /* fire-and-forget */ });
 }
 
 /**
- * Send a batch of scraped records to the backend.
- * Retries up to 3 times with exponential back-off on transient failures.
- * Returns { success, fatal, ... } — `fatal: true` means retries would not help
- * (auth / validation / permanently rejected) and the caller should stop
- * re-queueing this batch.
+ * Persist a batch of scraped records directly to MongoDB, applying the same
+ * duplicate-detection logic the backend used to do over HTTP. Mirrors the
+ * old `POST /api/scraped-data/batch` route contract so callers don't change.
  */
 async function sendBatch(records, batchNumber, sessionId, keyword, pincode, deviceId, scrapCategory, scrapSubCategory, round) {
-  const endpoint = `${API_BASE_URL}/api/scraped-data/batch`;
-
-  const payload = {
-    batchNumber,
-    timestamp: new Date().toISOString(),
-    sessionId,
-    deviceId:  deviceId || undefined,
-    count: records.length,
-    pincode: pincode != null ? String(pincode) : undefined,
-    keyword,
-    scrapCategory:    scrapCategory || undefined,
-    scrapSubCategory: scrapSubCategory || undefined,
-    round:            round || undefined,
-    scrapFrom:        'G-Map',
-    records,
-  };
-
-  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-    try {
-      const res = await axios.post(endpoint, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 30000,
-      });
-
-      return {
-        success: true,
-        batchNumber,
-        count:          res.data?.count          ?? records.length,
-        duplicateCount: res.data?.duplicateCount ?? 0,
-        insertedIds:    res.data?.insertedIds    ?? [],
-        duplicateIds:   res.data?.duplicateIds   ?? [],
-      };
-    } catch (err) {
-      const status = err.response?.status;
-      // Fatal statuses — retrying won't help. Bail immediately and flag.
-      if (status && isFatalStatus(status)) {
-        return {
-          success: false,
-          fatal: true,
-          batchNumber,
-          count: records.length,
-          status,
-          error: `HTTP ${status}: ${err.response?.data?.error || err.message}`,
-        };
-      }
-      const isLast = attempt === RETRY_DELAYS.length;
-      if (isLast) {
-        return { success: false, fatal: false, batchNumber, count: records.length, status, error: err.message };
-      }
-      await sleep(RETRY_DELAYS[attempt]);
+  try {
+    if (!Array.isArray(records) || records.length === 0) {
+      return { success: false, fatal: true, batchNumber, count: 0, error: 'empty batch' };
     }
+
+    touchDevice(deviceId);
+
+    // Phone normalization in-place so dedup + storage use the same canonical value
+    for (const r of records) {
+      const { phone: fixedPhone, fixed } = fixPhoneNumber(r.phone);
+      r.phone = fixedPhone;
+      r._numberFixing = fixed;
+    }
+
+    // Duplicate detection — Phone+R+R+C+PC and Email+R+R+C+PC
+    const phoneConditions = [];
+    const emailConditions = [];
+    for (const r of records) {
+      if (r.phone) phoneConditions.push({ phone: r.phone, rating: r.rating || 0, reviews: r.reviews || 0, category: r.category || null, plusCode: r.plusCode || null });
+      if (r.email) emailConditions.push({ email: r.email, rating: r.rating || 0, reviews: r.reviews || 0, category: r.category || null, plusCode: r.plusCode || null });
+    }
+    const orConditions = [...phoneConditions, ...emailConditions];
+
+    const existing = orConditions.length > 0
+      ? await ScrapedData.find(
+          { $or: orConditions },
+          { phone: 1, email: 1, rating: 1, reviews: 1, category: 1, plusCode: 1 }
+        ).lean()
+      : [];
+
+    const existingKeys = new Set();
+    for (const e of existing) {
+      for (const k of dupKeys(e.phone, e.email, e.rating, e.reviews, e.category, e.plusCode)) {
+        existingKeys.add(k);
+      }
+    }
+
+    const newDocs = [];
+    const dupDocs = [];
+    for (const r of records) {
+      const keys = dupKeys(r.phone, r.email, r.rating || 0, r.reviews || 0, r.category, r.plusCode);
+      const isDup = keys.some((k) => existingKeys.has(k));
+      const resolvedPincode = r.pincode || (pincode != null ? String(pincode) : null) || extractPincode(r.address) || undefined;
+
+      const doc = {
+        sessionId: r.sessionId || sessionId,
+        deviceId: deviceId || undefined,
+        batchNumber: batchNumber || 0,
+        name: r.name,
+        nameEnglish: r.nameEnglish,
+        nameLocal: r.nameLocal,
+        address: r.address,
+        phone: r.phone,
+        email: r.email,
+        website: r.website,
+        rating: r.rating || 0,
+        reviews: r.reviews || 0,
+        category: r.category,
+        pincode: resolvedPincode,
+        plusCode: r.plusCode,
+        photoUrl: r.photoUrl,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        mapsUrl: r.mapsUrl,
+        scrapKeyword: keyword || undefined,
+        scrapCategory: r.scrapCategory || scrapCategory || undefined,
+        scrapSubCategory: r.scrapSubCategory || scrapSubCategory || undefined,
+        scrapRound: round || undefined,
+        scrapedAt: r.timestamp || new Date().toISOString(),
+        scrapFrom: 'G-Map',
+        numberFixing: r._numberFixing === true,
+      };
+
+      if (isDup) {
+        doc.isDuplicate = true;
+        dupDocs.push(doc);
+      } else {
+        for (const k of keys) existingKeys.add(k);
+        doc.isDuplicate = false;
+        newDocs.push(doc);
+      }
+    }
+
+    const insertedIds = [];
+    const duplicateIds = [];
+    const allDocs = [...newDocs, ...dupDocs];
+
+    if (allDocs.length > 0) {
+      const inserted = await ScrapedData.insertMany(allDocs, { ordered: false });
+      for (const d of inserted) {
+        if (d.isDuplicate) duplicateIds.push(d._id);
+        else insertedIds.push(d._id);
+      }
+    }
+
+    return {
+      success: true,
+      batchNumber,
+      count: newDocs.length,
+      duplicateCount: dupDocs.length,
+      totalReceived: records.length,
+      insertedIds,
+      duplicateIds,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      fatal: false,
+      batchNumber,
+      count: records?.length || 0,
+      error: err.message,
+    };
   }
-
-  return { success: false, fatal: false, batchNumber, count: records.length, error: 'Max retries reached' };
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = { sendBatch };
