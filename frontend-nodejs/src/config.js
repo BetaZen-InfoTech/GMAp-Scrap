@@ -39,6 +39,4 @@ const SETTINGS = {
   headless: process.env.HEADLESS !== 'false',
 };
 
-const EXCEL_DIR = require('path').join(__dirname, '..', 'excel');
-
-module.exports = { API_BASE_URL, APP_STATE, SETTINGS, EXCEL_DIR };
+module.exports = { API_BASE_URL, APP_STATE, SETTINGS };

@@ -17,7 +17,6 @@ const sessionStatsSchema = new mongoose.Schema(
     insertedRecords: { type: Number, default: 0 },
     duplicateRecords: { type: Number, default: 0 },
     batchesSent: { type: Number, default: 0 },
-    excelUploaded: { type: Boolean, default: false },
     status: { type: String, enum: ['completed', 'error', 'partial'], default: 'completed' },
     startedAt: { type: String },
     completedAt: { type: String },

@@ -51,7 +51,6 @@ BetaZen-G-Map-Scrap/
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/scraped-data/batch` | POST | Save scraped records in batch |
-| `/api/scraped-data/excel` | POST | Upload Excel file |
 | `/api/scraped-data/session-stats` | POST | Upsert session statistics |
 | `/api/pincodes/range` | GET | Fetch pincodes by range |
 | `/api/niches` | GET | Fetch all business niches |
@@ -61,7 +60,6 @@ BetaZen-G-Map-Scrap/
 
 ## MongoDB Collections
 - `Scraped-Data` — scraped business records (with `isDuplicate` flag)
-- `Excel-Uploads` — uploaded Excel file metadata
 - `Session-Stats` — per-session statistics
 - `Search-Status` — per-search completion tracking (pincode + niche + round)
 - `Scrape-Tracking` — job-level progress tracking
@@ -77,9 +75,8 @@ Checks by: Phone + Rating + Reviews + Category + PlusCode (all 5 must match)
 1. CLI/Electron starts scraping session with keyword (pincode + niche + round)
 2. Playwright opens Google Maps, scrolls feed, extracts business details
 3. Records sent to backend in batches via `/api/scraped-data/batch`
-4. Excel generated locally and uploaded via `/api/scraped-data/excel`
-5. Session stats saved via `/api/scraped-data/session-stats`
-6. Search completion tracked via `/api/scrape-tracking`
+4. Session stats saved via `/api/scraped-data/session-stats`
+5. Search completion tracked via `/api/scrape-tracking`
 
 ## Running Locally
 ```bash

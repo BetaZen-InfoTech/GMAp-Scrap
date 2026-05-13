@@ -20,10 +20,9 @@ const { v4: uuidv4 } = require('uuid');
 const axios  = require('axios');
 const chalk  = require('chalk');
 
-const { API_BASE_URL, APP_STATE, SETTINGS, EXCEL_DIR } = require('./config');
+const { API_BASE_URL, APP_STATE, SETTINGS } = require('./config');
 const { ScraperEngine }          = require('./scraper');
 const { sendBatch }              = require('./batchSender');
-const { generateExcel, uploadExcel } = require('./excelGenerator');
 const { getSystemStats, LiveMonitor } = require('./monitor');
 const { ensureDevice }           = require('./deviceManager');
 
@@ -331,24 +330,6 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
   print(chalk.bold.green('  │') + chalk.white(` Records: ${chalk.bold.cyan(totalScraped)}  Saved: ${chalk.bold.green(inserted)}  Dups: ${chalk.bold.yellow(duplicates)}`) + ' '.repeat(Math.max(1, 18 - String(totalScraped).length - String(inserted).length - String(duplicates).length)) + chalk.bold.green('│'));
   print(chalk.bold.green('  └───────────────────────────────────┘'));
 
-  let excelUploaded = false;
-  if (totalScraped > 0) {
-    const excelResult = await generateExcel(sessionId, keyword, allRecords, EXCEL_DIR);
-    if (excelResult.success) {
-      print(chalk.green(`  Excel  : ${excelResult.filePath}`));
-      // Upload Excel to backend
-      const uploadResult = await uploadExcel(excelResult.filePath, sessionId, keyword, deviceId);
-      if (uploadResult.success) {
-        excelUploaded = true;
-        print(chalk.green(`  Upload : Excel uploaded to server`));
-      } else {
-        print(chalk.yellow(`  Upload : failed — ${uploadResult.error}`));
-      }
-    } else {
-      print(chalk.yellow(`  Excel  : failed — ${excelResult.error}`));
-    }
-  }
-
   postSessionStats({
     sessionId, deviceId: deviceId || undefined, keyword,
     jobId: extraContext?.jobId,
@@ -360,7 +341,7 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
     round: extraContext?.round,
     totalRecords: totalScraped, insertedRecords: inserted,
     duplicateRecords: duplicates, batchesSent,
-    excelUploaded, status: 'completed',
+    status: 'completed',
     startedAt: startTime, completedAt: endTime,
     durationMs: new Date(endTime).getTime() - new Date(startTime).getTime(),
   });

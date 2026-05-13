@@ -1,10 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const ScrapedData = require('../models/ScrapedData');
-const ExcelUpload = require('../models/ExcelUpload');
 const SessionStats = require('../models/SessionStats');
 const Device = require('../models/Device');
 const { fixPhoneNumber } = require('../utils/phoneFixer');
@@ -24,37 +20,6 @@ function getClientIp(req) {
   if (forwarded) return forwarded.split(',')[0].trim();
   return req.socket?.remoteAddress || req.ip || '';
 }
-
-// ── Multer config for Excel uploads ──
-const uploadDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    // Ensure directory exists on every upload (survives restarts/deletions)
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueName = `${Date.now()}-${file.originalname}`;
-    cb(null, uniqueName);
-  },
-});
-
-const upload = multer({
-  storage,
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ext === '.xlsx' || ext === '.xls') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only .xlsx and .xls files are allowed'));
-    }
-  },
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
-});
 
 /**
  * Build duplicate keys from 5 fields.
@@ -207,36 +172,6 @@ router.post('/batch', async (req, res) => {
   }
 });
 
-// POST /api/scraped-data/excel — upload Excel file
-router.post('/excel', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    const { sessionId, keyword, deviceId } = req.body;
-
-    const doc = await ExcelUpload.create({
-      sessionId: sessionId || 'unknown',
-      deviceId: deviceId || undefined,
-      keyword: keyword || '',
-      fileName: req.file.originalname,
-      filePath: req.file.path,
-      fileSize: req.file.size,
-    });
-
-    res.status(201).json({
-      success: true,
-      id: doc._id,
-      fileName: req.file.originalname,
-      fileSize: req.file.size,
-    });
-  } catch (err) {
-    console.error('[scraped-data/excel POST] Error:', err.message);
-    res.status(500).json({ error: 'Server error', message: err.message });
-  }
-});
-
 // POST /api/scraped-data/session-stats — save or update session statistics
 // Single doc per (pincode, category, subCategory) — rounds tracked as array
 // Stats are accumulated ($inc) across rounds
@@ -255,7 +190,7 @@ router.post('/session-stats', async (req, res) => {
       'sessionId', 'jobId', 'deviceId', 'keyword',
       'pincode', 'district', 'stateName',
       'category', 'subCategory',
-      'excelUploaded', 'status',
+      'status',
       'startedAt', 'completedAt', 'durationMs',
     ];
     for (const key of setFields) {
