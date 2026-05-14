@@ -14,6 +14,7 @@ import PincodeDetailsPage from './pages/PincodeDetailsPage';
 import ScrapedPincodesPage from './pages/ScrapedPincodesPage';
 import ScrapDatabasePage from './pages/ScrapDatabasePage';
 import DuplicatesPage from './pages/DuplicatesPage';
+import DeletedRecordsPage from './pages/DeletedRecordsPage';
 import WebsiteScraperPage from './pages/WebsiteScraperPage';
 import JobsPage from './pages/JobsPage';
 import ComingPincodesPage from './pages/ComingPincodesPage';
@@ -113,6 +114,8 @@ const App: React.FC = () => {
         return <ScrapDatabasePage />;
       case 'duplicates':
         return <DuplicatesPage />;
+      case 'deleted-records':
+        return <DeletedRecordsPage />;
       case 'website-scraper':
         return <WebsiteScraperPage />;
       case 'coming-pincodes':

@@ -17,6 +17,7 @@ const PAGE_TITLES: Record<Route, string> = {
   'ssh-terminal': 'SSH Terminal',
   'google-category': 'Google Category',
   'server-info': 'Server Info',
+  'deleted-records': 'Deleted Records',
 };
 
 interface LayoutProps {

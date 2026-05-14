@@ -1956,6 +1956,158 @@ router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Deleted-records archive — view + restore + purge
+//
+// Records moved to Scraped-Data-Deleted by `soft-delete` / `soft-delete-filter`
+// are kept indefinitely for safety. These routes give the admin a way back:
+//   - list / search / paginate the archive
+//   - restore selected ids (or everything matching a filter)
+//   - permanently purge from the archive
+//
+// Restore and purge both require re-confirming the admin password in the body
+// even though the session token is already valid — these operations move /
+// delete tens of thousands of rows and shouldn't run on a typo'd click.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Same field set as buildScrapDbFilter, but applied to the Deleted collection. */
+function buildDeletedRecordsFilter(params) {
+  // The deleted-archive carries the same field shape as Scraped-Data, so we
+  // reuse the existing filter builder verbatim instead of duplicating regexes.
+  return buildScrapDbFilter(params);
+}
+
+// GET /api/admin/deleted-records — paginated list
+router.get('/deleted-records', async (req, res) => {
+  try {
+    const { page = 1, limit = 25, sortBy = 'deletedAt', sortOrder = 'desc', ...filterParams } = req.query;
+    const filter = buildDeletedRecordsFilter(filterParams);
+    const skip = (Number(page) - 1) * Number(limit);
+    const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+
+    const [data, total] = await Promise.all([
+      ScrapedDataDeleted.find(filter).sort(sort).skip(skip).limit(Number(limit)).lean(),
+      ScrapedDataDeleted.countDocuments(filter),
+    ]);
+
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[admin/deleted-records] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/admin/deleted-records/count — quick total (used by the sidebar badge)
+router.get('/deleted-records/count', async (_req, res) => {
+  try {
+    const total = await ScrapedDataDeleted.countDocuments({});
+    res.json({ total });
+  } catch (err) {
+    console.error('[admin/deleted-records/count] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/admin/deleted-records/restore — restore by ids (admin password required)
+// Body: { ids: [...], password: '...' }
+router.post('/deleted-records/restore', async (req, res) => {
+  try {
+    const { ids, password } = req.body;
+    if (!password || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array required' });
+    }
+
+    const BATCH = 500;
+    let restoredCount = 0;
+
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batchIds = ids.slice(i, i + BATCH);
+      const records = await ScrapedDataDeleted.find({ _id: { $in: batchIds } }).lean();
+      if (records.length === 0) continue;
+
+      // Strip archive-only fields (deletedAt, originalId) and the archive _id so
+      // mongo assigns a fresh one. We don't try to preserve the original _id
+      // because it may collide with whatever was inserted in the meantime.
+      const cleanDocs = records.map((r) => {
+        const { _id, __v, deletedAt, originalId, ...rest } = r;
+        return rest;
+      });
+      await ScrapedData.insertMany(cleanDocs, { ordered: false });
+      await ScrapedDataDeleted.deleteMany({ _id: { $in: batchIds } });
+      restoredCount += records.length;
+    }
+
+    res.json({ success: true, restoredCount });
+  } catch (err) {
+    console.error('[admin/deleted-records/restore] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
+// POST /api/admin/deleted-records/restore-all — restore every record matching a filter
+// Body: { filter?: {...}, password: '...' }
+router.post('/deleted-records/restore-all', async (req, res) => {
+  try {
+    const { filter: rawFilter, password } = req.body;
+    if (!password || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid admin password' });
+    }
+
+    const filter = buildDeletedRecordsFilter(rawFilter || {});
+    const BATCH = 500;
+    let restoredCount = 0;
+
+    while (true) {
+      const records = await ScrapedDataDeleted.find(filter).limit(BATCH).lean();
+      if (records.length === 0) break;
+      const batchIds = records.map((r) => r._id);
+      const cleanDocs = records.map((r) => {
+        const { _id, __v, deletedAt, originalId, ...rest } = r;
+        return rest;
+      });
+      await ScrapedData.insertMany(cleanDocs, { ordered: false });
+      await ScrapedDataDeleted.deleteMany({ _id: { $in: batchIds } });
+      restoredCount += records.length;
+    }
+
+    res.json({ success: true, restoredCount });
+  } catch (err) {
+    console.error('[admin/deleted-records/restore-all] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
+// DELETE /api/admin/deleted-records/purge — permanently delete from the archive
+// Body: { ids?: [...], filter?: {...}, password: '...' }
+// Exactly one of ids/filter must be present. After this the records cannot be
+// recovered through the admin UI.
+router.delete('/deleted-records/purge', async (req, res) => {
+  try {
+    const { ids, filter: rawFilter, password } = req.body;
+    if (!password || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    const hasIds = Array.isArray(ids) && ids.length > 0;
+    const hasFilter = rawFilter && typeof rawFilter === 'object';
+    if (!hasIds && !hasFilter) {
+      return res.status(400).json({ error: 'ids array or filter required' });
+    }
+
+    const filter = hasIds
+      ? { _id: { $in: ids } }
+      : buildDeletedRecordsFilter(rawFilter);
+
+    const result = await ScrapedDataDeleted.deleteMany(filter);
+    res.json({ success: true, purgedCount: result.deletedCount || 0 });
+  } catch (err) {
+    console.error('[admin/deleted-records/purge] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
 // ── PATCH /api/admin/scrap-database/mark-website-scraped ──
 // Marks ALL records with the same website URL as scraped (not just the given ids)
 router.patch('/scrap-database/mark-website-scraped', async (req, res) => {
