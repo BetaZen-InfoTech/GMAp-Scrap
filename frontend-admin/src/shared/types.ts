@@ -27,10 +27,12 @@ export interface TaskProgress {
 }
 
 export interface ScrapeTask {
-  type: 'jobs' | 'range' | 'single';
+  type: 'jobs' | 'range' | 'single' | 'website';
   startPin: string;
   endPin?: string;
   jobs?: number;
+  limit?: number;     // website-mode: total unscraped websites to claim
+  workers?: number;   // website-mode: parallel PM2 workers (defaults to 4)
   progress?: TaskProgress | null;
 }
 

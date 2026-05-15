@@ -38,7 +38,15 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
   // Build initial tasks from scrapeTasks array OR fallback to legacy scrapePincode/scrapeJobs
   // Preserve the `progress` field from backend
   const initialTasks: ScrapeTask[] = (device.scrapeTasks && device.scrapeTasks.length > 0)
-    ? device.scrapeTasks.map((t) => ({ type: t.type, startPin: t.startPin || '', endPin: t.endPin || '', jobs: t.jobs || 3, progress: t.progress }))
+    ? device.scrapeTasks.map((t) => ({
+        type: t.type,
+        startPin: t.startPin || '',
+        endPin: t.endPin || '',
+        jobs: t.jobs || 3,
+        limit: t.limit || 100,
+        workers: t.workers || 4,
+        progress: t.progress,
+      }))
     : (device.scrapePincode
         ? [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }]
         : []);
@@ -51,11 +59,14 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
     const cleaned = taskList
       .map((t) => ({
         type: t.type,
-        startPin: t.startPin.trim(),
-        endPin: t.type === 'range' ? (t.endPin || '').trim() : '',
-        jobs: t.type === 'jobs' ? (t.jobs || 3) : 0,
+        startPin: t.type === 'website' ? '' : t.startPin.trim(),
+        endPin:   t.type === 'range'   ? (t.endPin || '').trim() : '',
+        jobs:     t.type === 'jobs'    ? (t.jobs   || 3)   : 0,
+        limit:    t.type === 'website' ? Math.max(1, Number(t.limit)   || 100) : 0,
+        workers:  t.type === 'website' ? Math.max(1, Number(t.workers) || 4)   : 0,
       }))
-      .filter((t) => t.startPin);
+      // Website tasks don't need a startPin; pincode tasks do.
+      .filter((t) => t.type === 'website' || t.startPin);
     try {
       await onSaveScrapeTasks?.(device.deviceId, cleaned);
       setEditScrape(false);
@@ -271,16 +282,19 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                   <option value="jobs">Jobs</option>
                   <option value="range">Range</option>
                   <option value="single">Single</option>
+                  <option value="website">Website</option>
                 </select>
-                <input
-                  type="text"
-                  data-field="start"
-                  value={t.startPin}
-                  onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, startPin: e.target.value } : x))}
-                  onKeyDown={(e) => handleTaskKey(e, idx, 'start')}
-                  placeholder="Start"
-                  className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
-                />
+                {t.type !== 'website' && (
+                  <input
+                    type="text"
+                    data-field="start"
+                    value={t.startPin}
+                    onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, startPin: e.target.value } : x))}
+                    onKeyDown={(e) => handleTaskKey(e, idx, 'start')}
+                    placeholder="Start"
+                    className="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                  />
+                )}
                 {t.type === 'range' && (
                   <input
                     type="text"
@@ -302,6 +316,33 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                     placeholder="Jobs"
                     className="w-10 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
                   />
+                )}
+                {t.type === 'website' && (
+                  <>
+                    <input
+                      type="number"
+                      min={1}
+                      data-field="limit"
+                      value={String(t.limit ?? 100)}
+                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, limit: Math.max(1, Number(e.target.value) || 100) } : x))}
+                      onKeyDown={(e) => handleTaskKey(e, idx, 'jobs')}
+                      placeholder="Limit"
+                      title="How many unscraped websites to fetch in total (split evenly across workers)"
+                      className="w-14 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={16}
+                      data-field="workers"
+                      value={String(t.workers ?? 4)}
+                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, workers: Math.max(1, Math.min(16, Number(e.target.value) || 4)) } : x))}
+                      onKeyDown={(e) => handleTaskKey(e, idx, 'jobs')}
+                      placeholder="W"
+                      title="Parallel workers (each runs as its own PM2 process)"
+                      className="w-10 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </>
                 )}
                 <button
                   onClick={() => setTaskList(taskList.filter((_, i) => i !== idx))}
@@ -349,13 +390,20 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                       <div className="text-[10px] font-mono flex items-center gap-1.5 flex-wrap">
                         <span className="text-slate-500">{idx + 1}.</span>
                         <span className={`px-1 py-px rounded text-[9px] ${
-                          t.type === 'range' ? 'bg-purple-900/40 text-purple-300' :
-                          t.type === 'single' ? 'bg-orange-900/40 text-orange-300' :
-                          'bg-blue-900/40 text-blue-300'
+                          t.type === 'range'   ? 'bg-purple-900/40 text-purple-300' :
+                          t.type === 'single'  ? 'bg-orange-900/40 text-orange-300' :
+                          t.type === 'website' ? 'bg-violet-900/40 text-violet-300' :
+                                                 'bg-blue-900/40 text-blue-300'
                         }`}>{t.type}</span>
-                        <span className="text-cyan-400">{t.startPin}</span>
+                        {t.type !== 'website' && <span className="text-cyan-400">{t.startPin}</span>}
                         {t.type === 'range' && <span className="text-slate-500">→ <span className="text-cyan-400">{t.endPin}</span></span>}
                         {t.type === 'jobs' && <span className="text-slate-500">× {t.jobs}j</span>}
+                        {t.type === 'website' && (
+                          <span className="text-slate-500">
+                            limit <span className="text-cyan-400">{t.limit ?? 100}</span>
+                            <span className="text-slate-600 ml-1">× {t.workers ?? 4}w</span>
+                          </span>
+                        )}
                         {isComplete && (
                           <span className="ml-auto flex items-center gap-1 text-[9px] text-emerald-400 font-semibold" title={prog.completedAt ? `Completed ${new Date(prog.completedAt).toLocaleString('en-IN')}` : 'Completed'}>
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>

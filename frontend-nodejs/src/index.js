@@ -26,10 +26,12 @@ const BusinessNiche  = require('./models/BusinessNiche');
 const SessionStats   = require('./models/SessionStats');
 const ScrapeTracking = require('./models/ScrapeTracking');
 const SearchStatus   = require('./models/SearchStatus');
+const ScrapedData    = require('./models/ScrapedData');
 const { ScraperEngine }          = require('./scraper');
 const { sendBatch }              = require('./batchSender');
 const { getSystemStats, LiveMonitor } = require('./monitor');
 const { ensureDevice }           = require('./deviceManager');
+const { launchBrowser, scrapeOneSite } = require('./websiteScraper');
 
 // ── Module-level live monitor (shared by all helpers) ─────────────────────────
 let liveMonitor = null;
@@ -487,12 +489,36 @@ async function main() {
   // ── CLI args: npm start -- "hostname" startPincode endPincode ───────────
   //   e.g.  node src/index.js "DEMO PC 1" 700061 700062
   //   or    node src/index.js 700061 700062  (uses os.hostname())
-  const [,, argNickname, argStart, argEnd] = process.argv;
+  //
+  // Website-scraper mode (alternate invocation):
+  //   node src/index.js "DEMO PC 1" WEB <workerIndex> <totalWorkers> <limit>
+  //   e.g.  node src/index.js "DEMO PC 1" WEB 0 4 100
+  //         Worker 0 of 4 — takes the first quarter of 100 unscraped websites.
+  const [,, argNickname, argStart, argEnd, argFourth, argFifth] = process.argv;
 
   // ── Device registration / verification ───────────────────────────────────
   const deviceId = await ensureDevice(chalk, argNickname || undefined);
-  const rl = makeRl();
   console.log('');
+
+  // ── Website-scraper mode (early branch — skips pincode handling entirely) ──
+  if (String(argStart || '').toUpperCase() === 'WEB') {
+    const workerIndex  = parseInt(argEnd, 10);
+    const totalWorkers = parseInt(argFourth, 10);
+    const limit        = parseInt(argFifth, 10);
+    if (
+      !Number.isInteger(workerIndex)  || workerIndex  < 0 ||
+      !Number.isInteger(totalWorkers) || totalWorkers < 1 ||
+      !Number.isInteger(limit)        || limit        < 1
+    ) {
+      console.log(chalk.red('\n  WEB mode args must be: WEB <workerIndex> <totalWorkers> <limit>'));
+      console.log(chalk.red(`  Got: WEB "${argEnd}" "${argFourth}" "${argFifth}"`));
+      process.exit(2);
+    }
+    await runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, limit });
+    return;
+  }
+
+  const rl = makeRl();
 
   // ── Pincode input ─────────────────────────────────────────────────────────
   let startPincode, endPincode;
@@ -875,6 +901,197 @@ function waitIdle() {
   console.log(chalk.gray('\n  Process idle — all work done. Waiting for manual stop (pm2 delete / Ctrl+C).\n'));
   // Keep alive with a long interval — PM2 sees "online", no restart
   setInterval(() => {}, 60 * 60 * 1000);
+}
+
+// ── Website-scraper mode ────────────────────────────────────────────────────
+//
+// Spawned as one of N parallel PM2 workers (typically 4). Each worker:
+//   1. Queries Scraped-Data for `limit` unscraped websites (deterministic _id
+//      sort so all N workers see the same snapshot at startup),
+//   2. Slices its own chunk by workerIndex (worker 0 of 4 with limit=100 takes
+//      indices 0..24; worker 3 takes 75..99),
+//   3. For each site, harvests email / phone / contact-name via Playwright,
+//   4. Saves discovered contacts as new Scraped-Data rows (scrapFrom='Website')
+//      using sendBatch so dedup is consistent with the rest of the pipeline,
+//   5. Marks the source row `scrapWebsite: true` so it's never picked again.
+//
+// The chunk-slicing is done at startup before any writes — by then PM2's
+// staggered launch has all N workers running and pulling the same snapshot,
+// so they don't compete for the same site.
+async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, limit }) {
+  const sessionId = uuidv4();
+  const startTime = Date.now();
+  const startIso  = new Date().toISOString();
+
+  console.log('');
+  console.log(chalk.bold.magenta(`  ╔════════════════════════════════════════════╗`));
+  console.log(chalk.bold.magenta(`  ║   Website Scraper — Worker ${workerIndex + 1}/${totalWorkers}             `.padEnd(46) + '║'));
+  console.log(chalk.bold.magenta(`  ║   Limit: ${String(limit).padEnd(36)}║`));
+  console.log(chalk.bold.magenta(`  ╚════════════════════════════════════════════╝`));
+  console.log('');
+
+  liveMonitor = new LiveMonitor();
+  await liveMonitor.start(chalk, deviceId, 2000);
+
+  // ── 1. Pull the snapshot (all workers see the same set if they query close in time) ──
+  const sites = await ScrapedData.find(
+    {
+      scrapFrom: 'G-Map',
+      website: { $nin: [null, ''] },
+      scrapWebsite: { $ne: true },
+    },
+    {
+      _id: 1, name: 1, address: 1, pincode: 1, plusCode: 1, latitude: 1, longitude: 1,
+      category: 1, website: 1, scrapKeyword: 1, scrapCategory: 1, scrapSubCategory: 1,
+    }
+  )
+    .sort({ _id: 1 })
+    .limit(limit)
+    .lean();
+
+  // ── 2. Slice this worker's chunk ──
+  // Even distribution: with limit=102 and 4 workers, worker 0 gets indices 0..25 (26),
+  // worker 1 gets 26..51 (26), worker 2 gets 52..76 (25), worker 3 gets 77..101 (25).
+  const base = Math.floor(sites.length / totalWorkers);
+  const extra = sites.length % totalWorkers;
+  const chunkSize = base + (workerIndex < extra ? 1 : 0);
+  const startOffset = workerIndex * base + Math.min(workerIndex, extra);
+  const myChunk = sites.slice(startOffset, startOffset + chunkSize);
+
+  print(chalk.cyan(`  Snapshot: ${sites.length} unscraped websites. My slice: ${myChunk.length} (offset ${startOffset}).`));
+  if (myChunk.length === 0) {
+    print(chalk.yellow('  Nothing to do — chunk is empty. Sleeping.'));
+    waitIdle();
+    return;
+  }
+
+  // ── 3. Launch browser once for the whole run ──
+  const browser = await launchBrowser({ headless: SETTINGS.headless });
+  let visited = 0, contactsFound = 0, sitesWithContacts = 0, errors = 0;
+
+  for (let i = 0; i < myChunk.length; i++) {
+    if (isShuttingDown()) break;
+    const src = myChunk[i];
+    visited++;
+
+    print(chalk.bold.white(`  [${visited}/${myChunk.length}]  ${src.website}`));
+
+    let result;
+    try {
+      result = await scrapeOneSite(browser, src.website);
+    } catch (err) {
+      errors++;
+      print(chalk.red(`  ✗ ${err.message}`));
+      continue;
+    }
+
+    if (!result.ok) {
+      errors++;
+      print(chalk.red(`  ✗ ${result.error}`));
+      // Still mark the source row so we don't retry forever
+      await ScrapedData.updateOne({ _id: src._id }, { $set: { scrapWebsite: true } }).catch(() => {});
+      continue;
+    }
+
+    const { emails, phones, contactName } = result;
+    const total = emails.length + phones.length;
+    if (total === 0) {
+      print(chalk.gray(`    no contacts`));
+      await ScrapedData.updateOne({ _id: src._id }, { $set: { scrapWebsite: true } }).catch(() => {});
+      continue;
+    }
+
+    // Build a row per (email, phone) pair. If only emails exist, use empty phone
+    // for each; if only phones, empty email. If both, cross-product up to max(len).
+    const rows = [];
+    const len = Math.max(emails.length, phones.length, 1);
+    for (let k = 0; k < len; k++) {
+      const email = emails[k] || (k === 0 ? '' : emails[0] || '');
+      const phone = phones[k] || (k === 0 ? '' : phones[0] || '');
+      if (!email && !phone) continue;
+      rows.push({
+        name: contactName || src.name,
+        address: src.address,
+        phone,
+        email,
+        website: result.finalUrl || src.website,
+        category: src.category,
+        pincode: src.pincode,
+        plusCode: src.plusCode,
+        latitude: src.latitude,
+        longitude: src.longitude,
+        scrapCategory: src.scrapCategory,
+        scrapSubCategory: src.scrapSubCategory,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (rows.length > 0) {
+      // Use sendBatch so dedup runs against the existing 5-field key. New rows
+      // are written with scrapFrom override below — overriding the model's
+      // default after sendBatch is set is the cleanest path right now.
+      const batchRes = await sendBatch(
+        rows, 1, sessionId, `Website: ${src.website}`, src.pincode,
+        deviceId, src.scrapCategory, src.scrapSubCategory, 1
+      );
+      if (batchRes.success) {
+        contactsFound += batchRes.count + (batchRes.duplicateCount || 0);
+        sitesWithContacts++;
+        // Tag the newly-inserted rows with scrapFrom='Website' so admin can
+        // distinguish source-of-truth G-Map records from website-harvested ones.
+        const allIds = [...(batchRes.insertedIds || []), ...(batchRes.duplicateIds || [])];
+        if (allIds.length > 0) {
+          await ScrapedData.updateMany(
+            { _id: { $in: allIds } },
+            { $set: { scrapFrom: 'Website' } }
+          ).catch(() => { /* non-fatal */ });
+        }
+        print(chalk.green(`    ✓ ${batchRes.count} new, ${batchRes.duplicateCount || 0} dup`));
+      } else {
+        errors++;
+        print(chalk.red(`    ✗ save failed: ${batchRes.error}`));
+      }
+    }
+
+    // Mark the source row so it isn't picked again
+    await ScrapedData.updateOne({ _id: src._id }, { $set: { scrapWebsite: true } }).catch(() => {});
+  }
+
+  try { await browser.close(); } catch (_) { /* ignore */ }
+  if (liveMonitor) await liveMonitor.stop();
+  liveMonitor = null;
+
+  const durationMs = Date.now() - startTime;
+  const durationStr = `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs / 1000) % 60)}s`;
+
+  console.log('');
+  console.log(chalk.bold.green('  ╔══════════════════════════════════════════════╗'));
+  console.log(chalk.bold.green('  ║   Website Scraper — Worker complete          ║'));
+  console.log(chalk.bold.green('  ╠══════════════════════════════════════════════╣'));
+  console.log(chalk.bold.green('  ║') + chalk.white(`   Visited        : ${visited}`.padEnd(46)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(`   With contacts  : ${sitesWithContacts}`.padEnd(46)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(`   Contacts saved : ${contactsFound}`.padEnd(46)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(`   Errors         : ${errors}`.padEnd(46)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ║') + chalk.white(`   Duration       : ${durationStr}`.padEnd(46)) + chalk.bold.green('║'));
+  console.log(chalk.bold.green('  ╚══════════════════════════════════════════════╝'));
+  console.log('');
+
+  // Record run summary in Session-Stats so admin sees it in the device's Sessions tab
+  try {
+    await SessionStats.create({
+      sessionId, deviceId, keyword: `website-worker-${workerIndex + 1}/${totalWorkers}`,
+      totalRecords: contactsFound,
+      insertedRecords: contactsFound,
+      duplicateRecords: 0,
+      batchesSent: sitesWithContacts,
+      status: 'completed',
+      startedAt: startIso,
+      completedAt: new Date().toISOString(),
+      durationMs,
+    });
+  } catch (_) { /* not critical */ }
+
+  waitIdle();
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

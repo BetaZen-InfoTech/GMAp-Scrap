@@ -842,17 +842,32 @@ router.patch('/devices/:deviceId/scrape-tasks', adminAuth, async (req, res) => {
     const { tasks } = req.body;
     if (!Array.isArray(tasks)) return res.status(400).json({ error: 'tasks array required' });
 
-    // Validate and normalize each task
+    // Validate + normalize each task. Pincode-typed tasks (jobs/range/single)
+    // require a startPin; website tasks don't — they pull from the global
+    // unscraped-website pool.
+    const ALLOWED_TYPES = new Set(['jobs', 'range', 'single', 'website']);
     const normalized = tasks
       .map((t) => {
+        const type = ALLOWED_TYPES.has(t.type) ? t.type : 'jobs';
+        if (type === 'website') {
+          return {
+            type,
+            startPin: '',
+            endPin: '',
+            jobs: 0,
+            limit:   Math.max(1, Number(t.limit)   || 100),
+            workers: Math.max(1, Math.min(16, Number(t.workers) || 4)),
+          };
+        }
         const startPin = String(t.startPin || '').trim();
         if (!startPin) return null;
-        const type = t.type === 'range' || t.type === 'single' ? t.type : 'jobs';
         return {
           type,
           startPin,
           endPin: type === 'range' ? String(t.endPin || '').trim() : '',
-          jobs: type === 'jobs' ? (Number(t.jobs) || 3) : 0,
+          jobs:   type === 'jobs'  ? (Number(t.jobs) || 3) : 0,
+          limit:   0,
+          workers: 0,
         };
       })
       .filter(Boolean);

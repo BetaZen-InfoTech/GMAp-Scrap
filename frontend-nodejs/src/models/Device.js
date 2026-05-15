@@ -1,10 +1,12 @@
 const mongoose = require('mongoose');
 
 const scrapeTaskSchema = new mongoose.Schema({
-  type: { type: String, enum: ['jobs', 'range', 'single'], default: 'jobs' },
+  type: { type: String, enum: ['jobs', 'range', 'single', 'website'], default: 'jobs' },
   startPin: { type: String, default: '' },
   endPin: { type: String, default: '' },
   jobs: { type: Number, default: 3 },
+  limit: { type: Number, default: 100 },
+  workers: { type: Number, default: 4 },
 }, { _id: false });
 
 const deviceSchema = new mongoose.Schema(

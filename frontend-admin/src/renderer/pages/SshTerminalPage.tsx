@@ -290,7 +290,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   };
 
   // Build the list of effective scrape tasks for a device (handles legacy scrapePincode)
-  const getTasks = (device: { scrapeTasks?: Array<{ type: string; startPin: string; endPin?: string; jobs?: number }>; scrapePincode?: string; scrapeJobs?: number }) => {
+  const getTasks = (device: { scrapeTasks?: Array<{ type: string; startPin: string; endPin?: string; jobs?: number; limit?: number; workers?: number }>; scrapePincode?: string; scrapeJobs?: number }) => {
     if (device.scrapeTasks && device.scrapeTasks.length > 0) return device.scrapeTasks;
     if (device.scrapePincode) {
       return [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }];
@@ -332,6 +332,25 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       'pm2 delete all 2>/dev/null || true',
     ];
     tasks.forEach((task, idx) => {
+      // Website-scraper tasks spawn N parallel workers (one PM2 process each)
+      // because a single Playwright instance can only visit one site at a time.
+      // The worker count comes from the task config (defaults to 4 — fits a
+      // typical 8-core VPS with headroom for the system).
+      if (task.type === 'website') {
+        const limit   = Math.max(1, Number(task.limit)   || 100);
+        const workers = Math.max(1, Number(task.workers) || 4);
+        for (let w = 0; w < workers; w++) {
+          const name = `web-${idx + 1}-${w + 1}`;
+          // node src/index.js "nick" WEB <workerIndex> <totalWorkers> <limit>
+          segments.push(
+            `pm2 start src/index.js --name ${shEscape(name)} -- ${escapedNick} WEB ${w} ${workers} ${limit}`
+          );
+          segments.push('sleep 0.4');
+        }
+        return;
+      }
+
+      // Pincode-based tasks (jobs / range / single) — original behaviour.
       const name = `scraper-${idx + 1}`;
       let thirdArg = '';
       if (task.type === 'range' && task.endPin) thirdArg = String(task.endPin);

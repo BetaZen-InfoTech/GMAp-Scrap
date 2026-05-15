@@ -2,11 +2,20 @@ const mongoose = require('mongoose');
 
 // Sub-schema for scrape tasks. Must be a separate Schema because the field "type"
 // conflicts with Mongoose's type-declaration keyword inside a plain object literal.
+//
+// Type semantics:
+//   jobs    — multi-pincode batch (jobs × 100 pincodes from startPin)
+//   range   — scrape pincodes from startPin to endPin
+//   single  — scrape just startPin
+//   website — scrape contact info (email/phone/contact-person) from N unscraped
+//             websites, split across 4 parallel workers. `limit` carries N.
 const scrapeTaskSchema = new mongoose.Schema({
-  type: { type: String, enum: ['jobs', 'range', 'single'], default: 'jobs' },
+  type: { type: String, enum: ['jobs', 'range', 'single', 'website'], default: 'jobs' },
   startPin: { type: String, default: '' },
   endPin: { type: String, default: '' },
   jobs: { type: Number, default: 3 },
+  limit: { type: Number, default: 100 },     // total websites for website-type task
+  workers: { type: Number, default: 4 },     // parallel CLI workers for website-type task
 }, { _id: false });
 
 const deviceSchema = new mongoose.Schema(
