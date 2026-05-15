@@ -6,7 +6,8 @@ const APP_VERSION = __APP_VERSION__ || '0.0.0';
 
 export type Route = 'dashboard' | 'devices' | 'device-detail' | 'sessions' | 'jobs' | 'categories'
   | 'pincode-details' | 'scraped-pincodes' | 'scrap-database' | 'duplicates' | 'deleted-records'
-  | 'website-scraper' | 'coming-pincodes' | 'ssh-terminal' | 'google-category' | 'server-info';
+  | 'website-analysis' | 'website-scraper' | 'coming-pincodes' | 'ssh-terminal' | 'google-category'
+  | 'server-info';
 
 interface SidebarProps {
   currentRoute: Route;
@@ -134,6 +135,18 @@ const navItems: { route: Route; label: string; icon: React.ReactNode }[] = [
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round"
           d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 002 2h8a2 2 0 002-2l1-12M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2" />
+      </svg>
+    ),
+  },
+  {
+    route: 'website-analysis' as Route,
+    label: 'Website Analysis',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round"
+          d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round"
+          d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />
       </svg>
     ),
   },

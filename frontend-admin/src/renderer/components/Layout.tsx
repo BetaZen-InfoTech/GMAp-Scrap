@@ -18,6 +18,7 @@ const PAGE_TITLES: Record<Route, string> = {
   'google-category': 'Google Category',
   'server-info': 'Server Info',
   'deleted-records': 'Deleted Records',
+  'website-analysis': 'Website Analysis',
 };
 
 interface LayoutProps {

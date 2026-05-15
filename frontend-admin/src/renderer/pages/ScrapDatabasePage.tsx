@@ -7,6 +7,8 @@ import ScrapTableView from '../components/ScrapTableView';
 import ScrapCardView from '../components/ScrapCardView';
 import ScrapExcelView from '../components/ScrapExcelView';
 import MultiSelect from '../components/MultiSelect';
+import { useWebsiteAnalysisStore } from '../store/useWebsiteAnalysisStore';
+import type { Route } from '../components/Sidebar';
 
 const viewModes: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
   {
@@ -38,7 +40,11 @@ const viewModes: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-const ScrapDatabasePage: React.FC = () => {
+interface ScrapDatabasePageProps {
+  onNavigate?: (route: Route) => void;
+}
+
+const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => {
   const {
     records, total, page, limit, loading,
     filters, filterOptions, viewMode, selectedIds, selectAllPages,
@@ -48,6 +54,24 @@ const ScrapDatabasePage: React.FC = () => {
     softDeleteSelected, softDeleteAllFiltered,
     fixNumbers,
   } = useScrapDatabaseStore();
+
+  const startWebsiteAnalysis = useWebsiteAnalysisStore((s) => s.start);
+  const wasStarting = useWebsiteAnalysisStore((s) => s.starting);
+  const [waBanner, setWaBanner] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null);
+
+  const handleStartWebsiteAnalysis = async () => {
+    const result = await startWebsiteAnalysis();
+    if (!result.success) {
+      setWaBanner({ kind: 'err', text: result.error || 'Failed to start' });
+      return;
+    }
+    setWaBanner({
+      kind: result.alreadyRunning ? 'warn' : 'ok',
+      text: result.alreadyRunning
+        ? 'A website-analysis job is already in progress — open the page to see progress.'
+        : 'Website-analysis job started — open the page to track progress.',
+    });
+  };
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteMode, setDeleteMode] = useState<'selected' | 'filtered'>('selected');
@@ -189,6 +213,20 @@ const ScrapDatabasePage: React.FC = () => {
             {fixingNumbers ? 'Fixing…' : 'Fix Numbers'}
           </button>
 
+          {/* Website Analysis (kicks the dedup job and surfaces it in a banner) */}
+          <button
+            onClick={handleStartWebsiteAnalysis}
+            disabled={wasStarting}
+            title="Start the website-dedup analysis job and review progress on the Website Analysis page"
+            className="flex items-center gap-1.5 bg-violet-800 hover:bg-violet-700 disabled:opacity-50 text-violet-100 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />
+            </svg>
+            {wasStarting ? 'Starting…' : 'Website Analysis'}
+          </button>
+
           {/* Refresh */}
           <button
             onClick={() => fetchRecords(page)}
@@ -214,6 +252,33 @@ const ScrapDatabasePage: React.FC = () => {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {waBanner && (
+        <div className={`flex items-center justify-between rounded-lg px-3 py-2 text-xs border ${
+          waBanner.kind === 'ok'   ? 'bg-violet-950/40 border-violet-800/60 text-violet-200' :
+          waBanner.kind === 'warn' ? 'bg-amber-950/40 border-amber-800/60 text-amber-200' :
+                                     'bg-red-950/40 border-red-800/60 text-red-200'
+        }`}>
+          <span>{waBanner.text}</span>
+          <div className="flex items-center gap-3">
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('website-analysis')}
+                className="font-semibold hover:underline"
+              >
+                Open Website Analysis →
+              </button>
+            )}
+            <button
+              onClick={() => setWaBanner(null)}
+              className="hover:text-white"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
