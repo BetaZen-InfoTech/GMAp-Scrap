@@ -2,6 +2,14 @@ import { create } from 'zustand';
 import api from '../lib/api';
 import type { DeviceInfo, DeviceHistoryDay, SessionStatsRecord, ScrapeJob, StatSnapshot } from '../../shared/types';
 
+// Discriminates "page is in a bad state" from "device truly doesn't exist".
+// Without this the UI shows "Device not found" for every failure mode
+// (network error, backend down, 404, empty id) which is misleading.
+export type DeviceDetailError =
+  | { kind: 'not-found' }
+  | { kind: 'network'; message: string }
+  | { kind: 'no-device-id' };
+
 interface DeviceStore {
   devices: DeviceInfo[];
   selectedDevice: DeviceInfo | null;
@@ -15,12 +23,14 @@ interface DeviceStore {
   jobPage: number;
   jobLimit: number;
   loading: boolean;
+  detailError: DeviceDetailError | null;
 
   fetchDevices: (includeArchived?: boolean) => Promise<void>;
   fetchDeviceDetail: (deviceId: string, sessionPage?: number, jobPage?: number) => Promise<void>;
   fetchDeviceSessions: (deviceId: string, page: number) => Promise<void>;
   fetchDeviceJobs: (deviceId: string, page: number) => Promise<void>;
   updateLiveStats: (deviceId: string, stat: StatSnapshot) => void;
+  clearDeviceDetail: () => void;
 }
 
 export const useDeviceStore = create<DeviceStore>((set, get) => ({
@@ -36,6 +46,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   jobPage: 1,
   jobLimit: 50,
   loading: false,
+  detailError: null,
 
   fetchDevices: async (includeArchived = false) => {
     set({ loading: true });
@@ -50,7 +61,31 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   },
 
   fetchDeviceDetail: async (deviceId, sessionPage = 1, jobPage = 1) => {
-    set({ loading: true });
+    if (!deviceId) {
+      set({
+        loading: false,
+        detailError: { kind: 'no-device-id' },
+        selectedDevice: null,
+        deviceSessions: [], deviceJobs: [], deviceHistory: [],
+        totalSessions: 0, totalJobs: 0,
+      });
+      return;
+    }
+
+    // Hydrate from the devices list so the user sees nickname/IP/specs while
+    // the detail request is still flying. Avoids the flash of "Device not
+    // found" between mount and response.
+    const cached = get().devices.find((d) => d.deviceId === deviceId) || null;
+    set({
+      loading: true,
+      detailError: null,
+      // Only swap if we don't already have the right detail; preserves
+      // previous selectedDevice while refreshing.
+      selectedDevice: cached || get().selectedDevice?.deviceId === deviceId
+        ? (cached || get().selectedDevice)
+        : null,
+    });
+
     const { sessionLimit, jobLimit } = get();
     try {
       const res = await api.get(`/api/admin/devices/${deviceId}`, {
@@ -58,17 +93,24 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       });
       set({
         selectedDevice: res.data.device,
-        deviceSessions: res.data.sessions,
-        deviceJobs: res.data.jobs,
-        deviceHistory: res.data.history,
-        totalSessions: res.data.totalSessions ?? res.data.sessions.length,
-        totalJobs: res.data.totalJobs ?? res.data.jobs.length,
+        deviceSessions: res.data.sessions || [],
+        deviceJobs: res.data.jobs || [],
+        deviceHistory: res.data.history || [],
+        totalSessions: res.data.totalSessions ?? (res.data.sessions?.length || 0),
+        totalJobs: res.data.totalJobs ?? (res.data.jobs?.length || 0),
         sessionPage,
         jobPage,
         loading: false,
+        detailError: null,
       });
-    } catch {
-      set({ loading: false });
+    } catch (err) {
+      const e = err as { response?: { status?: number; data?: { error?: string } }; message?: string };
+      const status = e.response?.status;
+      console.error('[useDeviceStore.fetchDeviceDetail]', { deviceId, status, message: e.message });
+      const detailError: DeviceDetailError = status === 404
+        ? { kind: 'not-found' }
+        : { kind: 'network', message: e.response?.data?.error || e.message || 'Failed to load device' };
+      set({ loading: false, detailError });
     }
   },
 
@@ -111,4 +153,14 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
           : state.selectedDevice,
     }));
   },
+
+  clearDeviceDetail: () => set({
+    selectedDevice: null,
+    deviceSessions: [],
+    deviceJobs: [],
+    deviceHistory: [],
+    totalSessions: 0,
+    totalJobs: 0,
+    detailError: null,
+  }),
 }));

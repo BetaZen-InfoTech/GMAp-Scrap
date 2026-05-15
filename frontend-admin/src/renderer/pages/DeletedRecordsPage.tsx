@@ -5,9 +5,8 @@ import Spinner from '../components/Spinner';
 import type { DeletedRecord } from '../store/useDeletedRecordsStore';
 
 type PendingAction =
-  | { kind: 'restore-selected'; count: number }
-  | { kind: 'restore-all'; count: number }
-  | { kind: 'purge-selected'; count: number };
+  | { kind: 'restore'; count: number; allPages: boolean }
+  | { kind: 'purge';   count: number; allPages: boolean };
 
 // ── Inline password-prompt modal ────────────────────────────────────────────
 // Re-prompts for the admin password before any destructive / irreversible
@@ -23,21 +22,22 @@ const PasswordModal: React.FC<{
 }> = ({ pending, busy, errorText, onCancel, onConfirm }) => {
   const [password, setPassword] = useState('');
 
+  const scopeNoun = pending.allPages ? 'matching records' : 'selected records';
   const title =
-    pending.kind === 'restore-selected' ? 'Restore selected records?' :
-    pending.kind === 'restore-all'      ? 'Restore all filtered records?' :
-                                          'Permanently purge selected records?';
+    pending.kind === 'purge'
+      ? `Permanently purge ${scopeNoun}?`
+      : `Restore ${scopeNoun}?`;
 
   const description =
-    pending.kind === 'purge-selected'
-      ? `${pending.count.toLocaleString()} records will be permanently removed from the archive. This cannot be undone.`
-      : `${pending.count.toLocaleString()} records will be moved back into Scraped-Data.`;
+    pending.kind === 'purge'
+      ? `${pending.count.toLocaleString()} record${pending.count === 1 ? '' : 's'} will be permanently removed from the archive. This cannot be undone.`
+      : `${pending.count.toLocaleString()} record${pending.count === 1 ? '' : 's'} will be moved back into Scraped-Data.`;
 
-  const confirmColor = pending.kind === 'purge-selected'
+  const confirmColor = pending.kind === 'purge'
     ? 'bg-red-600 hover:bg-red-500'
     : 'bg-emerald-600 hover:bg-emerald-500';
 
-  const confirmLabel = pending.kind === 'purge-selected' ? 'Purge permanently' : 'Restore';
+  const confirmLabel = pending.kind === 'purge' ? 'Purge permanently' : 'Restore';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onCancel}>
@@ -46,8 +46,8 @@ const PasswordModal: React.FC<{
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-4 mb-4">
-          <div className={`w-10 h-10 rounded-xl ${pending.kind === 'purge-selected' ? 'bg-red-500/15' : 'bg-emerald-500/15'} flex items-center justify-center shrink-0 mt-0.5`}>
-            <svg className={`w-5 h-5 ${pending.kind === 'purge-selected' ? 'text-red-400' : 'text-emerald-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className={`w-10 h-10 rounded-xl ${pending.kind === 'purge' ? 'bg-red-500/15' : 'bg-emerald-500/15'} flex items-center justify-center shrink-0 mt-0.5`}>
+            <svg className={`w-5 h-5 ${pending.kind === 'purge' ? 'text-red-400' : 'text-emerald-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
@@ -101,10 +101,11 @@ const PasswordModal: React.FC<{
 const DeletedTable: React.FC<{
   records: DeletedRecord[];
   selectedIds: Set<string>;
+  selectAllPages: boolean;
   onToggle: (id: string) => void;
-  onSelectAllOnPage: () => void;
-  onClearSelection: () => void;
-}> = ({ records, selectedIds, onToggle, onSelectAllOnPage, onClearSelection }) => {
+  onSelectThisPage: () => void;
+  onDeselectThisPage: () => void;
+}> = ({ records, selectedIds, selectAllPages, onToggle, onSelectThisPage, onDeselectThisPage }) => {
   if (records.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-slate-500">
@@ -116,7 +117,8 @@ const DeletedTable: React.FC<{
     );
   }
 
-  const allPageSelected = records.every((r) => selectedIds.has(r._id));
+  const isRowSelected = (id: string) => selectAllPages || selectedIds.has(id);
+  const allPageSelected = records.every((r) => isRowSelected(r._id));
 
   return (
     <div className="overflow-x-auto">
@@ -127,8 +129,9 @@ const DeletedTable: React.FC<{
               <input
                 type="checkbox"
                 checked={allPageSelected}
-                onChange={() => (allPageSelected ? onClearSelection() : onSelectAllOnPage())}
+                onChange={() => (allPageSelected ? onDeselectThisPage() : onSelectThisPage())}
                 className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                title={allPageSelected ? 'Deselect this page' : 'Select this page'}
               />
             </th>
             <th className="px-4 py-3 font-medium">#</th>
@@ -144,12 +147,12 @@ const DeletedTable: React.FC<{
           {records.map((r, i) => (
             <tr
               key={r._id}
-              className={`hover:bg-slate-800/40 transition-colors ${selectedIds.has(r._id) ? 'bg-blue-900/15' : ''}`}
+              className={`hover:bg-slate-800/40 transition-colors ${isRowSelected(r._id) ? 'bg-blue-900/15' : ''}`}
             >
               <td className="px-4 py-3">
                 <input
                   type="checkbox"
-                  checked={selectedIds.has(r._id)}
+                  checked={isRowSelected(r._id)}
                   onChange={() => onToggle(r._id)}
                   className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
                 />
@@ -192,10 +195,10 @@ const DeletedTable: React.FC<{
 const DeletedRecordsPage: React.FC = () => {
   const {
     records, total, page, limit, loading, search,
-    selectedIds, restoring, purging, lastActionResult,
+    selectedIds, selectAllPages, restoring, purging, lastActionResult,
     fetchRecords, setSearch, setLimit,
-    toggleSelect, selectAllOnPage, clearSelection,
-    restoreSelected, restoreAllFiltered, purgeSelected, clearResult,
+    toggleSelect, selectThisPage, deselectThisPage, selectAll, clearSelection,
+    restoreSelected, purgeSelected, clearResult,
   } = useDeletedRecordsStore();
 
   const [searchInput, setSearchInput] = useState('');
@@ -214,20 +217,19 @@ const DeletedRecordsPage: React.FC = () => {
   const handleConfirm = useCallback(async (password: string) => {
     if (!pending) return;
     setAuthError(null);
-    const action =
-      pending.kind === 'restore-selected' ? restoreSelected(password) :
-      pending.kind === 'restore-all'      ? restoreAllFiltered(password) :
-                                            purgeSelected(password);
+    const action = pending.kind === 'restore'
+      ? restoreSelected(password)
+      : purgeSelected(password);
     const result = await action;
     if (result.success) {
       setPending(null);
     } else {
       setAuthError(result.error || 'Action failed');
     }
-  }, [pending, restoreSelected, restoreAllFiltered, purgeSelected]);
+  }, [pending, restoreSelected, purgeSelected]);
 
   const busy = restoring || purging;
-  const selectionCount = selectedIds.size;
+  const selectionCount = selectAllPages ? total : selectedIds.size;
 
   return (
     <div className="p-6 space-y-6 min-h-0">
@@ -247,7 +249,7 @@ const DeletedRecordsPage: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setPending({ kind: 'restore-all', count: total })}
+            onClick={() => { selectAll(); setPending({ kind: 'restore', count: total, allPages: true }); }}
             disabled={busy || total === 0}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-900/30"
             title={total === 0 ? 'No records to restore' : `Restore all ${total.toLocaleString()} matching records`}
@@ -301,17 +303,28 @@ const DeletedRecordsPage: React.FC = () => {
       {/* Selection bar */}
       {selectionCount > 0 && (
         <div className="flex items-center gap-3 bg-blue-900/20 border border-blue-800/40 rounded-lg px-4 py-2.5">
-          <span className="text-sm text-blue-300 font-medium">{selectionCount} selected</span>
+          <span className="text-sm text-blue-300 font-medium">
+            {selectAllPages
+              ? `All ${total.toLocaleString()} records`
+              : `${selectionCount} selected`}
+          </span>
           <div className="h-4 w-px bg-blue-800/60" />
-          <button onClick={selectAllOnPage} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+          <button onClick={selectThisPage} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
             Select This Page
+          </button>
+          <button
+            onClick={selectAll}
+            disabled={selectAllPages || total === 0}
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Select All ({total.toLocaleString()})
           </button>
           <button onClick={clearSelection} className="text-xs text-slate-400 hover:text-white transition-colors">
             Unselect All
           </button>
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={() => setPending({ kind: 'restore-selected', count: selectionCount })}
+              onClick={() => setPending({ kind: 'restore', count: selectionCount, allPages: selectAllPages })}
               disabled={busy}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
@@ -321,7 +334,7 @@ const DeletedRecordsPage: React.FC = () => {
               Restore Selected
             </button>
             <button
-              onClick={() => setPending({ kind: 'purge-selected', count: selectionCount })}
+              onClick={() => setPending({ kind: 'purge', count: selectionCount, allPages: selectAllPages })}
               disabled={busy}
               className="flex items-center gap-1.5 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
@@ -376,9 +389,10 @@ const DeletedRecordsPage: React.FC = () => {
             <DeletedTable
               records={records}
               selectedIds={selectedIds}
+              selectAllPages={selectAllPages}
               onToggle={toggleSelect}
-              onSelectAllOnPage={selectAllOnPage}
-              onClearSelection={clearSelection}
+              onSelectThisPage={selectThisPage}
+              onDeselectThisPage={deselectThisPage}
             />
             <div className="px-4 py-3 border-t border-slate-800">
               <Pagination

@@ -15,26 +15,117 @@ type Tab = 'overview' | 'sessions' | 'jobs' | 'performance';
 
 const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack }) => {
   const {
-    selectedDevice, deviceSessions, deviceJobs, deviceHistory,
+    devices, selectedDevice, deviceSessions, deviceJobs, deviceHistory,
     totalSessions, totalJobs, sessionPage, sessionLimit, jobPage, jobLimit,
-    loading, fetchDeviceDetail, fetchDeviceSessions, fetchDeviceJobs,
+    loading, detailError,
+    fetchDevices, fetchDeviceDetail, fetchDeviceSessions, fetchDeviceJobs, clearDeviceDetail,
   } = useDeviceStore();
   const [tab, setTab] = useState<Tab>('overview');
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number>(0);
 
   useEffect(() => {
-    if (deviceId) fetchDeviceDetail(deviceId);
+    // If the devices list is empty (deep-link / refresh), prime it so the
+    // store can hydrate the cached card before the detail request returns.
+    if (devices.length === 0) fetchDevices(true);
+  }, []);
+
+  useEffect(() => {
+    if (deviceId) {
+      fetchDeviceDetail(deviceId);
+      setLastRefreshedAt(Date.now());
+    } else {
+      clearDeviceDetail();
+    }
+    // Re-fetching is gated on deviceId — no stale data leaks across navigations.
   }, [deviceId]);
 
+  // Auto-refresh every 30s while the page is open. Freshly-registered devices
+  // arrive at this page with Live Stats already streaming over socket but the
+  // initial /devices/:id snapshot still empty for sessions/jobs/history. Without
+  // this poll the tabs would stay frozen on "No data" even as the DB fills up.
+  useEffect(() => {
+    if (!deviceId) return;
+    const id = setInterval(() => {
+      fetchDeviceDetail(deviceId, sessionPage, jobPage);
+      setLastRefreshedAt(Date.now());
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [deviceId, sessionPage, jobPage]);
+
+  const handleRefresh = () => {
+    if (!deviceId) return;
+    fetchDeviceDetail(deviceId, sessionPage, jobPage);
+    setLastRefreshedAt(Date.now());
+  };
+
+  // ── Empty deviceId — operator landed here without selecting a device
+  if (!deviceId || detailError?.kind === 'no-device-id') {
+    return (
+      <div className="text-center py-16">
+        <svg className="w-12 h-12 text-slate-700 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2a4 4 0 014-4h4m4 4v6m0-6h-2m2 0a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2h6" />
+        </svg>
+        <p className="text-sm text-slate-400">No device selected.</p>
+        <p className="text-xs text-slate-600 mt-1">Pick a device from the list to see its details.</p>
+        <button onClick={onBack} className="text-sm text-blue-400 hover:text-blue-300 mt-3">
+          Back to Devices
+        </button>
+      </div>
+    );
+  }
+
+  // ── Loading and no cached card to show
   if (loading && !selectedDevice) {
     return <Spinner message="Loading device details..." />;
   }
 
+  // ── 404 — device truly doesn't exist in DB
+  if (detailError?.kind === 'not-found' && !selectedDevice) {
+    return (
+      <div className="text-center py-16">
+        <svg className="w-12 h-12 text-slate-700 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p className="text-sm text-slate-400">Device not found in the database.</p>
+        <p className="text-xs text-slate-600 mt-1 font-mono">{deviceId}</p>
+        <button onClick={onBack} className="text-sm text-blue-400 hover:text-blue-300 mt-3">
+          Back to Devices
+        </button>
+      </div>
+    );
+  }
+
+  // ── Network / 5xx — operator should retry
+  if (detailError?.kind === 'network' && !selectedDevice) {
+    return (
+      <div className="text-center py-16">
+        <svg className="w-12 h-12 text-amber-500/70 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <p className="text-sm text-slate-300">Couldn&apos;t load device details.</p>
+        <p className="text-xs text-amber-400/80 mt-1">{detailError.message}</p>
+        <div className="flex items-center gap-3 justify-center mt-4">
+          <button
+            onClick={() => fetchDeviceDetail(deviceId)}
+            className="text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-1.5 rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+          <button onClick={onBack} className="text-sm text-slate-400 hover:text-white transition-colors">
+            Back to Devices
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No device data yet but no explicit error — empty state
   if (!selectedDevice) {
     return (
       <div className="text-center py-16">
-        <p className="text-sm text-slate-500">Device not found.</p>
-        <button onClick={onBack} className="text-sm text-blue-400 hover:text-blue-300 mt-2">
-          Back to Devices
+        <p className="text-sm text-slate-500">No device data yet.</p>
+        <button onClick={() => fetchDeviceDetail(deviceId)} className="text-sm text-blue-400 hover:text-blue-300 mt-2">
+          Retry
         </button>
       </div>
     );
@@ -75,6 +166,17 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
             {d.ip ? `${d.ip} · ` : ''}{d.hostname} · {d.username} &middot; {d.platform} {d.osVersion}
           </p>
         </div>
+        <button
+          onClick={handleRefresh}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-medium transition-colors"
+          title={lastRefreshedAt ? `Last refreshed: ${new Date(lastRefreshedAt).toLocaleTimeString()} — auto every 30s` : 'Refresh now'}
+        >
+          <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh
+        </button>
       </div>
 
       {/* Tabs */}
@@ -163,6 +265,13 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
       {tab === 'sessions' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <SessionTable sessions={deviceSessions} showDevice={false} />
+          {deviceSessions.length === 0 && d.status === 'online' && (
+            <EmptyHint
+              text="The device is online but hasn't completed a scraping session yet. A session is recorded when the scraper finishes a (pincode + niche + round) search."
+              onRefresh={handleRefresh}
+              busy={loading}
+            />
+          )}
           {totalSessions > sessionLimit && (
             <div className="border-t border-slate-800 mt-2 pt-2">
               <Pagination
@@ -179,6 +288,13 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
       {tab === 'jobs' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <JobTable jobs={deviceJobs} />
+          {deviceJobs.length === 0 && d.status === 'online' && (
+            <EmptyHint
+              text="No job (Scrape-Tracking) entries yet. The scraper creates a job at the start of a pincode-range run; this device may have just registered or be idle."
+              onRefresh={handleRefresh}
+              busy={loading}
+            />
+          )}
           {totalJobs > jobLimit && (
             <div className="border-t border-slate-800 mt-2 pt-2">
               <Pagination
@@ -193,13 +309,44 @@ const DeviceDetailPage: React.FC<DeviceDetailPageProps> = ({ deviceId, onBack })
       )}
 
       {tab === 'performance' && (
-        <DeviceStatsChart history={deviceHistory} />
+        <>
+          <DeviceStatsChart history={deviceHistory} />
+          {deviceHistory.length === 0 && d.status === 'online' && stats && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 mt-4">
+              <EmptyHint
+                text="Live stats are streaming, but no Device-History documents are visible yet. The first per-day document is upserted on the next stats flush (≈30 s)."
+                onRefresh={handleRefresh}
+                busy={loading}
+              />
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 };
 
 /* Helper components */
+function EmptyHint({ text, onRefresh, busy }: { text: string; onRefresh: () => void; busy: boolean }) {
+  return (
+    <div className="mt-4 -mx-1 px-4 py-3 bg-slate-950/60 border border-slate-800 rounded-lg flex items-start gap-3">
+      <svg className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <p className="text-xs text-slate-400 flex-1">
+        {text} <span className="text-slate-600">Auto-refresh every 30 s.</span>
+      </p>
+      <button
+        onClick={onRefresh}
+        disabled={busy}
+        className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 font-medium transition-colors"
+      >
+        Refresh now
+      </button>
+    </div>
+  );
+}
+
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex justify-between">
