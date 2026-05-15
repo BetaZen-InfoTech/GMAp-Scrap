@@ -31,8 +31,13 @@ export interface ScrapeTask {
   startPin: string;
   endPin?: string;
   jobs?: number;
-  limit?: number;     // website-mode: total unscraped websites to claim
-  workers?: number;   // website-mode: parallel PM2 workers (defaults to 4)
+  // website-mode: explicit slice of the unscraped-website pool [rangeFrom..rangeTo).
+  // `limit` is kept for backward compatibility with tasks created before
+  // rangeFrom/rangeTo existed — readers should prefer rangeTo - rangeFrom.
+  rangeFrom?: number;
+  rangeTo?: number;
+  limit?: number;
+  workers?: number;   // parallel PM2 workers (defaults to 4)
   progress?: TaskProgress | null;
 }
 

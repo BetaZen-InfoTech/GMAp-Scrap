@@ -290,7 +290,7 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   };
 
   // Build the list of effective scrape tasks for a device (handles legacy scrapePincode)
-  const getTasks = (device: { scrapeTasks?: Array<{ type: string; startPin: string; endPin?: string; jobs?: number; limit?: number; workers?: number }>; scrapePincode?: string; scrapeJobs?: number }) => {
+  const getTasks = (device: { scrapeTasks?: Array<{ type: string; startPin: string; endPin?: string; jobs?: number; limit?: number; workers?: number; rangeFrom?: number; rangeTo?: number }>; scrapePincode?: string; scrapeJobs?: number }) => {
     if (device.scrapeTasks && device.scrapeTasks.length > 0) return device.scrapeTasks;
     if (device.scrapePincode) {
       return [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }];
@@ -336,14 +336,22 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
       // because a single Playwright instance can only visit one site at a time.
       // The worker count comes from the task config (defaults to 4 — fits a
       // typical 8-core VPS with headroom for the system).
+      //
+      // Slice resolution:
+      //   - New form: rangeFrom + rangeTo are explicit.
+      //   - Legacy form: tasks created before rangeFrom existed have only
+      //     `limit`; treat as [0..limit).
       if (task.type === 'website') {
-        const limit   = Math.max(1, Number(task.limit)   || 100);
-        const workers = Math.max(1, Number(task.workers) || 4);
+        const workers   = Math.max(1, Number(task.workers) || 4);
+        const rangeFrom = Math.max(0, Number(task.rangeFrom) || 0);
+        const rangeTo   = Number(task.rangeTo) > rangeFrom
+          ? Number(task.rangeTo)
+          : rangeFrom + Math.max(1, Number(task.limit) || 100);
         for (let w = 0; w < workers; w++) {
           const name = `web-${idx + 1}-${w + 1}`;
-          // node src/index.js "nick" WEB <workerIndex> <totalWorkers> <limit>
+          // node src/index.js "nick" WEB <workerIndex> <totalWorkers> <from> <to>
           segments.push(
-            `pm2 start src/index.js --name ${shEscape(name)} -- ${escapedNick} WEB ${w} ${workers} ${limit}`
+            `pm2 start src/index.js --name ${shEscape(name)} -- ${escapedNick} WEB ${w} ${workers} ${rangeFrom} ${rangeTo}`
           );
           segments.push('sleep 0.4');
         }

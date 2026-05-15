@@ -14,8 +14,16 @@ const scrapeTaskSchema = new mongoose.Schema({
   startPin: { type: String, default: '' },
   endPin: { type: String, default: '' },
   jobs: { type: Number, default: 3 },
-  limit: { type: Number, default: 100 },     // total websites for website-type task
-  workers: { type: Number, default: 4 },     // parallel CLI workers for website-type task
+  // website-type only — slice of the unscraped-website pool to work on.
+  // The pool is ordered by _id ascending. Worker N of M operates on the
+  // sub-slice [rangeFrom .. rangeTo) divided evenly across M workers.
+  // `limit` is kept for backward compatibility with rows written before
+  // rangeFrom/rangeTo existed; the CLI prefers rangeTo - rangeFrom and
+  // falls back to limit only if rangeTo is 0.
+  rangeFrom: { type: Number, default: 0 },
+  rangeTo: { type: Number, default: 100 },
+  limit: { type: Number, default: 100 },
+  workers: { type: Number, default: 4 },
 }, { _id: false });
 
 const deviceSchema = new mongoose.Schema(

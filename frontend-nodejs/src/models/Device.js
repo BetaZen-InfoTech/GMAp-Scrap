@@ -5,6 +5,8 @@ const scrapeTaskSchema = new mongoose.Schema({
   startPin: { type: String, default: '' },
   endPin: { type: String, default: '' },
   jobs: { type: Number, default: 3 },
+  rangeFrom: { type: Number, default: 0 },
+  rangeTo: { type: Number, default: 100 },
   limit: { type: Number, default: 100 },
   workers: { type: Number, default: 4 },
 }, { _id: false });

@@ -38,15 +38,26 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
   // Build initial tasks from scrapeTasks array OR fallback to legacy scrapePincode/scrapeJobs
   // Preserve the `progress` field from backend
   const initialTasks: ScrapeTask[] = (device.scrapeTasks && device.scrapeTasks.length > 0)
-    ? device.scrapeTasks.map((t) => ({
-        type: t.type,
-        startPin: t.startPin || '',
-        endPin: t.endPin || '',
-        jobs: t.jobs || 3,
-        limit: t.limit || 100,
-        workers: t.workers || 4,
-        progress: t.progress,
-      }))
+    ? device.scrapeTasks.map((t) => {
+        // Backward-compat: legacy website tasks have only `limit`. Promote it
+        // to rangeFrom=0, rangeTo=limit so the editor + read-only chip both
+        // show the slice consistently.
+        const rangeFrom = t.rangeFrom ?? 0;
+        const rangeTo   = (t.rangeTo && t.rangeTo > rangeFrom)
+          ? t.rangeTo
+          : rangeFrom + (t.limit ?? 100);
+        return {
+          type: t.type,
+          startPin: t.startPin || '',
+          endPin: t.endPin || '',
+          jobs: t.jobs || 3,
+          rangeFrom,
+          rangeTo,
+          limit: t.limit || (rangeTo - rangeFrom),
+          workers: t.workers || 4,
+          progress: t.progress,
+        };
+      })
     : (device.scrapePincode
         ? [{ type: 'jobs' as const, startPin: device.scrapePincode, endPin: '', jobs: device.scrapeJobs || 3 }]
         : []);
@@ -57,15 +68,30 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
   // Save handler (shared between Save button + Enter key on last field)
   const saveTasks = async () => {
     const cleaned = taskList
-      .map((t) => ({
-        type: t.type,
-        startPin: t.type === 'website' ? '' : t.startPin.trim(),
-        endPin:   t.type === 'range'   ? (t.endPin || '').trim() : '',
-        jobs:     t.type === 'jobs'    ? (t.jobs   || 3)   : 0,
-        limit:    t.type === 'website' ? Math.max(1, Number(t.limit)   || 100) : 0,
-        workers:  t.type === 'website' ? Math.max(1, Number(t.workers) || 4)   : 0,
-      }))
-      // Website tasks don't need a startPin; pincode tasks do.
+      .map((t) => {
+        if (t.type === 'website') {
+          const rangeFrom = Math.max(0, Number(t.rangeFrom) || 0);
+          // If operator typed a `to` that's <= `from` we coerce it to from+1
+          // so the slice has at least one element and the CLI's "to > from"
+          // validation passes. Better than silently dropping the task.
+          const rangeTo = Math.max(rangeFrom + 1, Number(t.rangeTo) || (rangeFrom + 100));
+          return {
+            type: 'website' as const,
+            startPin: '', endPin: '', jobs: 0,
+            rangeFrom,
+            rangeTo,
+            limit: rangeTo - rangeFrom,  // back-compat alias for older readers
+            workers: Math.max(1, Math.min(16, Number(t.workers) || 4)),
+          };
+        }
+        return {
+          type: t.type,
+          startPin: t.startPin.trim(),
+          endPin: t.type === 'range' ? (t.endPin || '').trim() : '',
+          jobs:   t.type === 'jobs'  ? (Number(t.jobs) || 3) : 0,
+          rangeFrom: 0, rangeTo: 0, limit: 0, workers: 0,
+        };
+      })
       .filter((t) => t.type === 'website' || t.startPin);
     try {
       await onSaveScrapeTasks?.(device.deviceId, cleaned);
@@ -321,13 +347,25 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                   <>
                     <input
                       type="number"
-                      min={1}
-                      data-field="limit"
-                      value={String(t.limit ?? 100)}
-                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, limit: Math.max(1, Number(e.target.value) || 100) } : x))}
+                      min={0}
+                      data-field="rangeFrom"
+                      value={String(t.rangeFrom ?? 0)}
+                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, rangeFrom: Math.max(0, Number(e.target.value) || 0) } : x))}
                       onKeyDown={(e) => handleTaskKey(e, idx, 'jobs')}
-                      placeholder="Limit"
-                      title="How many unscraped websites to fetch in total (split evenly across workers)"
+                      placeholder="From"
+                      title="Start position in the unscraped-website pool (0 = first unscraped). Lets you split a backlog across multiple devices without overlap."
+                      className="w-14 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                    <span className="text-[10px] text-slate-500">→</span>
+                    <input
+                      type="number"
+                      min={1}
+                      data-field="rangeTo"
+                      value={String(t.rangeTo ?? 100)}
+                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, rangeTo: Math.max(1, Number(e.target.value) || 100) } : x))}
+                      onKeyDown={(e) => handleTaskKey(e, idx, 'jobs')}
+                      placeholder="To"
+                      title="End position (exclusive). Total sites this task processes = To - From, split evenly across workers."
                       className="w-14 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
                     />
                     <input
@@ -400,7 +438,9 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                         {t.type === 'jobs' && <span className="text-slate-500">× {t.jobs}j</span>}
                         {t.type === 'website' && (
                           <span className="text-slate-500">
-                            limit <span className="text-cyan-400">{t.limit ?? 100}</span>
+                            <span className="text-cyan-400">{t.rangeFrom ?? 0}</span>
+                            <span className="mx-0.5">→</span>
+                            <span className="text-cyan-400">{t.rangeTo ?? ((t.rangeFrom ?? 0) + (t.limit ?? 100))}</span>
                             <span className="text-slate-600 ml-1">× {t.workers ?? 4}w</span>
                           </span>
                         )}

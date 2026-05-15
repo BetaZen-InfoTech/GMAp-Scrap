@@ -491,10 +491,13 @@ async function main() {
   //   or    node src/index.js 700061 700062  (uses os.hostname())
   //
   // Website-scraper mode (alternate invocation):
-  //   node src/index.js "DEMO PC 1" WEB <workerIndex> <totalWorkers> <limit>
-  //   e.g.  node src/index.js "DEMO PC 1" WEB 0 4 100
-  //         Worker 0 of 4 — takes the first quarter of 100 unscraped websites.
-  const [,, argNickname, argStart, argEnd, argFourth, argFifth] = process.argv;
+  //   node src/index.js "nick" WEB <workerIndex> <totalWorkers> <from> <to>
+  //   e.g.  node src/index.js "nick" WEB 0 4 0 100      → worker 0 of 4 over slice [0..100)
+  //   e.g.  node src/index.js "nick" WEB 1 4 5000 15000 → worker 1 of 4 over slice [5000..15000)
+  // Legacy 1-number form (no slice support) still accepted for old launchers:
+  //   node src/index.js "nick" WEB <workerIndex> <totalWorkers> <limit>
+  //   — interpreted as from=0, to=limit.
+  const [,, argNickname, argStart, argEnd, argFourth, argFifth, argSixth] = process.argv;
 
   // ── Device registration / verification ───────────────────────────────────
   const deviceId = await ensureDevice(chalk, argNickname || undefined);
@@ -502,19 +505,28 @@ async function main() {
 
   // ── Website-scraper mode (early branch — skips pincode handling entirely) ──
   if (String(argStart || '').toUpperCase() === 'WEB') {
-    const workerIndex  = parseInt(argEnd, 10);
+    const workerIndex  = parseInt(argEnd,    10);
     const totalWorkers = parseInt(argFourth, 10);
-    const limit        = parseInt(argFifth, 10);
-    if (
-      !Number.isInteger(workerIndex)  || workerIndex  < 0 ||
-      !Number.isInteger(totalWorkers) || totalWorkers < 1 ||
-      !Number.isInteger(limit)        || limit        < 1
-    ) {
-      console.log(chalk.red('\n  WEB mode args must be: WEB <workerIndex> <totalWorkers> <limit>'));
-      console.log(chalk.red(`  Got: WEB "${argEnd}" "${argFourth}" "${argFifth}"`));
+    // Two arg shapes (5-arg legacy, 6-arg new) — pick based on presence of argSixth.
+    let rangeFrom, rangeTo;
+    if (argSixth !== undefined && argSixth !== '') {
+      rangeFrom = parseInt(argFifth, 10);
+      rangeTo   = parseInt(argSixth, 10);
+    } else {
+      rangeFrom = 0;
+      rangeTo   = parseInt(argFifth, 10);
+    }
+    const valid =
+      Number.isInteger(workerIndex)  && workerIndex  >= 0 &&
+      Number.isInteger(totalWorkers) && totalWorkers >= 1 &&
+      Number.isInteger(rangeFrom)    && rangeFrom    >= 0 &&
+      Number.isInteger(rangeTo)      && rangeTo      >  rangeFrom;
+    if (!valid) {
+      console.log(chalk.red('\n  WEB mode args must be: WEB <workerIndex> <totalWorkers> <from> <to>'));
+      console.log(chalk.red(`  Got: WEB "${argEnd}" "${argFourth}" "${argFifth}" "${argSixth || ''}"`));
       process.exit(2);
     }
-    await runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, limit });
+    await runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rangeFrom, rangeTo });
     return;
   }
 
@@ -918,22 +930,28 @@ function waitIdle() {
 // The chunk-slicing is done at startup before any writes — by then PM2's
 // staggered launch has all N workers running and pulling the same snapshot,
 // so they don't compete for the same site.
-async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, limit }) {
+async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rangeFrom, rangeTo }) {
   const sessionId = uuidv4();
   const startTime = Date.now();
   const startIso  = new Date().toISOString();
+  const sliceSize = rangeTo - rangeFrom;
 
   console.log('');
   console.log(chalk.bold.magenta(`  ╔════════════════════════════════════════════╗`));
   console.log(chalk.bold.magenta(`  ║   Website Scraper — Worker ${workerIndex + 1}/${totalWorkers}             `.padEnd(46) + '║'));
-  console.log(chalk.bold.magenta(`  ║   Limit: ${String(limit).padEnd(36)}║`));
+  console.log(chalk.bold.magenta(`  ║   Slice: [${rangeFrom}..${rangeTo}) — ${sliceSize} sites`.padEnd(46) + '║'));
   console.log(chalk.bold.magenta(`  ╚════════════════════════════════════════════╝`));
   console.log('');
 
   liveMonitor = new LiveMonitor();
   await liveMonitor.start(chalk, deviceId, 2000);
 
-  // ── 1. Pull the snapshot (all workers see the same set if they query close in time) ──
+  // ── 1. Pull the snapshot for our slice ─────────────────────────────────────
+  // All N workers run this query at roughly the same moment, get the same
+  // _id-sorted snapshot, then slice their own chunk. The skip+limit pulls
+  // exactly the [rangeFrom..rangeTo) window so workers can stay focused on
+  // the range the operator selected (lets you split a 100k-site backlog
+  // across multiple devices without overlap).
   const sites = await ScrapedData.find(
     {
       scrapFrom: 'G-Map',
@@ -946,7 +964,8 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, limi
     }
   )
     .sort({ _id: 1 })
-    .limit(limit)
+    .skip(rangeFrom)
+    .limit(sliceSize)
     .lean();
 
   // ── 2. Slice this worker's chunk ──
@@ -1079,7 +1098,8 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, limi
   // Record run summary in Session-Stats so admin sees it in the device's Sessions tab
   try {
     await SessionStats.create({
-      sessionId, deviceId, keyword: `website-worker-${workerIndex + 1}/${totalWorkers}`,
+      sessionId, deviceId,
+      keyword: `website-worker-${workerIndex + 1}/${totalWorkers}-[${rangeFrom}..${rangeTo})`,
       totalRecords: contactsFound,
       insertedRecords: contactsFound,
       duplicateRecords: 0,

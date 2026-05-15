@@ -850,12 +850,23 @@ router.patch('/devices/:deviceId/scrape-tasks', adminAuth, async (req, res) => {
       .map((t) => {
         const type = ALLOWED_TYPES.has(t.type) ? t.type : 'jobs';
         if (type === 'website') {
+          // Accept either the new (rangeFrom + rangeTo) form OR the legacy
+          // (limit-only) form. We always normalize back to rangeFrom/rangeTo
+          // so the CLI and admin chip can rely on the explicit slice.
+          const rangeFrom = Math.max(0, Number(t.rangeFrom) || 0);
+          let rangeTo = Number(t.rangeTo);
+          if (!Number.isFinite(rangeTo) || rangeTo <= rangeFrom) {
+            const legacyLimit = Math.max(1, Number(t.limit) || 100);
+            rangeTo = rangeFrom + legacyLimit;
+          }
           return {
             type,
             startPin: '',
             endPin: '',
             jobs: 0,
-            limit:   Math.max(1, Number(t.limit)   || 100),
+            rangeFrom,
+            rangeTo,
+            limit: rangeTo - rangeFrom,  // mirror for back-compat consumers
             workers: Math.max(1, Math.min(16, Number(t.workers) || 4)),
           };
         }
@@ -866,6 +877,8 @@ router.patch('/devices/:deviceId/scrape-tasks', adminAuth, async (req, res) => {
           startPin,
           endPin: type === 'range' ? String(t.endPin || '').trim() : '',
           jobs:   type === 'jobs'  ? (Number(t.jobs) || 3) : 0,
+          rangeFrom: 0,
+          rangeTo: 0,
           limit:   0,
           workers: 0,
         };
