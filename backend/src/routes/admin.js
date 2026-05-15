@@ -9,6 +9,8 @@ const ScrapeTracking = require('../models/ScrapeTracking');
 const ScrapedData = require('../models/ScrapedData');
 const ScrapedDataDuplicate = require('../models/ScrapedDataDuplicate');
 const ScrapedDataDeleted = require('../models/ScrapedDataDeleted');
+const WebsiteAnalysis = require('../models/WebsiteAnalysis');
+const WebsiteAnalysisJob = require('../models/WebsiteAnalysisJob');
 const PincodeStatus = require('../models/PincodeStatus');
 const BusinessNiche = require('../models/BusinessNiche');
 const PinCode = require('../models/PinCode');
@@ -2594,6 +2596,208 @@ router.delete('/search-status/dedup', adminAuth, async (req, res) => {
   } catch (err) {
     console.error('[search-status/dedup] Error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Website Analysis — long-running website-dedup job
+//
+// Use case: from the ~7M scraped records, build a deduped archive of one row
+// per unique website (filter: website present AND scrapFrom='G-Map'). The job
+// can take many minutes, so the start endpoint returns immediately with a job
+// id; the admin polls /jobs/:id for progress and reads /jobs for history.
+//
+// Dedup mechanism: WebsiteAnalysis has a unique index on `website`. We
+// insertMany with ordered:false; the driver rejects E11000 duplicates per-row
+// while still inserting the rest. That's faster than find-then-insert at
+// scale and survives crashes (the unique index keeps the archive consistent
+// even if a job is resumed).
+//
+// Crash recovery: each batch updates `lastProgressAt`. If /start is called and
+// the latest job is "running" but stale (>10 min), we mark it as 'stopped'
+// and let the new run begin. Without this, a server restart mid-job would
+// leave a phantom "running" job forever.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WA_FILTER = {
+  scrapFrom: 'G-Map',
+  website: { $nin: [null, ''] },
+};
+const WA_BATCH = 500;
+const WA_HEARTBEAT_STALE_MS = 10 * 60 * 1000; // 10 min
+
+/**
+ * Background worker. Streams matching Scraped-Data rows, batches them, and
+ * insertMany's into WebsiteAnalysis with ordered:false. Updates the job doc
+ * incrementally so the UI can show live progress without long-polling the
+ * source collection. Fire-and-forget from the start endpoint.
+ */
+async function runWebsiteAnalysisJob(jobId) {
+  const job = await WebsiteAnalysisJob.findById(jobId);
+  if (!job) return;
+  try {
+    const total = await ScrapedData.countDocuments(WA_FILTER);
+    job.totalToProcess = total;
+    job.status = 'running';
+    job.lastProgressAt = new Date();
+    await job.save();
+
+    const cursor = ScrapedData.find(WA_FILTER, {
+      sessionId: 1, deviceId: 1, name: 1, nameEnglish: 1, nameLocal: 1,
+      address: 1, phone: 1, email: 1, website: 1, rating: 1, reviews: 1,
+      category: 1, pincode: 1, plusCode: 1, photoUrl: 1, latitude: 1,
+      longitude: 1, mapsUrl: 1, scrapKeyword: 1, scrapCategory: 1,
+      scrapSubCategory: 1, scrapRound: 1, scrapedAt: 1, scrapFrom: 1,
+    }).lean().cursor({ batchSize: WA_BATCH });
+
+    let buffer = [];
+
+    const flush = async () => {
+      if (buffer.length === 0) return;
+      const docs = buffer.map((r) => {
+        const { _id, ...rest } = r;
+        return { ...rest, sourceId: String(_id) };
+      });
+      buffer = [];
+
+      try {
+        await WebsiteAnalysis.insertMany(docs, { ordered: false });
+        job.inserted += docs.length;
+      } catch (err) {
+        // Per-doc partial success: BulkWriteError carries .insertedCount and
+        // an array of writeErrors. E11000 = duplicate website (expected).
+        const insertedCount = err.result?.insertedCount ?? err.insertedDocs?.length ?? 0;
+        const writeErrors = err.writeErrors || [];
+        let dupCount = 0;
+        let otherErrors = 0;
+        for (const we of writeErrors) {
+          if (we.err?.code === 11000 || we.code === 11000) dupCount++;
+          else otherErrors++;
+        }
+        job.inserted += insertedCount;
+        job.skipped += dupCount;
+        job.errored += otherErrors;
+      }
+      job.processed += docs.length;
+      job.lastProgressAt = new Date();
+      await job.save();
+    };
+
+    for await (const doc of cursor) {
+      buffer.push(doc);
+      if (buffer.length >= WA_BATCH) await flush();
+    }
+    await flush();
+
+    job.status = 'completed';
+    job.completedAt = new Date();
+    job.lastProgressAt = new Date();
+    await job.save();
+  } catch (err) {
+    console.error('[website-analysis worker] Fatal:', err.message);
+    try {
+      job.status = 'error';
+      job.errorMessage = err.message;
+      job.lastProgressAt = new Date();
+      await job.save();
+    } catch (_) { /* ignore */ }
+  }
+}
+
+// POST /api/admin/website-analysis/start — kick off (or report) a run
+router.post('/website-analysis/start', async (_req, res) => {
+  try {
+    // Reap stale "running" jobs first — a crashed worker leaves the doc
+    // marked running forever otherwise.
+    const cutoff = new Date(Date.now() - WA_HEARTBEAT_STALE_MS);
+    await WebsiteAnalysisJob.updateMany(
+      { status: 'running', lastProgressAt: { $lt: cutoff } },
+      { $set: { status: 'stopped', errorMessage: 'No heartbeat — worker died' } }
+    );
+
+    const active = await WebsiteAnalysisJob.findOne({ status: 'running' }).sort({ startedAt: -1 });
+    if (active) {
+      return res.status(200).json({
+        success: true,
+        alreadyRunning: true,
+        message: 'A website-analysis job is already in progress',
+        job: active,
+      });
+    }
+
+    const job = await WebsiteAnalysisJob.create({
+      status: 'queued',
+      startedAt: new Date(),
+      lastProgressAt: new Date(),
+    });
+
+    // Fire-and-forget — runs after the response is sent
+    setImmediate(() => { runWebsiteAnalysisJob(job._id).catch(() => { /* logged inside */ }); });
+
+    res.status(202).json({
+      success: true,
+      alreadyRunning: false,
+      message: 'Website-analysis job started — check progress in the Website Analysis page',
+      job,
+    });
+  } catch (err) {
+    console.error('[website-analysis/start] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
+// GET /api/admin/website-analysis/jobs — paginated history
+router.get('/website-analysis/jobs', async (req, res) => {
+  try {
+    const page  = Math.max(1, Number(req.query.page)  || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const skip  = (page - 1) * limit;
+
+    const [data, total, archiveTotal] = await Promise.all([
+      WebsiteAnalysisJob.find({}).sort({ startedAt: -1 }).skip(skip).limit(limit).lean(),
+      WebsiteAnalysisJob.countDocuments({}),
+      WebsiteAnalysis.estimatedDocumentCount(),
+    ]);
+    res.json({ data, total, page, limit, archiveTotal });
+  } catch (err) {
+    console.error('[website-analysis/jobs] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/admin/website-analysis/jobs/:id — single job (used for polling)
+router.get('/website-analysis/jobs/:id', async (req, res) => {
+  try {
+    const job = await WebsiteAnalysisJob.findById(req.params.id).lean();
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    res.json(job);
+  } catch (err) {
+    console.error('[website-analysis/jobs/:id] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/admin/website-analysis/records — browse the deduped archive
+router.get('/website-analysis/records', async (req, res) => {
+  try {
+    const { page = 1, limit = 25, search } = req.query;
+    const filter = {};
+    if (search) {
+      const rx = { $regex: escapeRegex(String(search)), $options: 'i' };
+      filter.$or = [
+        { name: rx }, { website: rx }, { address: rx },
+        { phone: rx }, { email: rx }, { category: rx },
+      ];
+    }
+    const skip = (Number(page) - 1) * Number(limit);
+    const [data, total] = await Promise.all([
+      WebsiteAnalysis.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+      WebsiteAnalysis.countDocuments(filter),
+    ]);
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    console.error('[website-analysis/records] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
