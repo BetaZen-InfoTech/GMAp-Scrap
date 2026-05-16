@@ -164,26 +164,25 @@ const ComingPincodesPage: React.FC = () => {
           : `${statusOverride.length} statuses`;
 
       // Build with array-of-arrays so we can prepend the same summary block
-      // the sampled-download flow uses. Layout:
-      //   A1: title + page coordinates
-      //   A2: per-page status counts (matches the on-screen "THIS PAGE" line)
-      //   A3: filter line (state/district active filters)
-      //   A4: blank
-      //   A5: column headers
-      //   A6+: data rows
+      // the sampled-download flow uses. Each status gets its own row so the
+      // counts read as a stat table rather than a wrapped sentence. Layout:
+      //   r0: title banner
+      //   r1: page-coordinate / showing line
+      //   r2: "Running"   | count
+      //   r3: "Completed" | count
+      //   r4: "Stop"      | count
+      //   r5: "Pending"   | count
+      //   r6: filters line
+      //   r7: blank spacer
+      //   r8: column headers
+      //   r9+: data
       const filterParts: string[] = [];
       if (filters.state)    filterParts.push(`State: ${filters.state}`);
       if (filters.district) filterParts.push(`District: ${filters.district}`);
       filterParts.push(`Status: ${scope}`);
 
       const title = `Coming Pincodes — Page ${page} (${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${total.toLocaleString()})`;
-      const scopeLine =
-        `THIS PAGE   ·   ` +
-        `Running: ${pageCounts.running.toLocaleString()}   ·   ` +
-        `Completed: ${pageCounts.completed.toLocaleString()}   ·   ` +
-        `Stop: ${pageCounts.stop.toLocaleString()}   ·   ` +
-        `Pending: ${pageCounts.pending.toLocaleString()}   ·   ` +
-        `Showing: ${filtered.length.toLocaleString()} of ${pincodes.length.toLocaleString()}`;
+      const showingLine = `THIS PAGE   ·   Showing ${filtered.length.toLocaleString()} of ${pincodes.length.toLocaleString()}`;
       const filterLine = `Filters — ${filterParts.join('   ·   ')}`;
       const headerCols = [
         '#', 'Pincode', 'District', 'State', 'Status',
@@ -203,14 +202,19 @@ const ComingPincodesPage: React.FC = () => {
         p.lastRunAt || '',
         p.updatedAt || '',
       ]);
-      const aoa = [
+      const aoa: (string | number)[][] = [
         [title],
-        [scopeLine],
+        [showingLine],
+        ['Running',   pageCounts.running],
+        ['Completed', pageCounts.completed],
+        ['Stop',      pageCounts.stop],
+        ['Pending',   pageCounts.pending],
         [filterLine],
         [],
         headerCols,
         ...dataRows,
       ];
+      const dataStartRow = 9;
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = [
@@ -218,12 +222,13 @@ const ComingPincodesPage: React.FC = () => {
         { wch: 18 }, { wch: 18 }, { wch: 12 },
         { wch: 24 }, { wch: 24 }, { wch: 24 },
       ];
+      // Merge wide banner rows; leave the four status rows as (label | count).
       ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: headerCols.length - 1 } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: headerCols.length - 1 } },
+        { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } }, // title
+        { s: { r: 1, c: 0 }, e: { r: 1, c: headerCols.length - 1 } }, // showing
+        { s: { r: 6, c: 0 }, e: { r: 6, c: headerCols.length - 1 } }, // filters
       ];
-      ws['!freeze'] = { xSplit: 0, ySplit: 5 };
+      ws['!freeze'] = { xSplit: 0, ySplit: dataStartRow };
 
       const wb = XLSX.utils.book_new();
       const sheetName = `Page ${page} ${scope} (${filtered.length})`.slice(0, 31);

@@ -1441,8 +1441,23 @@ router.get('/pincodes/coming-status/sample', async (req, res) => {
     const sourceCount = merged.length;
     const samples = [];
     // Take row at offsets 0, step, 2*step, … — i.e. the first row of each "page".
+    // Also tally per-page status counts so the Excel sample can show how
+    // each page breaks down (running/completed/stop/pending) without the
+    // admin having to download every page separately.
     for (let i = 0; i < merged.length; i += step) {
-      samples.push({ ...merged[i], pageNumber: Math.floor(i / step) + 1, sourceIndex: i });
+      const pageEnd = Math.min(i + step, merged.length);
+      const pageCounts = { running: 0, completed: 0, stop: 0, pending: 0 };
+      for (let j = i; j < pageEnd; j++) {
+        const s = merged[j].status;
+        if (s in pageCounts) pageCounts[s]++;
+      }
+      samples.push({
+        ...merged[i],
+        pageNumber: Math.floor(i / step) + 1,
+        sourceIndex: i,
+        pageSize: pageEnd - i,
+        pageCounts,
+      });
     }
 
     res.json({ samples, step, total: samples.length, sourceCount });

@@ -32,6 +32,11 @@ export interface Filters {
 export interface SampleRow extends PincodeRow {
   pageNumber:  number;
   sourceIndex: number;
+  // Per-page status tally for the slice this sample row represents. The
+  // backend computes one of these per sampled row so the Excel can show how
+  // each page breaks down without the admin downloading every page.
+  pageSize?:   number;
+  pageCounts?: PincodeCounts;
 }
 
 export interface SampleResult {
@@ -190,70 +195,93 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
     //    block before the data table. AOA gives precise row control whereas
     //    json_to_sheet only knows about (header + rows).
     //
-    //    Layout:
-    //      A1: title           (e.g. "Coming Pincodes — Sampled every 100 (All Status)")
-    //      A2: scope line      (Total + per-status counts)
-    //      A3: filter line     (state/district/status filters in effect)
-    //      A4: blank
-    //      A5: column headers
-    //      A6+: data rows
+    //    Layout (per-row breakdown):
+    //      r0: title banner
+    //      r1: total scope (overall count)
+    //      r2: "Running"   | count
+    //      r3: "Completed" | count
+    //      r4: "Stop"      | count
+    //      r5: "Pending"   | count
+    //      r6: filters line
+    //      r7: blank spacer
+    //      r8: column headers
+    //      r9+: data
     const filterParts: string[] = [];
     if (filters.state)    filterParts.push(`State: ${filters.state}`);
     if (filters.district) filterParts.push(`District: ${filters.district}`);
     filterParts.push(`Status: ${scope}`);
 
-    const title = `Coming Pincodes — Sampled every ${step} (${scope})`;
-    const scopeLine =
-      `Total: ${data.sourceCount.toLocaleString()}   ·   ` +
-      `Running: ${counts.running.toLocaleString()}   ·   ` +
-      `Completed: ${counts.completed.toLocaleString()}   ·   ` +
-      `Stop: ${counts.stop.toLocaleString()}   ·   ` +
-      `Pending: ${counts.pending.toLocaleString()}`;
+    const title      = `Coming Pincodes — Sampled every ${step} (${scope})`;
+    const totalLine  = `Total: ${data.sourceCount.toLocaleString()}`;
     const filterLine = `Filters — ${filterParts.join('   ·   ')}`;
+
     const headerCols = [
-      'Page #', 'Source Index', 'Pincode', 'District', 'State', 'Status',
+      'Page #', 'Source Index', 'Page Size',
+      // Per-page status counts — Running/Completed/Stop/Pending for the
+      // slice of `step` pincodes this sample row stands in for.
+      'Page Running', 'Page Completed', 'Page Stop', 'Page Pending',
+      'Pincode', 'District', 'State', 'Status',
       'Completed Rounds', 'Completed Searches', 'Total Niches',
       'Last Activity', 'Last Run At', 'Updated At',
     ];
-    const dataRows = samples.map((s) => [
-      s.pageNumber,
-      s.sourceIndex,
-      s.pincode,
-      s.district || '',
-      s.stateName || '',
-      s.status,
-      (s.completedRounds || []).join(','),
-      s.completedSearches,
-      s.totalNiches,
-      s.lastActivity || '',
-      s.lastRunAt || '',
-      s.updatedAt || '',
-    ]);
-    const aoa = [
+    const dataRows = samples.map((s) => {
+      const pc = s.pageCounts || { running: 0, completed: 0, stop: 0, pending: 0 };
+      return [
+        s.pageNumber,
+        s.sourceIndex,
+        s.pageSize ?? step,
+        pc.running,
+        pc.completed,
+        pc.stop,
+        pc.pending,
+        s.pincode,
+        s.district || '',
+        s.stateName || '',
+        s.status,
+        (s.completedRounds || []).join(','),
+        s.completedSearches,
+        s.totalNiches,
+        s.lastActivity || '',
+        s.lastRunAt || '',
+        s.updatedAt || '',
+      ];
+    });
+    const aoa: (string | number)[][] = [
       [title],
-      [scopeLine],
+      [totalLine],
+      ['Running',   counts.running],
+      ['Completed', counts.completed],
+      ['Stop',      counts.stop],
+      ['Pending',   counts.pending],
       [filterLine],
       [],
       headerCols,
       ...dataRows,
     ];
+    const dataStartRow = 9; // row 10 in 1-based Excel terms
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    // Reasonable column widths — long header + auto-fit feel
     ws['!cols'] = [
-      { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 22 }, { wch: 18 },
-      { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 12 },
+      // Page # | Src Idx | Page Size
+      { wch: 8 }, { wch: 12 }, { wch: 10 },
+      // Page Running | Page Completed | Page Stop | Page Pending
+      { wch: 14 }, { wch: 16 }, { wch: 11 }, { wch: 14 },
+      // Pincode | District | State | Status
+      { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 12 },
+      // Completed Rounds | Completed Searches | Total Niches
+      { wch: 18 }, { wch: 20 }, { wch: 12 },
+      // Last Activity | Last Run At | Updated At
       { wch: 24 }, { wch: 24 }, { wch: 24 },
     ];
-    // Merge the title / scope / filter lines across the data columns so they
-    // read as banner text rather than getting clipped in column A.
+    // Merge the wide banner rows across all data columns. The per-status
+    // rows stay as (label | count) — they're meant to look like a small
+    // stat table in columns A + B.
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: headerCols.length - 1 } },
-      { s: { r: 2, c: 0 }, e: { r: 2, c: headerCols.length - 1 } },
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } },  // title
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headerCols.length - 1 } },  // total
+      { s: { r: 6, c: 0 }, e: { r: 6, c: headerCols.length - 1 } },  // filters
     ];
-    // Freeze the header row so it stays visible while scrolling the data
-    ws['!freeze'] = { xSplit: 0, ySplit: 5 };
+    ws['!freeze'] = { xSplit: 0, ySplit: dataStartRow };
 
     const wb = XLSX.utils.book_new();
     // Sheet name = "Every <step> <Status> (<n> rows)" — Excel caps at 31 chars
