@@ -43,4 +43,19 @@ scrapedDataSchema.index(
   { name: 'duplicate_check_idx' }
 );
 
+// Compound index for the website-scraper queue query
+// (GET /api/scraped-data/website-pool). Without this, the
+// .find({ scrapFrom, scrapWebsite: $ne true }).sort({_id}).skip(N).limit(M)
+// pipeline does a full collection scan at 7M+ rows. The prefix matches the
+// filter, _id supports the sort, and the partial filter keeps the index
+// small by only indexing unscraped G-Map rows (which is what the query
+// always asks for).
+scrapedDataSchema.index(
+  { scrapFrom: 1, scrapWebsite: 1, _id: 1 },
+  {
+    name: 'website_pool_idx',
+    partialFilterExpression: { scrapFrom: 'G-Map' },
+  }
+);
+
 module.exports = mongoose.model('ScrapedData', scrapedDataSchema);

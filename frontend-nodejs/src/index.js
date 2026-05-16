@@ -17,16 +17,10 @@
 
 const readline = require('readline');
 const { v4: uuidv4 } = require('uuid');
+const axios  = require('axios');
 const chalk  = require('chalk');
 
-const { MONGODB_URI, APP_STATE, SETTINGS } = require('./config');
-const { connectDB, disconnectDB } = require('./db');
-const PinCode        = require('./models/PinCode');
-const BusinessNiche  = require('./models/BusinessNiche');
-const SessionStats   = require('./models/SessionStats');
-const ScrapeTracking = require('./models/ScrapeTracking');
-const SearchStatus   = require('./models/SearchStatus');
-const ScrapedData    = require('./models/ScrapedData');
+const { API_BASE_URL, APP_STATE, SETTINGS } = require('./config');
 const { ScraperEngine }          = require('./scraper');
 const { sendBatch }              = require('./batchSender');
 const { getSystemStats, LiveMonitor } = require('./monitor');
@@ -51,8 +45,8 @@ function isShuttingDown() {
 async function runShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  // Wait for the live monitor's final stats batch BEFORE closing the mongoose
-  // connection — otherwise the in-flight write races disconnectDB and is lost.
+  // Wait for the live monitor's final stats batch before exiting so the last
+  // few seconds of CPU/RAM samples actually reach the backend.
   try {
     if (liveMonitor) {
       await liveMonitor.stop();
@@ -63,7 +57,6 @@ async function runShutdown(signal) {
   for (const task of shutdownTasks) {
     try { await task(); } catch (err) { console.error(chalk.red(`  Shutdown task failed: ${err.message}`)); }
   }
-  try { await disconnectDB(); } catch (_) { /* ignore */ }
   console.log(chalk.gray('  Shutdown complete.'));
   process.exit(0);
 }
@@ -153,73 +146,33 @@ async function printStats(label) {
   } catch { /* ignore */ }
 }
 
-// ── DB helpers (replace the old HTTP API layer) ──────────────────────────────
+// ── API helpers ───────────────────────────────────────────────────────────────
 //
-// All operations talk to MongoDB through mongoose. Behaviour mirrors the old
-// backend routes exactly — same shapes, same filters, same defensive sort —
-// so callers downstream (executeJob, runSession, etc.) didn't have to change.
+// All scraper-side state goes over HTTP. We went back to this model in v1.8.0
+// because 35+ devices × N PM2 workers × M mongoose-pool-connections-each was
+// hammering MongoDB CPU. One backend process pooling for everyone scales fine.
 
 async function fetchPincodes(start, end, limit) {
-  const pipeline = [
-    { $match: { Pincode: { $gte: start, $lte: end } } },
-    { $sort:  { Pincode: 1 } },
-    {
-      $group: {
-        _id:       '$Pincode',
-        District:  { $first: '$District' },
-        StateName: { $first: '$StateName' },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ];
-  if (limit && limit > 0) pipeline.push({ $limit: limit });
-  pipeline.push({ $project: { _id: 0, Pincode: '$_id', District: 1, StateName: 1 } });
-
-  const arr = await PinCode.aggregate(pipeline);
-  // Defensive ASC sort — group output is not guaranteed ordered.
+  const params = { start, end };
+  if (limit) params.limit = limit;
+  const res = await axios.get(`${API_BASE_URL}/api/pincodes/range`, {
+    params, timeout: 30000,
+  });
+  const arr = Array.isArray(res.data) ? res.data : [];
+  // Defensive client-side ascending sort — backend sorts too, but this keeps
+  // the guarantee if some future backend change breaks ordering.
   arr.sort((a, b) => Number(a.Pincode) - Number(b.Pincode));
   return arr;
 }
 
 async function fetchNiches() {
-  return BusinessNiche.find(
-    {},
-    { Category: 1, SubCategory: 1, _id: 0 }
-  ).sort({ Category: 1, SubCategory: 1 }).lean();
+  const res = await axios.get(`${API_BASE_URL}/api/niches`, { timeout: 30000 });
+  return Array.isArray(res.data) ? res.data : [];
 }
 
 async function postSessionStats(payload) {
   try {
-    const { pincode, category, subCategory, round } = payload;
-    if (pincode == null || !category || !subCategory) return;
-
-    const $set = {};
-    const setFields = [
-      'sessionId', 'jobId', 'deviceId', 'keyword',
-      'pincode', 'district', 'stateName',
-      'category', 'subCategory',
-      'status',
-      'startedAt', 'completedAt', 'durationMs',
-    ];
-    for (const key of setFields) {
-      if (payload[key] !== undefined) $set[key] = payload[key];
-    }
-
-    const $inc = {};
-    const incFields = ['totalRecords', 'insertedRecords', 'duplicateRecords', 'batchesSent'];
-    for (const key of incFields) {
-      if (payload[key] !== undefined && payload[key] > 0) $inc[key] = payload[key];
-    }
-
-    const update = { $set };
-    if (Object.keys($inc).length > 0) update.$inc = $inc;
-    if (round != null) update.$addToSet = { rounds: round };
-
-    await SessionStats.findOneAndUpdate(
-      { pincode, category, subCategory },
-      update,
-      { upsert: true, new: true }
-    );
+    await axios.post(`${API_BASE_URL}/api/scraped-data/session-stats`, payload, { timeout: 15000 });
   } catch { /* fire-and-forget */ }
 }
 
@@ -227,77 +180,42 @@ async function postSessionStats(payload) {
 
 async function createJobTracking(jobId, deviceId, startPincode, endPincode, totalSearches) {
   try {
-    await ScrapeTracking.create({
-      jobId, deviceId, startPincode, endPincode,
-      totalSearches: totalSearches ?? 0,
-      completedSearches: 0,
-      pincodeIndex: 0,
-      nicheIndex: 0,
-      round: 1,
-      status: 'running',
-    });
-  } catch { /* fire-and-forget — unique index may bounce concurrent inserts */ }
+    await axios.post(`${API_BASE_URL}/api/scrape-tracking`, {
+      jobId, deviceId, startPincode, endPincode, totalSearches,
+    }, { timeout: 15000 });
+  } catch { /* fire-and-forget */ }
 }
 
 async function updateJobProgress(jobId, update) {
   try {
-    const allowed = ['pincodeIndex', 'nicheIndex', 'round', 'completedSearches', 'status'];
-    const $set = {};
-    for (const key of allowed) {
-      if (update[key] !== undefined) $set[key] = update[key];
-    }
-    if (Object.keys($set).length === 0) return;
-    await ScrapeTracking.findOneAndUpdate(
-      { jobId, status: { $ne: 'completed' } },
-      { $set },
-      { new: true }
-    );
+    await axios.patch(`${API_BASE_URL}/api/scrape-tracking/${jobId}`, update, { timeout: 10000 });
   } catch { /* fire-and-forget */ }
 }
 
 async function markSearchComplete(jobId, data) {
   try {
-    const { deviceId, pincode, district, stateName, category, subCategory, round, sessionId } = data;
-    if (pincode == null || !category || !subCategory || round == null) return;
-
-    const existing = await SearchStatus.findOne({ pincode, category, subCategory }).lean();
-    const updateOps = {
-      $set: { jobId, deviceId, district, stateName, sessionId, status: 'completed' },
-      $addToSet: { rounds: round },
-      $unset: { round: '' },
-    };
-    if (existing?.round != null && (!existing.rounds || !existing.rounds.includes(existing.round))) {
-      updateOps.$addToSet = { rounds: { $each: [existing.round, round] } };
-    }
-
-    await SearchStatus.findOneAndUpdate(
-      { pincode, category, subCategory },
-      updateOps,
-      { upsert: true, new: true }
-    );
+    await axios.post(`${API_BASE_URL}/api/scrape-tracking/${jobId}/search-complete`, data, { timeout: 10000 });
   } catch { /* fire-and-forget */ }
 }
 
 async function fetchExistingJob(deviceId, startPincode, endPincode) {
   try {
-    const filter = { deviceId };
-    if (startPincode != null) filter.startPincode = Number(startPincode);
-    if (endPincode   != null) filter.endPincode   = Number(endPincode);
-    const doc = await ScrapeTracking.findOne(filter, null, { sort: { createdAt: -1 } }).lean();
-    return doc || null;
+    const params = {};
+    if (startPincode != null) params.startPincode = startPincode;
+    if (endPincode != null) params.endPincode = endPincode;
+    const res = await axios.get(`${API_BASE_URL}/api/scrape-tracking/${deviceId}`, { params, timeout: 10000 });
+    return res.data || null;
   } catch { return null; }
 }
 
 async function fetchCompletedSearchesGlobal(pincodes) {
   try {
-    const filter = { status: 'completed' };
-    if (Array.isArray(pincodes) && pincodes.length > 0) {
-      filter.pincode = { $in: pincodes };
-    }
-    return await SearchStatus.find(
-      filter,
-      { pincode: 1, category: 1, subCategory: 1, rounds: 1, round: 1, _id: 0 }
-    ).lean();
+    const res = await axios.post(
+      `${API_BASE_URL}/api/scrape-tracking/completed-searches-global`,
+      { pincodes },
+      { timeout: 30000 }
+    );
+    return Array.isArray(res.data) ? res.data : [];
   } catch { return []; }
 }
 
@@ -444,19 +362,13 @@ async function runSession(keyword, pincode, deviceId, scrapCategory, scrapSubCat
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-/** Redact credentials when printing a MongoDB URI to the terminal. */
-function redactMongoUri(uri) {
-  if (!uri) return '(missing)';
-  return uri.replace(/(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@/i, '$1$2:***@');
-}
-
 async function main() {
   const CLI_VERSION = require('../package.json').version;
   const timeStr = new Date().toLocaleString('en-IN');
   const lines = [
     `   Ver  : v${CLI_VERSION}`,
     `   ENV  : ${APP_STATE.toUpperCase()}`,
-    `   DB   : ${redactMongoUri(MONGODB_URI)}`,
+    `   API  : ${API_BASE_URL}`,
     `   Time : ${timeStr}`,
   ];
   const boxW = Math.max(52, ...lines.map(l => l.length + 2));
@@ -474,17 +386,6 @@ async function main() {
 
   await printStats('Startup');
   console.log('');
-
-  // ── Connect to MongoDB before anything else ─────────────────────────────
-  process.stdout.write(chalk.cyan(`  Connecting to MongoDB…  `));
-  try {
-    await connectDB();
-    console.log(chalk.green('✓'));
-  } catch (err) {
-    console.log(chalk.red(`✗\n  MongoDB connection failed: ${err.message}`));
-    console.log(chalk.yellow(`  Check ${APP_STATE.toUpperCase()}_MONGODB_URI in .env`));
-    process.exit(1);
-  }
 
   // ── CLI args: npm start -- "hostname" startPincode endPincode ───────────
   //   e.g.  node src/index.js "DEMO PC 1" 700061 700062
@@ -601,8 +502,8 @@ async function main() {
     process.exit(1);
   }
 
-  // ── Fetch data directly from MongoDB ─────────────────────────────────────
-  console.log(chalk.cyan(`\nFetching pincodes + niches from MongoDB …`));
+  // ── Fetch data ────────────────────────────────────────────────────────────
+  console.log(chalk.cyan(`\nFetching data from ${API_BASE_URL} …`));
 
   let allPincodes, niches;
   try {
@@ -613,8 +514,8 @@ async function main() {
       fetchNiches(),
     ]);
   } catch (err) {
-    console.log(chalk.red(`\nDB error: ${err.message}`));
-    console.log(chalk.yellow(`Verify ${APP_STATE.toUpperCase()}_MONGODB_URI in .env and that the cluster is reachable.`));
+    console.log(chalk.red(`\nAPI error: ${err.message}`));
+    console.log(chalk.yellow(`Ensure backend is running at ${API_BASE_URL}`));
     process.exit(1);
   }
 
@@ -918,18 +819,17 @@ function waitIdle() {
 // ── Website-scraper mode ────────────────────────────────────────────────────
 //
 // Spawned as one of N parallel PM2 workers (typically 4). Each worker:
-//   1. Queries Scraped-Data for `limit` unscraped websites (deterministic _id
-//      sort so all N workers see the same snapshot at startup),
-//   2. Slices its own chunk by workerIndex (worker 0 of 4 with limit=100 takes
+//   1. Pulls the unscraped-website slice [rangeFrom..rangeTo) from the backend
+//      via GET /api/scraped-data/website-pool — all N workers see the same
+//      _id-sorted snapshot,
+//   2. Slices its own chunk by workerIndex (worker 0 of 4 over [0..100) takes
 //      indices 0..24; worker 3 takes 75..99),
-//   3. For each site, harvests email / phone / contact-name via Playwright,
-//   4. Saves discovered contacts as new Scraped-Data rows (scrapFrom='Website')
-//      using sendBatch so dedup is consistent with the rest of the pipeline,
-//   5. Marks the source row `scrapWebsite: true` so it's never picked again.
-//
-// The chunk-slicing is done at startup before any writes — by then PM2's
-// staggered launch has all N workers running and pulling the same snapshot,
-// so they don't compete for the same site.
+//   3. For each site, harvests email/phone/contact-name via Playwright,
+//   4. Posts the harvested rows to POST /api/scraped-data/from-website — the
+//      backend tags them scrapFrom='website', scrapWebsite=true and marks
+//      every record sharing the URL so the queue stops surfacing them,
+//   5. If a site yielded nothing, PATCH /mark-website-scraped on the source
+//      id so the next pass doesn't keep revisiting dead URLs.
 async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rangeFrom, rangeTo }) {
   const sessionId = uuidv4();
   const startTime = Date.now();
@@ -946,31 +846,23 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
   liveMonitor = new LiveMonitor();
   await liveMonitor.start(chalk, deviceId, 2000);
 
-  // ── 1. Pull the snapshot for our slice ─────────────────────────────────────
-  // All N workers run this query at roughly the same moment, get the same
-  // _id-sorted snapshot, then slice their own chunk. The skip+limit pulls
-  // exactly the [rangeFrom..rangeTo) window so workers can stay focused on
-  // the range the operator selected (lets you split a 100k-site backlog
-  // across multiple devices without overlap).
-  const sites = await ScrapedData.find(
-    {
-      scrapFrom: 'G-Map',
-      website: { $nin: [null, ''] },
-      scrapWebsite: { $ne: true },
-    },
-    {
-      _id: 1, name: 1, address: 1, pincode: 1, plusCode: 1, latitude: 1, longitude: 1,
-      category: 1, website: 1, scrapKeyword: 1, scrapCategory: 1, scrapSubCategory: 1,
-    }
-  )
-    .sort({ _id: 1 })
-    .skip(rangeFrom)
-    .limit(sliceSize)
-    .lean();
+  // ── 1. Pull the snapshot for our slice from the backend ────────────────────
+  let sites = [];
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/scraped-data/website-pool`, {
+      params: { from: rangeFrom, to: rangeTo },
+      timeout: 60000,
+    });
+    sites = Array.isArray(res.data?.sites) ? res.data.sites : [];
+  } catch (err) {
+    print(chalk.red(`  Failed to fetch website pool: ${err.response?.data?.error || err.message}`));
+    if (liveMonitor) await liveMonitor.stop();
+    liveMonitor = null;
+    process.exit(1);
+  }
 
-  // ── 2. Slice this worker's chunk ──
-  // Even distribution: with limit=102 and 4 workers, worker 0 gets indices 0..25 (26),
-  // worker 1 gets 26..51 (26), worker 2 gets 52..76 (25), worker 3 gets 77..101 (25).
+  // ── 2. Slice this worker's chunk ───────────────────────────────────────────
+  // Even distribution: e.g. 102 sites / 4 workers → 26/26/25/25.
   const base = Math.floor(sites.length / totalWorkers);
   const extra = sites.length % totalWorkers;
   const chunkSize = base + (workerIndex < extra ? 1 : 0);
@@ -983,6 +875,19 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
     waitIdle();
     return;
   }
+
+  // Mark a source row as scraped via PATCH so the queue stops surfacing it.
+  // Fire-and-forget — failure here only means the same URL might get revisited
+  // by the next worker pass, which is not catastrophic.
+  const markScraped = async (id) => {
+    try {
+      await axios.patch(
+        `${API_BASE_URL}/api/scraped-data/mark-website-scraped`,
+        { ids: [id] },
+        { timeout: 10000 }
+      );
+    } catch (_) { /* non-fatal */ }
+  };
 
   // ── 3. Launch browser once for the whole run ──
   const browser = await launchBrowser({ headless: SETTINGS.headless });
@@ -1008,20 +913,19 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
       errors++;
       print(chalk.red(`  ✗ ${result.error}`));
       // Still mark the source row so we don't retry forever
-      await ScrapedData.updateOne({ _id: src._id }, { $set: { scrapWebsite: true } }).catch(() => {});
+      await markScraped(src._id);
       continue;
     }
 
     const { emails, phones, contactName } = result;
-    const total = emails.length + phones.length;
-    if (total === 0) {
+    if (emails.length + phones.length === 0) {
       print(chalk.gray(`    no contacts`));
-      await ScrapedData.updateOne({ _id: src._id }, { $set: { scrapWebsite: true } }).catch(() => {});
+      await markScraped(src._id);
       continue;
     }
 
-    // Build a row per (email, phone) pair. If only emails exist, use empty phone
-    // for each; if only phones, empty email. If both, cross-product up to max(len).
+    // Build a row per (email, phone) pair. If only emails exist, use empty
+    // phone for each; if only phones, empty email. If both, fan out to max(len).
     const rows = [];
     const len = Math.max(emails.length, phones.length, 1);
     for (let k = 0; k < len; k++) {
@@ -1029,6 +933,7 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
       const phone = phones[k] || (k === 0 ? '' : phones[0] || '');
       if (!email && !phone) continue;
       rows.push({
+        sessionId,
         name: contactName || src.name,
         address: src.address,
         phone,
@@ -1039,41 +944,35 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
         plusCode: src.plusCode,
         latitude: src.latitude,
         longitude: src.longitude,
+        scrapKeyword: src.scrapKeyword,
         scrapCategory: src.scrapCategory,
         scrapSubCategory: src.scrapSubCategory,
-        timestamp: new Date().toISOString(),
+        scrapedAt: new Date().toISOString(),
       });
     }
 
     if (rows.length > 0) {
-      // Use sendBatch so dedup runs against the existing 5-field key. New rows
-      // are written with scrapFrom override below — overriding the model's
-      // default after sendBatch is set is the cleanest path right now.
-      const batchRes = await sendBatch(
-        rows, 1, sessionId, `Website: ${src.website}`, src.pincode,
-        deviceId, src.scrapCategory, src.scrapSubCategory, 1
-      );
-      if (batchRes.success) {
-        contactsFound += batchRes.count + (batchRes.duplicateCount || 0);
+      try {
+        const saveRes = await axios.post(
+          `${API_BASE_URL}/api/scraped-data/from-website`,
+          { sourceId: src._id, records: rows, deviceId },
+          { timeout: 30000 }
+        );
+        const count = saveRes.data?.count ?? rows.length;
+        contactsFound += count;
         sitesWithContacts++;
-        // Tag the newly-inserted rows with scrapFrom='Website' so admin can
-        // distinguish source-of-truth G-Map records from website-harvested ones.
-        const allIds = [...(batchRes.insertedIds || []), ...(batchRes.duplicateIds || [])];
-        if (allIds.length > 0) {
-          await ScrapedData.updateMany(
-            { _id: { $in: allIds } },
-            { $set: { scrapFrom: 'Website' } }
-          ).catch(() => { /* non-fatal */ });
-        }
-        print(chalk.green(`    ✓ ${batchRes.count} new, ${batchRes.duplicateCount || 0} dup`));
-      } else {
+        print(chalk.green(`    ✓ saved ${count}`));
+      } catch (err) {
         errors++;
-        print(chalk.red(`    ✗ save failed: ${batchRes.error}`));
+        const status = err.response?.status;
+        print(chalk.red(`    ✗ save failed (${status || 'net'}): ${err.response?.data?.error || err.message}`));
+        // Still mark scraped so this URL doesn't keep cycling on retries
+        await markScraped(src._id);
       }
+    } else {
+      // Defensive — shouldn't happen since we already short-circuited above
+      await markScraped(src._id);
     }
-
-    // Mark the source row so it isn't picked again
-    await ScrapedData.updateOne({ _id: src._id }, { $set: { scrapWebsite: true } }).catch(() => {});
   }
 
   try { await browser.close(); } catch (_) { /* ignore */ }
@@ -1095,21 +994,28 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
   console.log(chalk.bold.green('  ╚══════════════════════════════════════════════╝'));
   console.log('');
 
-  // Record run summary in Session-Stats so admin sees it in the device's Sessions tab
-  try {
-    await SessionStats.create({
-      sessionId, deviceId,
-      keyword: `website-worker-${workerIndex + 1}/${totalWorkers}-[${rangeFrom}..${rangeTo})`,
-      totalRecords: contactsFound,
-      insertedRecords: contactsFound,
-      duplicateRecords: 0,
-      batchesSent: sitesWithContacts,
-      status: 'completed',
-      startedAt: startIso,
-      completedAt: new Date().toISOString(),
-      durationMs,
-    });
-  } catch (_) { /* not critical */ }
+  // Record run summary in Session-Stats so admin sees it in the device's
+  // Sessions tab. Posting through the existing /session-stats endpoint —
+  // same shape the pincode flow uses.
+  postSessionStats({
+    sessionId, deviceId,
+    keyword: `website-worker-${workerIndex + 1}/${totalWorkers}-[${rangeFrom}..${rangeTo})`,
+    // session-stats requires pincode + category + subCategory for the upsert
+    // unique key — synthesize a sentinel so website runs get their own row
+    // instead of clobbering one of the pincode rows.
+    pincode: -1,
+    category: 'Website',
+    subCategory: `worker-${workerIndex + 1}/${totalWorkers}`,
+    round: 1,
+    totalRecords: contactsFound,
+    insertedRecords: contactsFound,
+    duplicateRecords: 0,
+    batchesSent: sitesWithContacts,
+    status: 'completed',
+    startedAt: startIso,
+    completedAt: new Date().toISOString(),
+    durationMs,
+  });
 
   waitIdle();
 }

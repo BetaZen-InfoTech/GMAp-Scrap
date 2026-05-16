@@ -1,8 +1,8 @@
 'use strict';
 
 const si = require('systeminformation');
-const DeviceHistory = require('./models/DeviceHistory');
-const Device = require('./models/Device');
+const axios = require('axios');
+const { API_BASE_URL } = require('./config');
 
 // Previous network sample for speed calculation
 let _prevNetRx   = 0;
@@ -69,47 +69,21 @@ function fmtSize(mb) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb} MB`;
 }
 
-// ── DB upload (batched) ───────────────────────────────────────────────────────
+// ── Server upload (batched) ───────────────────────────────────────────────────
 //
-// Mirrors the old POST /api/device-history route: push the buffered snapshots
-// into today's per-device document and update `latestStats` on the Device doc.
-// Fire-and-forget — never block the live bar.
+// POST the buffered snapshots to the backend's /device-history endpoint. The
+// backend pushes them into today's per-device document and updates the live
+// `latestStats` on the Device doc — same shape the v1.6.0 DB-direct flow
+// wrote inline. Fire-and-forget — never block the live bar. Returns the
+// pending promise so the shutdown flow can await the final flush.
 async function flushStatsToServer(deviceId, statsBuffer) {
   if (!deviceId || statsBuffer.length === 0) return;
   try {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    await DeviceHistory.updateOne(
-      { deviceId, date: today },
-      { $push: { stats: { $each: statsBuffer } } },
-      { upsert: true }
+    await axios.post(
+      `${API_BASE_URL}/api/device-history`,
+      { deviceId, stats: statsBuffer },
+      { timeout: 10000 }
     );
-
-    const latest = statsBuffer[statsBuffer.length - 1];
-    if (latest) {
-      Device.updateOne(
-        { deviceId },
-        {
-          $set: {
-            lastSeenAt: new Date(),
-            status: 'online',
-            latestStats: {
-              cpuUsedPercent:  latest.cpuUsedPercent  ?? 0,
-              ramTotalMB:      latest.ramTotalMB      ?? 0,
-              ramUsedMB:       latest.ramUsedMB       ?? 0,
-              ramUsedPercent:  latest.ramUsedPercent  ?? 0,
-              diskTotalGB:     latest.diskTotalGB     ?? 0,
-              diskUsedGB:      latest.diskUsedGB      ?? 0,
-              diskUsedPercent: latest.diskUsedPercent ?? 0,
-              networkSentMB:   latest.networkSentMB   ?? 0,
-              networkRecvMB:   latest.networkRecvMB   ?? 0,
-              netDownKBps:     latest.netDownKBps     ?? 0,
-              netUpKBps:       latest.netUpKBps       ?? 0,
-              updatedAt:       new Date(),
-            },
-          },
-        }
-      ).catch(() => { /* fire-and-forget */ });
-    }
   } catch { /* fire-and-forget */ }
 }
 
@@ -150,9 +124,9 @@ class LiveMonitor {
 
   /**
    * Stop the monitor. Returns a promise that resolves once the final stats
-   * batch has been written to MongoDB — callers (e.g. runShutdown) should
-   * await it before disconnecting the mongoose connection, otherwise the
-   * last write races with disconnect and is silently lost.
+   * batch has been POSTed to the backend — callers (e.g. runShutdown) should
+   * await it before exiting, otherwise the last write may be silently lost
+   * when the axios request gets cancelled by process exit.
    */
   stop() {
     this.active = false;

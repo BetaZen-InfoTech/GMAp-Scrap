@@ -204,15 +204,16 @@ const SshTerminalPage: React.FC<SshTerminalPageProps> = ({ initialDeviceIds }) =
   // The "Set .env (prod)" action heredocs this content into
   // ~/GMAp-Scrap/frontend-nodejs/.env on every selected device. Admins can
   // tweak it via the gear next to the button without code changes.
-  // CLI v1.6.0+ connects directly to MongoDB (no HTTP backend in the path).
-  // Storage key is versioned so old admin installs don't carry the legacy
-  // API_URL template forward after the upgrade.
-  const ENV_STORAGE_KEY = 'gmap_admin_env_prod_template_v2';
+  // CLI v1.8.0 is back on HTTP to the backend (direct-DB in v1.6–1.7 was
+  // hammering Mongo CPU with too many connection pools across 35+ devices).
+  // Storage key bumped to _v3 so old admin installs that still carry the
+  // v2 (MongoDB-URI) template don't push a bad .env to fresh VPSes.
+  const ENV_STORAGE_KEY = 'gmap_admin_env_prod_template_v3';
   const DEFAULT_ENV_PROD = [
     'APP_STATE=prod',
-    'LOCAL_MONGODB_URI=mongodb://127.0.0.1:27017/gmap-scrap',
-    'DEV_MONGODB_URI=mongodb://127.0.0.1:27017/gmap-scrap',
-    'PROD_MONGODB_URI=mongodb+srv://user:password@cluster0.example.mongodb.net/gmap-scrap?retryWrites=true&w=majority',
+    'LOCAL_API_URL=http://127.0.0.1:5000',
+    'DEV_API_URL=http://127.0.0.1:5000',
+    'PROD_API_URL=https://gmap-scrap-backend-api.betazeninfotech.com',
     'HEADLESS=true',
   ].join('\n');
   const [envContent, setEnvContent] = useState<string>(() => {

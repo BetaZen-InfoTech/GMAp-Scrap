@@ -1,12 +1,13 @@
 'use strict';
 
+const axios  = require('axios');
 const os     = require('os');
 const fs     = require('fs');
 const path   = require('path');
-const crypto = require('crypto');
-const Device = require('./models/Device');
+const { API_BASE_URL } = require('./config');
 
-const DEVICE_FILE = path.join(__dirname, '..', 'device.json');
+const DEVICE_FILE  = path.join(__dirname, '..', 'device.json');
+const REG_PASSWORD = 'BetaZen@2023';
 
 // ── Persist / load ────────────────────────────────────────────────────────────
 
@@ -22,7 +23,8 @@ function loadDevice() {
 function saveDevice(data) {
   // Atomic write — when multiple PM2 processes start in parallel on the same
   // VPS, they all call ensureDevice() and may race on this file. Write to a
-  // per-pid temp file first, then rename (POSIX-atomic).
+  // per-pid temp file first, then rename (POSIX-atomic) so concurrent
+  // readers/writers never see a partially-written JSON document.
   const json = JSON.stringify(data, null, 2);
   const tmp  = `${DEVICE_FILE}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, json, 'utf8');
@@ -50,7 +52,7 @@ function getDeviceIp() {
   return null;
 }
 
-// ── System info (VPS-safe) ────────────────────────────────────────────────────
+// ── System info (VPS-safe: every call wrapped in try/catch) ───────────────────
 
 function safeGet(fn, fallback = 'unknown') {
   try { return fn(); } catch { return fallback; }
@@ -82,113 +84,29 @@ function buildDeviceInfo() {
   };
 }
 
-/**
- * Verify a device exists, update its lastSeenAt + status, top up missing
- * spec fields. Mirrors the old POST /api/devices/verify route.
- */
 async function verifyDevice(deviceId) {
   try {
-    const device = await Device.findOne({ deviceId, isActive: true });
-    if (!device) return false;
-
-    device.lastSeenAt = new Date();
-    device.status = 'online';
-    if (device.isArchived) {
-      device.isArchived = false;
-      device.archivedAt = null;
-    }
-
-    const info = buildDeviceInfo();
-    if (info.hostname && (!device.hostname || device.hostname === 'Pending setup')) device.hostname = info.hostname;
-    if (info.username) device.username = info.username;
-    if (info.platform && device.platform === 'unknown') device.platform = info.platform;
-    if (info.osVersion) device.osVersion = info.osVersion;
-    if (info.arch) device.arch = info.arch;
-    if (info.cpuModel && (!device.cpuModel || device.cpuModel === 'Unknown CPU')) device.cpuModel = info.cpuModel;
-    if (info.cpuCores && !device.cpuCores) device.cpuCores = info.cpuCores;
-    if (info.totalMemoryGB && !device.totalMemoryGB) device.totalMemoryGB = info.totalMemoryGB;
-    if (info.macAddresses?.length && (!device.macAddresses || device.macAddresses.length === 0)) device.macAddresses = info.macAddresses;
-
-    const currentIp = getDeviceIp();
-    if (currentIp && !device.ips.includes(currentIp)) {
-      device.ips.push(currentIp);
-    }
-
-    await device.save();
-    return true;
+    const res = await axios.post(
+      `${API_BASE_URL}/api/devices/verify`,
+      { deviceId, deviceInfo: buildDeviceInfo() },
+      { timeout: 10000 }
+    );
+    return res.data?.success === true;
   } catch {
     return false;
   }
 }
 
-/**
- * Register a new device, or return the existing device that owns this IP.
- * Mirrors the old POST /api/devices/register route — IP-based dedup so
- * re-running the CLI on a known VPS doesn't create duplicate Device docs.
- */
-async function registerDevice(nickname) {
-  const info = buildDeviceInfo();
-  const deviceIp = getDeviceIp();
-
-  if (deviceIp) {
-    const existing = await Device.findOne({
-      isActive: true,
-      $or: [{ ip: deviceIp }, { ips: deviceIp }],
-    });
-    if (existing) {
-      if (nickname?.trim() && nickname.trim() !== existing.nickname) {
-        existing.nickname = nickname.trim();
-      }
-      if (info.hostname) existing.hostname = info.hostname;
-      if (info.username) existing.username = info.username;
-      if (info.platform) existing.platform = info.platform;
-      if (info.osVersion) existing.osVersion = info.osVersion;
-      if (info.arch) existing.arch = info.arch;
-      if (info.cpuModel) existing.cpuModel = info.cpuModel;
-      if (info.cpuCores) existing.cpuCores = info.cpuCores;
-      if (info.totalMemoryGB) existing.totalMemoryGB = info.totalMemoryGB;
-      if (info.macAddresses?.length) existing.macAddresses = info.macAddresses;
-      existing.lastSeenAt = new Date();
-      existing.status = 'online';
-      await existing.save();
-      return {
-        deviceId: existing.deviceId,
-        existing: true,
-        message: existing.nickname || existing.deviceId.slice(0, 8),
-      };
-    }
-  }
-
-  const deviceId = crypto.randomUUID();
-  const device = new Device({
-    deviceId,
-    nickname: nickname?.trim() || '',
-    hostname: info.hostname,
-    username: info.username,
-    platform: info.platform,
-    osVersion: info.osVersion,
-    arch: info.arch,
-    cpuModel: info.cpuModel,
-    cpuCores: info.cpuCores,
-    totalMemoryGB: info.totalMemoryGB,
-    macAddresses: info.macAddresses || [],
-    ip: deviceIp || '',
-    ips: deviceIp ? [deviceIp] : [],
-    status: 'online',
-    lastSeenAt: new Date(),
-  });
-  await device.save();
-  return { deviceId, existing: false };
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Ensures this machine has a registered deviceId. Flow:
- *  1. Load device.json → verify against MongoDB → use it                 (fast path)
- *  2. device.json exists but verify fails → re-register using SAVED nickname
- *  3. No device.json → use overrideNickname or os.hostname() → register → save
- *  4. MongoDB unreachable → warn and continue without a deviceId
+ * Ensures this machine has a registered deviceId.
+ *
+ * Flow:
+ *  1. Load device.json  →  verify with backend  →  use it              (fast path)
+ *  2. device.json exists but verify fails  →  re-register with SAVED nickname (no prompt)
+ *  3. No device.json  →  use overrideNickname or os.hostname()  →  register  →  save
+ *  4. Backend unreachable  →  warn and continue without a deviceId
  *
  * @param {object}  chalk
  * @param {string}  [overrideNickname]  CLI-provided hostname (optional)
@@ -208,11 +126,13 @@ async function ensureDevice(chalk, overrideNickname) {
       return existing.deviceId;
     }
 
-    console.log(chalk.yellow('✗ Not found on DB — re-registering…'));
+    // Verify failed → re-register silently using IP (or saved name fallback)
+    console.log(chalk.yellow('✗ Not found on server — re-registering…'));
     const savedNickname = deviceIp || existing.nickname || overrideNickname || safeGet(() => os.hostname(), 'vps-host');
     return _register(savedNickname, chalk);
   }
 
+  // First time — use IP or CLI arg or hostname
   const nickname = deviceIp || overrideNickname || safeGet(() => os.hostname(), 'vps-host');
   console.log(chalk.cyan(`\n  Device registration (one-time setup) — name: ${nickname}`));
   return _register(nickname, chalk);
@@ -220,22 +140,37 @@ async function ensureDevice(chalk, overrideNickname) {
 
 async function _register(nickname, chalk) {
   try {
-    const result = await registerDevice(String(nickname).trim());
+    const res = await axios.post(
+      `${API_BASE_URL}/api/devices/register`,
+      {
+        password:   REG_PASSWORD,
+        nickname:   String(nickname).trim(),
+        deviceInfo: buildDeviceInfo(),
+      },
+      { timeout: 15000 }
+    );
+
+    if (!res.data?.success || !res.data?.deviceId) {
+      throw new Error(res.data?.error || 'Registration failed');
+    }
+
+    const deviceId = res.data.deviceId;
     saveDevice({
-      deviceId: result.deviceId,
+      deviceId,
       nickname,
       registeredAt: new Date().toISOString(),
       host: safeGet(() => os.hostname(), 'unknown'),
     });
 
-    if (result.existing) {
-      console.log(chalk.cyan(`  ✓ IP already registered — using device "${result.message}" (ID: ${result.deviceId.substring(0, 8)}…)`));
+    if (res.data.existing) {
+      console.log(chalk.cyan(`  ✓ IP already registered — using device "${res.data.message}" (ID: ${deviceId.substring(0, 8)}…)`));
     } else {
-      console.log(chalk.green(`  ✓ Registered as "${nickname}"  (ID: ${result.deviceId.substring(0, 8)}…)`));
+      console.log(chalk.green(`  ✓ Registered as "${nickname}"  (ID: ${deviceId.substring(0, 8)}…)`));
     }
-    return result.deviceId;
+    return deviceId;
   } catch (err) {
-    console.log(chalk.yellow(`  ⚠ Registration failed: ${err.message}`));
+    const msg = err.response?.data?.error || err.message;
+    console.log(chalk.yellow(`  ⚠ Registration failed: ${msg}`));
     console.log(chalk.yellow('  Continuing without a device ID'));
     return null;
   }
