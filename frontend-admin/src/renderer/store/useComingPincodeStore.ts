@@ -64,9 +64,22 @@ interface ComingPincodeState {
   /**
    * Download an Excel file containing the first row of every page (i.e. every
    * `step`-th pincode). The sheet name embeds the step so the operator can
-   * tell the sampling rate at a glance. Uses the same filters as the page.
+   * tell the sampling rate at a glance.
+   *
+   * By default the download uses the page's current filters. Passing
+   * `statusOverride` forces a specific status set instead — used by the
+   * dropdown next to the button so an operator can grab "all running pincodes"
+   * without having to first ticking the status filter on the page.
+   *
+   * `statusOverride` semantics:
+   *   - undefined  → use the page's current filters.statuses
+   *   - []         → no status filter (all statuses)
+   *   - [x, y, …]  → only those statuses
    */
-  downloadSampleExcel: (step: number) => Promise<{ samples: number; sourceCount: number }>;
+  downloadSampleExcel: (
+    step: number,
+    statusOverride?: PincodeRowStatus[]
+  ) => Promise<{ samples: number; sourceCount: number }>;
 }
 
 const DEFAULT_FILTERS: Filters = { state: '', district: '', statuses: [] };
@@ -150,44 +163,107 @@ export const useComingPincodeStore = create<ComingPincodeState>((set, get) => ({
     });
   },
 
-  downloadSampleExcel: async (step) => {
-    const { filters } = get();
+  downloadSampleExcel: async (step, statusOverride) => {
+    const { filters, counts } = get();
+    const statuses = statusOverride ?? filters.statuses;
+
     const params: Record<string, string> = { step: String(step) };
-    if (filters.state)              params.state        = filters.state;
-    if (filters.district)           params.district     = filters.district;
-    if (filters.statuses.length)    params.statusFilter = filters.statuses.join(',');
+    if (filters.state)        params.state        = filters.state;
+    if (filters.district)     params.district     = filters.district;
+    if (statuses.length)      params.statusFilter = statuses.join(',');
 
     const { data } = await api.get<SampleResult>('/api/admin/pincodes/coming-status/sample', { params });
     const samples = data.samples || [];
     if (samples.length === 0) {
-      throw new Error('No pincodes match the current filters — nothing to download.');
+      const scopeLabel = statuses.length === 0 ? 'the current filters' : statuses.join('/');
+      throw new Error(`No pincodes match ${scopeLabel} — nothing to download.`);
     }
 
     const XLSX = await import('xlsx');
-    const rows = samples.map((s) => ({
-      'Page #':       s.pageNumber,
-      'Source Index': s.sourceIndex,
-      'Pincode':      s.pincode,
-      'District':     s.district || '',
-      'State':        s.stateName || '',
-      'Status':       s.status,
-      'Completed Rounds':   (s.completedRounds || []).join(','),
-      'Completed Searches': s.completedSearches,
-      'Total Niches':       s.totalNiches,
-      'Last Activity': s.lastActivity || '',
-      'Last Run At':   s.lastRunAt || '',
-      'Updated At':    s.updatedAt || '',
-    }));
+    const scope = statuses.length === 0
+      ? 'All'
+      : statuses.length === 1
+        ? statuses[0].charAt(0).toUpperCase() + statuses[0].slice(1)
+        : statuses.length + ' statuses';
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    // ── Build the sheet as an array-of-arrays so we can prepend a summary
+    //    block before the data table. AOA gives precise row control whereas
+    //    json_to_sheet only knows about (header + rows).
+    //
+    //    Layout:
+    //      A1: title           (e.g. "Coming Pincodes — Sampled every 100 (All Status)")
+    //      A2: scope line      (Total + per-status counts)
+    //      A3: filter line     (state/district/status filters in effect)
+    //      A4: blank
+    //      A5: column headers
+    //      A6+: data rows
+    const filterParts: string[] = [];
+    if (filters.state)    filterParts.push(`State: ${filters.state}`);
+    if (filters.district) filterParts.push(`District: ${filters.district}`);
+    filterParts.push(`Status: ${scope}`);
+
+    const title = `Coming Pincodes — Sampled every ${step} (${scope})`;
+    const scopeLine =
+      `Total: ${data.sourceCount.toLocaleString()}   ·   ` +
+      `Running: ${counts.running.toLocaleString()}   ·   ` +
+      `Completed: ${counts.completed.toLocaleString()}   ·   ` +
+      `Stop: ${counts.stop.toLocaleString()}   ·   ` +
+      `Pending: ${counts.pending.toLocaleString()}`;
+    const filterLine = `Filters — ${filterParts.join('   ·   ')}`;
+    const headerCols = [
+      'Page #', 'Source Index', 'Pincode', 'District', 'State', 'Status',
+      'Completed Rounds', 'Completed Searches', 'Total Niches',
+      'Last Activity', 'Last Run At', 'Updated At',
+    ];
+    const dataRows = samples.map((s) => [
+      s.pageNumber,
+      s.sourceIndex,
+      s.pincode,
+      s.district || '',
+      s.stateName || '',
+      s.status,
+      (s.completedRounds || []).join(','),
+      s.completedSearches,
+      s.totalNiches,
+      s.lastActivity || '',
+      s.lastRunAt || '',
+      s.updatedAt || '',
+    ]);
+    const aoa = [
+      [title],
+      [scopeLine],
+      [filterLine],
+      [],
+      headerCols,
+      ...dataRows,
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Reasonable column widths — long header + auto-fit feel
+    ws['!cols'] = [
+      { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 22 }, { wch: 18 },
+      { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 12 },
+      { wch: 24 }, { wch: 24 }, { wch: 24 },
+    ];
+    // Merge the title / scope / filter lines across the data columns so they
+    // read as banner text rather than getting clipped in column A.
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headerCols.length - 1 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: headerCols.length - 1 } },
+    ];
+    // Freeze the header row so it stays visible while scrolling the data
+    ws['!freeze'] = { xSplit: 0, ySplit: 5 };
+
     const wb = XLSX.utils.book_new();
-    // Sheet name = "Every <step> (<n> rows)" — encodes the sampling rate.
-    // Excel sheet names cap at 31 chars and disallow []:*?/\.
-    const sheetName = `Every ${step} (${samples.length} rows)`.slice(0, 31);
+    // Sheet name = "Every <step> <Status> (<n> rows)" — Excel caps at 31 chars
+    // and disallows []:*?/\.
+    const sheetName = `Every ${step} ${scope} (${samples.length})`.slice(0, 31);
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    XLSX.writeFile(wb, `coming-pincodes-sample-step${step}-${ts}.xlsx`);
+    const fileScope = statuses.length === 1 ? `-${statuses[0]}` : statuses.length === 0 ? '-all' : '';
+    XLSX.writeFile(wb, `coming-pincodes-sample-step${step}${fileScope}-${ts}.xlsx`);
 
     return { samples: samples.length, sourceCount: data.sourceCount };
   },

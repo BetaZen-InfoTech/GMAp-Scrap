@@ -86,20 +86,156 @@ const ComingPincodesPage: React.FC = () => {
   } = useComingPincodeStore();
 
   const [downloading, setDownloading] = React.useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = React.useState(false);
+  const downloadMenuRef = React.useRef<HTMLDivElement | null>(null);
 
-  const handleDownload = async () => {
+  // Close the dropdown when the operator clicks anywhere else on the page.
+  // Without this the menu sticks open until the next download fires, which
+  // is jarring when you cancel out of the choice.
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (downloadMenuRef.current && !downloadMenuRef.current.contains(e.target as Node)) {
+        setDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [downloadMenuOpen]);
+
+  const runDownload = async (label: string, statusOverride?: PincodeRowStatus[]) => {
     if (downloading) return;
+    setDownloadMenuOpen(false);
     setDownloading(true);
     try {
-      const result = await downloadSampleExcel(limit);
+      const result = await downloadSampleExcel(limit, statusOverride);
       alert(
-        `Downloaded ${result.samples.toLocaleString()} sampled pincode(s) — one every ${limit} ` +
-        `from ${result.sourceCount.toLocaleString()} matching the current filters.`
+        `Downloaded ${result.samples.toLocaleString()} ${label} pincode(s) — one every ${limit} ` +
+        `from ${result.sourceCount.toLocaleString()} matching pincodes.`
       );
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } }; message?: string };
       const msg = e?.response?.data?.error || e?.message || 'Download failed';
       alert(`Download failed: ${msg}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // Main-button click — honor the current page filter (existing behavior).
+  const handleDownload = () => runDownload('filtered');
+
+  // Dropdown shortcuts — explicit status override (bypasses page filter).
+  // Each entry is name + the statuses array passed to downloadSampleExcel.
+  // Empty array = all statuses (no status filter).
+  const DOWNLOAD_OPTIONS: { key: string; label: string; statuses: PincodeRowStatus[]; dot: string }[] = [
+    { key: 'all',       label: 'All Status', statuses: [], dot: 'bg-slate-400' },
+    { key: 'running',   label: 'Running',    statuses: ['running'],   dot: 'bg-blue-400' },
+    { key: 'completed', label: 'Completed',  statuses: ['completed'], dot: 'bg-emerald-400' },
+    { key: 'stop',      label: 'Stop',       statuses: ['stop'],      dot: 'bg-red-400' },
+    { key: 'pending',   label: 'Pending',    statuses: ['pending'],   dot: 'bg-slate-500' },
+  ];
+
+  // ── Per-page download ────────────────────────────────────────────────────
+  // Builds an Excel from the records ALREADY on this page (no extra fetch).
+  // The "Download Excel (every N)" flow samples 1-per-N across the whole
+  // filtered set; this is the dual — "give me the 100 rows I'm staring at."
+  const downloadCurrentPage = async (statusOverride?: PincodeRowStatus[]) => {
+    if (downloading) return;
+    setDownloadMenuOpen(false);
+    setDownloading(true);
+    try {
+      const filtered = (statusOverride && statusOverride.length > 0)
+        ? pincodes.filter((p) => statusOverride.includes(p.status))
+        : pincodes;
+      if (filtered.length === 0) {
+        throw new Error(
+          statusOverride?.length
+            ? `No ${statusOverride.join('/')} pincodes on this page.`
+            : 'This page has no records.'
+        );
+      }
+
+      const XLSX = await import('xlsx');
+      const scope = !statusOverride?.length
+        ? 'All'
+        : statusOverride.length === 1
+          ? statusOverride[0].charAt(0).toUpperCase() + statusOverride[0].slice(1)
+          : `${statusOverride.length} statuses`;
+
+      // Build with array-of-arrays so we can prepend the same summary block
+      // the sampled-download flow uses. Layout:
+      //   A1: title + page coordinates
+      //   A2: per-page status counts (matches the on-screen "THIS PAGE" line)
+      //   A3: filter line (state/district active filters)
+      //   A4: blank
+      //   A5: column headers
+      //   A6+: data rows
+      const filterParts: string[] = [];
+      if (filters.state)    filterParts.push(`State: ${filters.state}`);
+      if (filters.district) filterParts.push(`District: ${filters.district}`);
+      filterParts.push(`Status: ${scope}`);
+
+      const title = `Coming Pincodes — Page ${page} (${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${total.toLocaleString()})`;
+      const scopeLine =
+        `THIS PAGE   ·   ` +
+        `Running: ${pageCounts.running.toLocaleString()}   ·   ` +
+        `Completed: ${pageCounts.completed.toLocaleString()}   ·   ` +
+        `Stop: ${pageCounts.stop.toLocaleString()}   ·   ` +
+        `Pending: ${pageCounts.pending.toLocaleString()}   ·   ` +
+        `Showing: ${filtered.length.toLocaleString()} of ${pincodes.length.toLocaleString()}`;
+      const filterLine = `Filters — ${filterParts.join('   ·   ')}`;
+      const headerCols = [
+        '#', 'Pincode', 'District', 'State', 'Status',
+        'Completed Rounds', 'Completed Searches', 'Total Niches',
+        'Last Activity', 'Last Run At', 'Updated At',
+      ];
+      const dataRows = filtered.map((p, i) => [
+        (page - 1) * limit + i + 1,
+        p.pincode,
+        p.district || '',
+        p.stateName || '',
+        p.status,
+        (p.completedRounds || []).join(','),
+        p.completedSearches,
+        p.totalNiches,
+        p.lastActivity || '',
+        p.lastRunAt || '',
+        p.updatedAt || '',
+      ]);
+      const aoa = [
+        [title],
+        [scopeLine],
+        [filterLine],
+        [],
+        headerCols,
+        ...dataRows,
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [
+        { wch: 8 }, { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 12 },
+        { wch: 18 }, { wch: 18 }, { wch: 12 },
+        { wch: 24 }, { wch: 24 }, { wch: 24 },
+      ];
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: headerCols.length - 1 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: headerCols.length - 1 } },
+      ];
+      ws['!freeze'] = { xSplit: 0, ySplit: 5 };
+
+      const wb = XLSX.utils.book_new();
+      const sheetName = `Page ${page} ${scope} (${filtered.length})`.slice(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const fileScope = statusOverride?.length === 1 ? `-${statusOverride[0]}` : statusOverride?.length === 0 ? '-all' : '';
+      XLSX.writeFile(wb, `coming-pincodes-page${page}${fileScope}-${ts}.xlsx`);
+
+      alert(`Downloaded ${filtered.length.toLocaleString()} pincode(s) from this page (${scope}).`);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      alert(`Download failed: ${e?.message || 'Unknown error'}`);
     } finally {
       setDownloading(false);
     }
@@ -175,17 +311,90 @@ const ComingPincodesPage: React.FC = () => {
           <p className="text-sm text-slate-500 mt-0.5">{total.toLocaleString()} pincodes</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleDownload}
-            disabled={downloading || loading || total === 0}
-            title={`Sample one pincode every ${limit} (first row of each page at the current page size). Sheet name encodes the step.`}
-            className="flex items-center gap-1.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-green-50 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            {downloading ? 'Downloading…' : `Download Excel (every ${limit})`}
-          </button>
+          {/* Split-button: main click downloads with current filter; caret
+              opens a menu of explicit status shortcuts. */}
+          <div ref={downloadMenuRef} className="relative inline-flex">
+            <button
+              onClick={handleDownload}
+              disabled={downloading || loading || total === 0}
+              title={`Sample one pincode every ${limit} using the current page filter. Use the caret for status-specific downloads.`}
+              className="flex items-center gap-1.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-green-50 text-sm font-medium pl-3 pr-2.5 py-2 rounded-l-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              {downloading ? 'Downloading…' : `Download Excel (every ${limit})`}
+            </button>
+            <button
+              onClick={() => setDownloadMenuOpen((v) => !v)}
+              disabled={downloading || loading}
+              title="Pick a status to download"
+              aria-label="Download status options"
+              aria-expanded={downloadMenuOpen}
+              className="flex items-center justify-center bg-green-700 hover:bg-green-600 disabled:opacity-50 text-green-50 px-2 py-2 rounded-r-lg border-l border-green-800/60 transition-colors"
+            >
+              <svg className={`w-3.5 h-3.5 transition-transform ${downloadMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {downloadMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-30 w-64 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden">
+                {/* ── Section A: sampled-across-all (1 per `limit`) ── */}
+                <div className="px-3 py-2 border-b border-slate-800">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Sampled — every {limit}</p>
+                  <p className="text-[10px] text-slate-600 mt-0.5">Across the entire filtered set (bypasses status filter).</p>
+                </div>
+                {DOWNLOAD_OPTIONS.map((opt) => {
+                  const count = opt.key === 'all'
+                    ? counts.running + counts.completed + counts.stop + counts.pending
+                    : counts[opt.key as PincodeRowStatus] || 0;
+                  return (
+                    <button
+                      key={`s-${opt.key}`}
+                      onClick={() => runDownload(opt.label, opt.statuses)}
+                      disabled={downloading || count === 0}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${opt.dot}`} />
+                      <span className="flex-1">{opt.label}</span>
+                      <span className="text-[10px] text-slate-500 font-mono tabular-nums">
+                        {count.toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })}
+
+                {/* ── Section B: this-page only (no extra fetch) ── */}
+                <div className="px-3 py-2 border-b border-t border-slate-800 mt-0.5">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                    This page · {pageStart.toLocaleString()}–{pageEnd.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-slate-600 mt-0.5">Records visible on screen right now.</p>
+                </div>
+                {DOWNLOAD_OPTIONS.map((opt) => {
+                  const count = opt.key === 'all'
+                    ? pincodes.length
+                    : pageCounts[opt.key as PincodeRowStatus] || 0;
+                  return (
+                    <button
+                      key={`p-${opt.key}`}
+                      onClick={() => downloadCurrentPage(opt.statuses)}
+                      disabled={downloading || count === 0}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${opt.dot}`} />
+                      <span className="flex-1">{opt.label}</span>
+                      <span className="text-[10px] text-slate-500 font-mono tabular-nums">
+                        {count.toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => fetchPincodes(page, filters.state, filters.district, filters.statuses)}
             disabled={loading}
