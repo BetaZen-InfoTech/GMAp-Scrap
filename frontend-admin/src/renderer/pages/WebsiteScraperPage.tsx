@@ -51,17 +51,30 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
   const [searchInput, setSearchInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAllPages, setSelectAllPages] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const { scraping, setScraping, progress, setProgress, aborted, abort, resetAbort } = useWebScraperStore();
 
   const fetchRecords = useCallback(async (p = 1, f = filters, uq = uniqueWebsite) => {
     setLoading(true);
+    setFetchError(null);
     try {
-      const res = await api.get('/api/admin/scrap-database', { params: buildParams(f, p, limit, uq) });
+      const res = await api.get('/api/admin/scrap-database', {
+        params: buildParams(f, p, limit, uq),
+        // The scrap-database aggregation can be slow on a 7M-row table —
+        // give it a real budget so we don't lie about loading status forever.
+        timeout: 60_000,
+      });
       setRecords(res.data.data);
       setTotal(res.data.total);
       setPage(p);
-    } catch { setRecords([]); setTotal(0); }
-    finally { setLoading(false); }
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string };
+      setFetchError(e.response?.data?.error || e.message || 'Failed to load records');
+      setRecords([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
   }, [filters, uniqueWebsite]);
 
   useEffect(() => { fetchRecords(1); }, []);
@@ -318,6 +331,20 @@ const QueueTab: React.FC<{ headless: boolean; uniqueWebsite: boolean; onToggleUn
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col" style={{ minHeight: '400px' }}>
         {loading && records.length === 0 ? (
           <div className="p-8 flex justify-center"><Spinner message="Loading..." /></div>
+        ) : fetchError ? (
+          <div className="p-8 flex flex-col items-center justify-center gap-3">
+            <svg className="w-10 h-10 text-amber-500/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <p className="text-sm text-slate-300">Couldn&apos;t load website queue.</p>
+            <p className="text-xs text-amber-400/80 max-w-md text-center">{fetchError}</p>
+            <button
+              onClick={() => fetchRecords(page)}
+              className="text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-1.5 rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+          </div>
         ) : records.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">No records found</div>
         ) : (
@@ -475,6 +502,226 @@ const ResultsTab: React.FC = () => {
   );
 };
 
+// ── Stats overview ──────────────────────────────────────────────────────────
+// Pulled from /api/admin/website-scraper/stats — shows pool totals + harvested
+// counts + the last 10 CLI website-worker runs at a glance. Auto-refreshes
+// every 20 s so the page is useful as a status dashboard while CLI workers
+// on the VPSes are writing in the background.
+
+interface ScraperStats {
+  pool: { total: number; scraped: number; pending: number; uniqueUrls: number };
+  harvested: { records: number; withPhone: number; withEmail: number };
+  recentRuns: Array<{
+    _id: string;
+    keyword: string;
+    deviceId?: string;
+    totalRecords?: number;
+    insertedRecords?: number;
+    duplicateRecords?: number;
+    batchesSent?: number;
+    status?: string;
+    startedAt?: string;
+    completedAt?: string;
+    durationMs?: number;
+  }>;
+}
+
+const StatCard: React.FC<{
+  label: string;
+  value: number | string;
+  hint?: string;
+  accent?: 'blue' | 'emerald' | 'orange' | 'violet' | 'slate';
+}> = ({ label, value, hint, accent = 'slate' }) => {
+  const accentMap = {
+    blue:    'text-blue-300',
+    emerald: 'text-emerald-300',
+    orange:  'text-orange-300',
+    violet:  'text-violet-300',
+    slate:   'text-white',
+  } as const;
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 min-w-0">
+      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{label}</p>
+      <p className={`text-2xl font-bold mt-0.5 truncate ${accentMap[accent]}`}>
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </p>
+      {hint && <p className="text-[10px] text-slate-500 mt-0.5 truncate">{hint}</p>}
+    </div>
+  );
+};
+
+function formatDuration(ms?: number) {
+  if (!ms || ms < 0) return '—';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  if (m < 60) return `${m}m ${sec}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+const StatsBanner: React.FC = () => {
+  const [stats, setStats] = useState<ScraperStats | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Three error states:
+  //   'missing'  — backend doesn't have this route yet (404). Likely the
+  //                server hasn't been redeployed to a version that includes it.
+  //   'network'  — anything else (timeout, 5xx, offline).
+  const [errorKind, setErrorKind] = useState<null | 'missing' | 'network'>(null);
+  const [errorMsg,  setErrorMsg]  = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErrorKind(null);
+    setErrorMsg(null);
+    try {
+      const res = await api.get('/api/admin/website-scraper/stats', { timeout: 60_000 });
+      setStats(res.data);
+    } catch (err) {
+      const e = err as { response?: { status?: number; data?: { error?: string } }; message?: string };
+      const status = e.response?.status;
+      if (status === 404) {
+        setErrorKind('missing');
+        setErrorMsg('Backend endpoint not deployed yet. Update the backend to v1.7.1+ to populate this panel.');
+      } else {
+        setErrorKind('network');
+        setErrorMsg(e.response?.data?.error || e.message || 'Failed to load stats');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    // Only auto-poll when we actually have data or a transient error. A 404
+    // means the endpoint will keep returning 404 until the backend is
+    // redeployed — no point hammering it every 20 s.
+    const id = setInterval(() => {
+      if (errorKind !== 'missing') load();
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [load, errorKind]);
+
+  const pool = stats?.pool;
+  const harvested = stats?.harvested;
+  const scrapedPct = pool && pool.total > 0
+    ? Math.round((pool.scraped / pool.total) * 100)
+    : 0;
+
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Website-Scraping Overview</h3>
+          {!stats && !errorKind && <p className="text-xs text-slate-600 mt-0.5">Loading stats…</p>}
+          {errorKind === 'network' && (
+            <p className="text-xs text-red-400 mt-0.5">{errorMsg}</p>
+          )}
+          {errorKind === 'missing' && (
+            <p className="text-xs text-amber-400 mt-0.5">{errorMsg}</p>
+          )}
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="flex items-center gap-1.5 text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-400 font-medium px-2.5 py-1 rounded transition-colors"
+          title="Refresh now (auto every 20 s)"
+        >
+          <svg className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Refresh
+        </button>
+      </div>
+
+      {/* Stat cards — hidden when the endpoint is missing, because zeros there
+          are misleading (not "no data" but "no info"). Network errors keep the
+          old data visible so transient blips don't blank the dashboard. */}
+      {errorKind !== 'missing' && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+          <StatCard label="Total websites" value={pool?.total ?? 0} hint={`${pool?.uniqueUrls?.toLocaleString() ?? 0} unique URLs`} accent="blue" />
+          <StatCard label="Scraped" value={pool?.scraped ?? 0} hint={`${scrapedPct}% of total`} accent="emerald" />
+          <StatCard label="Pending" value={pool?.pending ?? 0} hint="To be scraped" accent="orange" />
+          <StatCard label="Harvested records" value={harvested?.records ?? 0} hint="from Website source" accent="violet" />
+          <StatCard label="With phone" value={harvested?.withPhone ?? 0} accent="slate" />
+          <StatCard label="With email" value={harvested?.withEmail ?? 0} accent="slate" />
+        </div>
+      )}
+
+      {/* Pending-vs-scraped progress bar */}
+      {pool && pool.total > 0 && (
+        <div>
+          <div className="flex justify-between text-[10px] mb-1">
+            <span className="text-slate-500">
+              {pool.scraped.toLocaleString()} of {pool.total.toLocaleString()} processed
+            </span>
+            <span className="text-slate-400 font-medium">{scrapedPct}%</span>
+          </div>
+          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 transition-all"
+              style={{ width: `${Math.min(100, scrapedPct)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Recent CLI worker runs */}
+      {stats && stats.recentRuns.length > 0 && (
+        <div className="pt-2 border-t border-slate-800">
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-2">
+            Recent CLI website-worker runs
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase text-slate-500">
+                  <th className="text-left font-medium pb-1.5 pr-3">Worker</th>
+                  <th className="text-left font-medium pb-1.5 pr-3">Status</th>
+                  <th className="text-right font-medium pb-1.5 pr-3">Records</th>
+                  <th className="text-right font-medium pb-1.5 pr-3">Batches</th>
+                  <th className="text-right font-medium pb-1.5 pr-3">Duration</th>
+                  <th className="text-left font-medium pb-1.5">Completed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.recentRuns.map((r) => (
+                  <tr key={r._id} className="border-t border-slate-800/40">
+                    <td className="py-1.5 pr-3 text-slate-300 font-mono truncate max-w-[260px]" title={r.keyword}>
+                      {r.keyword}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                        r.status === 'completed' ? 'bg-emerald-500/20 text-emerald-300' :
+                        r.status === 'error'     ? 'bg-red-500/20 text-red-300' :
+                                                    'bg-slate-700 text-slate-300'
+                      }`}>{r.status || 'unknown'}</span>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-slate-300 font-mono">
+                      {(r.insertedRecords ?? 0).toLocaleString()}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-slate-400 font-mono">
+                      {(r.batchesSent ?? 0).toLocaleString()}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-slate-400 font-mono">
+                      {formatDuration(r.durationMs)}
+                    </td>
+                    <td className="py-1.5 text-slate-500 whitespace-nowrap">
+                      {r.completedAt ? new Date(r.completedAt).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const WebsiteScraperPage: React.FC = () => {
@@ -506,6 +753,9 @@ const WebsiteScraperPage: React.FC = () => {
           {headless ? 'Headless Browser (JS)' : 'Simple Fetch (HTML)'}
         </button>
       </div>
+
+      {/* Stats overview */}
+      <StatsBanner />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 self-start">

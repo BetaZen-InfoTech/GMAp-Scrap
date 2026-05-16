@@ -2208,6 +2208,82 @@ router.post('/scrap-database/from-website', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/website-scraper/stats ──
+// Aggregate overview for the Website Scraper page header.
+// Returns: source-pool counts (total/scraped/pending/unique), harvested
+// contact counts, and the last N CLI website-worker runs (from Session-Stats).
+//
+// Implementation notes:
+//  - "Source pool" = Scraped-Data rows with scrapFrom='G-Map' AND a website.
+//    Unscraped means `scrapWebsite` is not true.
+//  - "Harvested" = rows written by either flow (admin-browser scraping marks
+//    them scrapFrom='website'; CLI WEB mode marks them scrapFrom='Website').
+//    We match case-insensitively to count both.
+//  - Phones / emails counted only when present (not empty string / null) so
+//    the numbers reflect actual extracted contacts, not just row count.
+//  - Recent runs come from SessionStats keyword prefix 'website-worker-' —
+//    the CLI WEB mode writes one such row per worker on completion.
+router.get('/website-scraper/stats', async (_req, res) => {
+  try {
+    const POOL_FILTER = {
+      scrapFrom: 'G-Map',
+      website: { $nin: [null, ''] },
+    };
+    const HARVESTED_FILTER = {
+      // case-insensitive match — admin flow writes 'website', CLI writes 'Website'
+      scrapFrom: { $regex: /^website$/i },
+    };
+
+    const [
+      totalSource,
+      scrapedCount,
+      uniqueUrls,
+      harvestedRecords,
+      harvestedWithPhone,
+      harvestedWithEmail,
+      recentRuns,
+    ] = await Promise.all([
+      ScrapedData.countDocuments(POOL_FILTER),
+      ScrapedData.countDocuments({ ...POOL_FILTER, scrapWebsite: true }),
+      // estimatedDocumentCount on a $group is impossible — use aggregation
+      ScrapedData.aggregate([
+        { $match: POOL_FILTER },
+        { $group: { _id: '$website' } },
+        { $count: 'count' },
+      ]).then((rows) => rows[0]?.count || 0),
+      ScrapedData.countDocuments(HARVESTED_FILTER),
+      ScrapedData.countDocuments({ ...HARVESTED_FILTER, phone: { $nin: [null, ''] } }),
+      ScrapedData.countDocuments({ ...HARVESTED_FILTER, email: { $nin: [null, ''] } }),
+      SessionStats.find(
+        { keyword: { $regex: /^website-worker-/ } },
+        {
+          keyword: 1, deviceId: 1, totalRecords: 1, insertedRecords: 1,
+          duplicateRecords: 1, batchesSent: 1, status: 1, startedAt: 1,
+          completedAt: 1, durationMs: 1,
+        }
+      ).sort({ completedAt: -1, createdAt: -1 }).limit(10).lean(),
+    ]);
+
+    res.json({
+      pool: {
+        total: totalSource,
+        scraped: scrapedCount,
+        pending: Math.max(0, totalSource - scrapedCount),
+        uniqueUrls,
+      },
+      harvested: {
+        records: harvestedRecords,
+        withPhone: harvestedWithPhone,
+        withEmail: harvestedWithEmail,
+      },
+      recentRuns,
+    });
+  } catch (err) {
+    console.error('[admin/website-scraper/stats] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
 // ── POST /api/admin/scrap-database/fix-numbers ──
 // Backfill: normalizes the `phone` field on every record that hasn't been fixed
 // yet (numberFixing !== true) and has a non-empty phone. Applies the same
