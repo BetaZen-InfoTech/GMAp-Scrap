@@ -29,6 +29,7 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
   const [addPin, setAddPin] = useState('');
   const [addJobs, setAddJobs] = useState('3');
   const [addSaving, setAddSaving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     fetchDevices(archiveMode !== 'hide');
@@ -125,6 +126,161 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
     setBulkPwSaving(false);
   };
 
+  // Exports whichever devices the page is currently showing — same filter as
+  // the on-screen cards (search, flagged-only, archive mode all respected).
+  // Output is an .xlsx with a header banner + status counts + one row per device.
+  // Includes the VPS password column so the file is operator-only material —
+  // do NOT share casually.
+  const handleDownloadDevices = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      // Re-evaluate against the latest snapshot in case the auto-refresh
+      // tick fired between render and click.
+      const s = search.toLowerCase().trim();
+      const matchSearch = (d: typeof devices[0]) =>
+        !s || (d.nickname || '').toLowerCase().includes(s)
+        || (d.ip || '').includes(s)
+        || (d.hostname || '').toLowerCase().includes(s)
+        || (d.scrapePincode || '').includes(s);
+      const matchFlag = (d: typeof devices[0]) => {
+        if (!showFlaggedOnly) return true;
+        return d.status === 'online' && d.recent
+          && (d.recent.records.total < 3000 || d.recent.sessions.total < 100);
+      };
+      const matchArchive = (d: typeof devices[0]) =>
+        archiveMode === 'only'  ? !!d.isArchived
+        : archiveMode === 'show' ? true
+        :                          !d.isArchived;
+
+      const rows = devices
+        .filter((d) => matchSearch(d) && matchFlag(d) && matchArchive(d))
+        .sort((a, b) => {
+          // Online first (matches the on-screen Active / Inactive split), then by nickname
+          if ((a.status === 'online') !== (b.status === 'online')) {
+            return a.status === 'online' ? -1 : 1;
+          }
+          return (a.nickname || a.ip || '').localeCompare(b.nickname || b.ip || '');
+        });
+
+      if (rows.length === 0) {
+        alert('No devices match the current filters — nothing to download.');
+        return;
+      }
+
+      // Status & task summaries
+      const fmtStatus = (d: typeof devices[0]) =>
+        d.isArchived ? 'Archived' : d.status === 'online' ? 'Online' : 'Offline';
+      const taskSummary = (d: typeof devices[0]) => {
+        const tasks = d.scrapeTasks || [];
+        if (tasks.length === 0) return '';
+        return tasks.map((t) => {
+          if (t.type === 'website') return `web:${t.rangeFrom ?? 0}→${t.rangeTo ?? ((t.rangeFrom ?? 0) + (t.limit ?? 100))} ×${t.workers ?? 4}w`;
+          if (t.type === 'jobs')    return `jobs:${t.startPin}×${t.jobs ?? 3}j`;
+          if (t.type === 'range')   return `range:${t.startPin}→${t.endPin}`;
+          if (t.type === 'single')  return `single:${t.startPin}`;
+          return `${t.type}:${t.startPin}`;
+        }).join(' | ');
+      };
+
+      // Per-status counts for the summary banner
+      const counts = { online: 0, offline: 0, archived: 0 };
+      for (const d of rows) {
+        if (d.isArchived) counts.archived++;
+        else if (d.status === 'online') counts.online++;
+        else counts.offline++;
+      }
+
+      const XLSX = await import('xlsx');
+      const filterParts: string[] = [];
+      if (search) filterParts.push(`Search: "${search}"`);
+      if (showFlaggedOnly) filterParts.push('Flagged only');
+      filterParts.push(`Archive: ${archiveMode}`);
+
+      const title = `BetaZen Devices — Export (${rows.length.toLocaleString()} of ${devices.length.toLocaleString()})`;
+      const filterLine = `Filters — ${filterParts.join('   ·   ')}`;
+      const headerCols = [
+        '#', 'Nickname', 'IP', 'Status', 'Hostname', 'OS',
+        'CPU Model', 'Cores', 'RAM (GB)',
+        'Tasks', 'Task Summary',
+        'CPU %', 'RAM %', 'Disk %',
+        '60min Records', '60min Sessions',
+        'VPS Password', 'Last Seen', 'Registered',
+      ];
+      const dataRows = rows.map((d, i) => [
+        i + 1,
+        d.nickname || '',
+        d.ip || '',
+        fmtStatus(d),
+        d.hostname || '',
+        `${d.platform || ''} ${d.osVersion || ''}`.trim(),
+        d.cpuModel || '',
+        d.cpuCores || 0,
+        d.totalMemoryGB || 0,
+        (d.scrapeTasks || []).length,
+        taskSummary(d),
+        d.latestStats?.cpuUsedPercent ?? 0,
+        d.latestStats?.ramUsedPercent ?? 0,
+        d.latestStats?.diskUsedPercent ?? 0,
+        d.recent?.records?.total ?? 0,
+        d.recent?.sessions?.total ?? 0,
+        d.vpsPassword || '',
+        d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : '',
+        d.createdAt ? new Date(d.createdAt).toLocaleString() : '',
+      ]);
+      const aoa: (string | number)[][] = [
+        [title],
+        ['Total', rows.length],
+        ['Online',   counts.online],
+        ['Offline',  counts.offline],
+        ['Archived', counts.archived],
+        [filterLine],
+        [],
+        headerCols,
+        ...dataRows,
+      ];
+      const dataStartRow = 8;
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [
+        { wch: 6 },  // #
+        { wch: 22 }, // Nickname
+        { wch: 18 }, // IP
+        { wch: 10 }, // Status
+        { wch: 18 }, // Hostname
+        { wch: 24 }, // OS
+        { wch: 36 }, // CPU Model
+        { wch: 7 },  // Cores
+        { wch: 10 }, // RAM
+        { wch: 7 },  // Tasks
+        { wch: 38 }, // Task Summary
+        { wch: 8 },  // CPU
+        { wch: 8 },  // RAM
+        { wch: 8 },  // Disk
+        { wch: 14 }, // 60min Records
+        { wch: 14 }, // 60min Sessions
+        { wch: 18 }, // VPS Password
+        { wch: 22 }, // Last Seen
+        { wch: 22 }, // Registered
+      ];
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: headerCols.length - 1 } }, // title
+        { s: { r: 5, c: 0 }, e: { r: 5, c: headerCols.length - 1 } }, // filters
+      ];
+      ws['!freeze'] = { xSplit: 0, ySplit: dataStartRow };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `Devices (${rows.length})`.slice(0, 31));
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      XLSX.writeFile(wb, `betazen-devices-${ts}.xlsx`);
+    } catch (err) {
+      const e = err as { message?: string };
+      alert(`Download failed: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (loading && devices.length === 0) {
     return <Spinner message="Loading devices..." />;
   }
@@ -218,6 +374,17 @@ const DevicesPage: React.FC<DevicesPageProps> = ({ onDeviceClick, onOpenSsh }) =
             }`}
           >
             {archiveMode === 'hide' ? 'Show Archived' : archiveMode === 'show' ? 'Only Archived' : 'Hide Archived'}
+          </button>
+          <button
+            onClick={handleDownloadDevices}
+            disabled={downloading || devices.length === 0}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white transition-colors"
+            title="Download the currently visible device list as Excel — respects search, flagged-only, and archive filters. Includes VPS passwords; operator-only material."
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {downloading ? 'Downloading…' : 'Download'}
           </button>
           <button
             onClick={() => setShowBulkAdd(true)}
