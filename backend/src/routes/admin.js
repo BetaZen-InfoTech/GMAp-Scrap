@@ -11,6 +11,7 @@ const ScrapedDataDuplicate = require('../models/ScrapedDataDuplicate');
 const ScrapedDataDeleted = require('../models/ScrapedDataDeleted');
 const WebsiteAnalysis = require('../models/WebsiteAnalysis');
 const WebsiteAnalysisJob = require('../models/WebsiteAnalysisJob');
+const DeleteEmptyJob = require('../models/DeleteEmptyJob');
 const PincodeStatus = require('../models/PincodeStatus');
 const BusinessNiche = require('../models/BusinessNiche');
 const PinCode = require('../models/PinCode');
@@ -1997,6 +1998,164 @@ router.patch('/scrap-database/soft-delete-filter', async (req, res) => {
     res.json({ success: true, deletedCount });
   } catch (err) {
     console.error('[admin/scrap-database/soft-delete-filter] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delete-Empty background job — same long-running-job pattern as the
+// website-analysis flow. The synchronous soft-delete-filter above worked
+// for a few thousand rows but choked at 3M+: HTTP times out, browser tab
+// shows a frozen spinner, no progress feedback, and if anyone closes the
+// modal mid-run there's no way to tell whether the work finished.
+//
+// New flow:
+//   POST /delete-empty/start    queue a job, return 202 with the job doc
+//   GET  /delete-empty/jobs/:id poll progress (UI polls every 2s)
+//   GET  /delete-empty/jobs     paginated history
+//
+// The worker streams rows in 500-row batches: archive to
+// Scraped-Data-Deleted, delete from Scraped-Data, bump the job doc's
+// `deleted` counter + `lastProgressAt` heartbeat. Crash recovery: /start
+// reaps any job stuck "running" with no heartbeat in 10 min.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DELETE_EMPTY_FILTER = {
+  phone:   { $in: [null, ''] },
+  email:   { $in: [null, ''] },
+  website: { $in: [null, ''] },
+};
+const DE_BATCH = 500;
+const DE_STALE_MS = 10 * 60 * 1000;
+
+async function runDeleteEmptyJob(jobId) {
+  const job = await DeleteEmptyJob.findById(jobId);
+  if (!job) return;
+  try {
+    // Snapshot the total so the UI can render a stable progress bar even if
+    // new junk records land mid-run. (Those will be picked up by the next run.)
+    const total = await ScrapedData.countDocuments(DELETE_EMPTY_FILTER);
+    job.totalToDelete = total;
+    job.status = 'running';
+    job.lastProgressAt = new Date();
+    await job.save();
+
+    const deletedAt = new Date();
+    let deletedSoFar = 0;
+    while (true) {
+      // No skip() — every loop pulls the current "first 500" matching rows.
+      // The previous loop's deleteMany shrinks the filter set, so this
+      // converges naturally without paging math.
+      const records = await ScrapedData.find(DELETE_EMPTY_FILTER).limit(DE_BATCH).lean();
+      if (records.length === 0) break;
+
+      const ids = records.map((r) => r._id);
+      const archivedDocs = records.map((r) => {
+        const { _id, __v, isDeleted, ...rest } = r;
+        return { ...rest, originalId: String(_id), deletedAt };
+      });
+
+      try {
+        await ScrapedDataDeleted.insertMany(archivedDocs, { ordered: false });
+        await ScrapedData.deleteMany({ _id: { $in: ids } });
+        deletedSoFar += records.length;
+      } catch (err) {
+        // Partial-batch failure (rare — usually a duplicate _id on insert).
+        // Count the batch as errored but keep going; otherwise one bad row
+        // would block the whole run.
+        job.errored += records.length;
+        job.errorMessage = err.message;
+      }
+
+      job.deleted = deletedSoFar;
+      job.lastProgressAt = new Date();
+      await job.save();
+    }
+
+    job.status = 'completed';
+    job.completedAt = new Date();
+    job.lastProgressAt = new Date();
+    await job.save();
+  } catch (err) {
+    console.error('[delete-empty worker] Fatal:', err.message);
+    try {
+      job.status = 'error';
+      job.errorMessage = err.message;
+      job.lastProgressAt = new Date();
+      await job.save();
+    } catch (_) { /* ignore */ }
+  }
+}
+
+// POST /api/admin/scrap-database/delete-empty/start
+// Returns the active job (existing or freshly-queued) with 200 or 202.
+router.post('/scrap-database/delete-empty/start', async (_req, res) => {
+  try {
+    // Reap stale running jobs before checking for an active one — a crashed
+    // worker leaves the doc marked running forever otherwise.
+    const cutoff = new Date(Date.now() - DE_STALE_MS);
+    await DeleteEmptyJob.updateMany(
+      { status: 'running', lastProgressAt: { $lt: cutoff } },
+      { $set: { status: 'stopped', errorMessage: 'No heartbeat — worker died' } }
+    );
+
+    const active = await DeleteEmptyJob.findOne({ status: { $in: ['running', 'queued'] } })
+      .sort({ startedAt: -1 });
+    if (active) {
+      return res.status(200).json({
+        success: true,
+        alreadyRunning: true,
+        message: 'A delete-empty job is already in progress',
+        job: active,
+      });
+    }
+
+    const job = await DeleteEmptyJob.create({
+      status: 'queued',
+      startedAt: new Date(),
+      lastProgressAt: new Date(),
+    });
+
+    // Fire-and-forget — runs after the response is sent
+    setImmediate(() => { runDeleteEmptyJob(job._id).catch(() => { /* logged inside */ }); });
+
+    res.status(202).json({
+      success: true,
+      alreadyRunning: false,
+      message: 'Delete-empty job started — poll /jobs/:id for progress',
+      job,
+    });
+  } catch (err) {
+    console.error('[scrap-database/delete-empty/start] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
+  }
+});
+
+// GET /api/admin/scrap-database/delete-empty/jobs/:id — single-job poll
+router.get('/scrap-database/delete-empty/jobs/:id', async (req, res) => {
+  try {
+    const job = await DeleteEmptyJob.findById(req.params.id).lean();
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    res.json(job);
+  } catch (err) {
+    console.error('[scrap-database/delete-empty/jobs/:id] Error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/admin/scrap-database/delete-empty/jobs — paginated history
+router.get('/scrap-database/delete-empty/jobs', async (req, res) => {
+  try {
+    const page  = Math.max(1, Number(req.query.page)  || 1);
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+    const skip  = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      DeleteEmptyJob.find({}).sort({ startedAt: -1 }).skip(skip).limit(limit).lean(),
+      DeleteEmptyJob.countDocuments({}),
+    ]);
+    res.json({ data, total, page, limit });
+  } catch (err) {
+    console.error('[scrap-database/delete-empty/jobs] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

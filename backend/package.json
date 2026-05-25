@@ -1,6 +1,6 @@
 {
   "name": "betazen-gmap-scrap-backend",
-  "version": "1.8.1",
+  "version": "1.8.3",
   "description": "BetaZen G-Map Scraper Backend API",
   "main": "src/index.js",
   "scripts": {

@@ -81,53 +81,103 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
   const [fixingNumbers, setFixingNumbers] = useState(false);
   const [fixResult, setFixResult] = useState<{ scanned: number; modified: number } | null>(null);
 
-  // "Delete Empty" shortcut state — records with NO phone AND NO email AND
-  // NO website are essentially junk. We pre-count via the existing list
-  // endpoint (limit=1) so the operator sees the blast radius before confirming,
-  // then issue the soft-delete-filter PATCH with the same three missing-flags
-  // so the rows land in Scraped-Data-Deleted and can be restored from the
-  // Deleted Records page if anyone changes their mind.
+  // "Delete Empty" — long-running backend job (3M+ rows at peak). The synchronous
+  // PATCH variant we shipped in 1.8.2 worked up to ~50k rows then HTTP-timed-out
+  // mid-delete and left no progress feedback. v1.8.3 wraps the same logic in a
+  // tracked job: POST /start kicks off a backend worker, the modal polls
+  // GET /jobs/:id every 2s for a live deleted/total counter. Closing the modal
+  // doesn't cancel the run; it keeps going on the server.
+  interface DeleteEmptyJob {
+    _id: string;
+    status: 'queued' | 'running' | 'completed' | 'error' | 'stopped';
+    totalToDelete: number;
+    deleted: number;
+    errored: number;
+    errorMessage?: string;
+    startedAt?: string;
+    completedAt?: string;
+    lastProgressAt?: string;
+  }
+
   const [showDeleteEmptyModal, setShowDeleteEmptyModal] = useState(false);
   const [emptyCount, setEmptyCount] = useState<number | null>(null);
   const [countingEmpty, setCountingEmpty] = useState(false);
-  const [deletingEmpty, setDeletingEmpty] = useState(false);
+  const [deleteEmptyJob, setDeleteEmptyJob] = useState<DeleteEmptyJob | null>(null);
+  const [deleteEmptyStarting, setDeleteEmptyStarting] = useState(false);
+
+  // Live job-polling effect — runs only while the modal is open AND a job is
+  // active. Stops itself when the job lands in completed/error/stopped, then
+  // does one final refresh of the records list.
+  useEffect(() => {
+    if (!showDeleteEmptyModal || !deleteEmptyJob) return;
+    if (['completed', 'error', 'stopped'].includes(deleteEmptyJob.status)) return;
+
+    const id = setInterval(async () => {
+      try {
+        const res = await api.get(`/api/admin/scrap-database/delete-empty/jobs/${deleteEmptyJob._id}`);
+        const fresh = res.data as DeleteEmptyJob;
+        setDeleteEmptyJob(fresh);
+        if (['completed', 'error', 'stopped'].includes(fresh.status)) {
+          fetchRecords(1);  // refresh the table once the run terminates
+        }
+      } catch (_) {
+        // Network blip — keep the last-known state on screen and try again
+        // on the next tick. The operator can still close the modal manually.
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [showDeleteEmptyModal, deleteEmptyJob?._id, deleteEmptyJob?.status, fetchRecords]);
 
   const openDeleteEmptyModal = async () => {
     setShowDeleteEmptyModal(true);
     setEmptyCount(null);
+    setDeleteEmptyJob(null);
     setCountingEmpty(true);
+
     try {
-      const res = await api.get('/api/admin/scrap-database', {
-        params: { missingPhone: 'true', missingEmail: 'true', missingWebsite: 'true', page: 1, limit: 1 },
-      });
-      setEmptyCount(Number(res.data?.total) || 0);
+      // Two queries in parallel: (a) count what would be deleted, (b) detect
+      // an already-running job from a previous tab / browser refresh.
+      const [countRes, activeRes] = await Promise.all([
+        api.get('/api/admin/scrap-database', {
+          params: { missingPhone: 'true', missingEmail: 'true', missingWebsite: 'true', page: 1, limit: 1 },
+        }),
+        // POST /start with no actual side effect: if a job is already running
+        // it returns it; if not it would start one — but we'd rather show the
+        // confirm UI first, so we only call this on the explicit confirm.
+        // Instead, peek at the latest job via /jobs?limit=1.
+        api.get('/api/admin/scrap-database/delete-empty/jobs', { params: { page: 1, limit: 1 } }),
+      ]);
+      setEmptyCount(Number(countRes.data?.total) || 0);
+
+      const latest = activeRes.data?.data?.[0] as DeleteEmptyJob | undefined;
+      if (latest && ['queued', 'running'].includes(latest.status)) {
+        // Pick up an in-flight job — modal goes straight into progress mode.
+        setDeleteEmptyJob(latest);
+      }
     } catch (err) {
       setEmptyCount(0);
-      alert(`Failed to count empty records: ${(err as Error).message || 'Unknown'}`);
+      alert(`Failed to load delete-empty status: ${(err as Error).message || 'Unknown'}`);
     } finally {
       setCountingEmpty(false);
     }
   };
 
-  const handleDeleteEmpty = async () => {
-    setDeletingEmpty(true);
+  const startDeleteEmptyJob = async () => {
+    setDeleteEmptyStarting(true);
     try {
-      const res = await api.patch('/api/admin/scrap-database/soft-delete-filter', {
-        missingPhone: 'true', missingEmail: 'true', missingWebsite: 'true',
-      });
-      const deleted = Number(res.data?.deletedCount ?? res.data?.modifiedCount ?? 0);
-      setShowDeleteEmptyModal(false);
-      setEmptyCount(null);
-      // Surface the result inline near the Fix-Numbers banner so the operator
-      // doesn't miss it — same visual treatment for consistency.
-      setFixResult(null); // dismiss the older banner if present
-      alert(`Deleted ${deleted.toLocaleString()} empty record(s) — moved to Scraped-Data-Deleted (restorable from the Deleted Records page).`);
-      await fetchRecords(1);
+      const res = await api.post('/api/admin/scrap-database/delete-empty/start');
+      setDeleteEmptyJob(res.data?.job as DeleteEmptyJob);
     } catch (err) {
-      alert(`Delete failed: ${(err as Error).message || 'Unknown'}`);
+      alert(`Failed to start delete-empty job: ${(err as Error).message || 'Unknown'}`);
     } finally {
-      setDeletingEmpty(false);
+      setDeleteEmptyStarting(false);
     }
+  };
+
+  const closeDeleteEmptyModal = () => {
+    setShowDeleteEmptyModal(false);
+    setEmptyCount(null);
+    setDeleteEmptyJob(null);
   };
 
   useEffect(() => {
@@ -277,11 +327,13 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
             {wasStarting ? 'Starting…' : 'Website Analysis'}
           </button>
 
-          {/* Delete junk — records with NO phone, email, AND website */}
+          {/* Delete junk — records with NO phone, email, AND website.
+              Runs as a backend job — modal shows live progress so a 3M-row
+              run doesn't lock the UI. */}
           <button
             onClick={openDeleteEmptyModal}
-            disabled={deletingEmpty || total === 0}
-            title="Soft-delete every record that has NO phone, NO email, AND NO website. Moved to Scraped-Data-Deleted (restorable)."
+            disabled={total === 0}
+            title="Soft-delete every record that has NO phone, NO email, AND NO website. Runs in the background — you can close the modal and the job keeps going."
             className="flex items-center gap-1.5 bg-rose-800 hover:bg-rose-700 disabled:opacity-50 text-rose-100 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -588,67 +640,172 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
         )}
       </div>
 
-      {/* Delete-empty confirmation modal — destructive, pre-counted */}
-      {showDeleteEmptyModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-9 h-9 rounded-xl bg-rose-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                <svg className="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">Delete records with no contact info?</h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Targets every row where <strong className="text-slate-300">phone</strong>,{' '}
-                  <strong className="text-slate-300">email</strong> AND{' '}
-                  <strong className="text-slate-300">website</strong> are all empty.
-                </p>
-              </div>
-            </div>
+      {/* Delete-empty modal — 3 stages:
+           1. Confirm  — no job yet, ask to start
+           2. Running  — job is queued/running, show live progress bar
+           3. Done     — job is completed/error/stopped, show summary
+           The modal is just a viewer; the backend worker keeps running even
+           if the operator clicks "Close & let it run" in state 2. Re-opening
+           the modal re-attaches to the in-flight job via the /jobs poll. */}
+      {showDeleteEmptyModal && (() => {
+        const job = deleteEmptyJob;
+        const isRunning = job && (job.status === 'queued' || job.status === 'running');
+        const isDone = job && (job.status === 'completed' || job.status === 'error' || job.status === 'stopped');
+        const pct = job && job.totalToDelete > 0
+          ? Math.min(100, Math.round((job.deleted / job.totalToDelete) * 100))
+          : 0;
 
-            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3 mb-4">
-              {countingEmpty ? (
-                <p className="text-sm text-slate-400">Counting records…</p>
-              ) : (
-                <p className="text-sm text-slate-200">
-                  <strong className="text-rose-300">{(emptyCount ?? 0).toLocaleString()}</strong>{' '}
-                  record{emptyCount === 1 ? '' : 's'} will be moved to{' '}
-                  <span className="font-mono text-slate-400">Scraped-Data-Deleted</span>.
-                  <br />
-                  <span className="text-xs text-slate-500">
-                    Restorable from the Deleted Records page with the admin password.
-                  </span>
-                </p>
+        return (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                  <svg className="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    {isDone   ? 'Delete-Empty job finished'
+                    : isRunning ? 'Delete-Empty running in background'
+                    :             'Delete records with no contact info?'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Targets every row where <strong className="text-slate-300">phone</strong>,{' '}
+                    <strong className="text-slate-300">email</strong> AND{' '}
+                    <strong className="text-slate-300">website</strong> are all empty.
+                  </p>
+                </div>
+              </div>
+
+              {/* ── Stage 1: confirm (no job yet) ── */}
+              {!job && (
+                <>
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3 mb-4">
+                    {countingEmpty ? (
+                      <p className="text-sm text-slate-400">Counting records…</p>
+                    ) : (
+                      <p className="text-sm text-slate-200">
+                        <strong className="text-rose-300">{(emptyCount ?? 0).toLocaleString()}</strong>{' '}
+                        record{emptyCount === 1 ? '' : 's'} will be moved to{' '}
+                        <span className="font-mono text-slate-400">Scraped-Data-Deleted</span>.
+                        <br />
+                        <span className="text-xs text-slate-500">
+                          Restorable from the Deleted Records page with the admin password. The job runs on the server — you can close this modal and it keeps going.
+                        </span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={startDeleteEmptyJob}
+                      disabled={deleteEmptyStarting || countingEmpty || (emptyCount ?? 0) === 0}
+                      className="flex-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+                    >
+                      {deleteEmptyStarting
+                        ? 'Starting…'
+                        : countingEmpty
+                          ? 'Counting…'
+                          : (emptyCount ?? 0) === 0
+                            ? 'Nothing to delete'
+                            : `Start delete (${(emptyCount ?? 0).toLocaleString()})`}
+                    </button>
+                    <button
+                      onClick={closeDeleteEmptyModal}
+                      disabled={deleteEmptyStarting}
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ── Stage 2: running (job queued or in progress) ── */}
+              {isRunning && (
+                <>
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3 mb-3">
+                    <div className="flex justify-between items-baseline mb-1.5">
+                      <span className="text-xs text-slate-400">
+                        {job.deleted.toLocaleString()} of {job.totalToDelete.toLocaleString()} processed
+                      </span>
+                      <span className="text-sm font-bold text-rose-300 tabular-nums">{pct}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-rose-500 rounded-full transition-all duration-300"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-2">
+                      Status: <span className="font-mono text-slate-400">{job.status}</span>
+                      {job.errored > 0 && (
+                        <> · <span className="text-amber-400">{job.errored.toLocaleString()} errored</span></>
+                      )}
+                      {' · polling every 2 s'}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-950/40 border border-slate-800/60 rounded-lg p-2.5 mb-4">
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      <strong className="text-slate-300">Safe to close.</strong> The job runs on the server.
+                      Re-open this modal any time to check progress — the next page-refresh will reconnect to the running job.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={closeDeleteEmptyModal}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium py-2.5 rounded-lg transition-colors"
+                  >
+                    Close & let it run
+                  </button>
+                </>
+              )}
+
+              {/* ── Stage 3: done (completed / error / stopped) ── */}
+              {isDone && (
+                <>
+                  <div className={`border rounded-lg p-3 mb-4 ${
+                    job.status === 'completed'
+                      ? 'bg-emerald-950/40 border-emerald-800/60'
+                      : 'bg-amber-950/40 border-amber-800/60'
+                  }`}>
+                    <p className={`text-sm font-semibold ${
+                      job.status === 'completed' ? 'text-emerald-300' : 'text-amber-300'
+                    }`}>
+                      {job.status === 'completed' ? '✓ Completed' : `⚠ ${job.status}`}
+                    </p>
+                    <p className="text-sm text-slate-300 mt-1">
+                      Deleted <strong className="text-rose-300">{job.deleted.toLocaleString()}</strong>{' '}
+                      of {job.totalToDelete.toLocaleString()} record{job.totalToDelete === 1 ? '' : 's'}.
+                      {job.errored > 0 && (
+                        <> <span className="text-amber-300">{job.errored.toLocaleString()} errored.</span></>
+                      )}
+                    </p>
+                    {job.errorMessage && (
+                      <p className="text-[11px] text-amber-300/80 font-mono mt-1.5 break-all">
+                        {job.errorMessage}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-slate-500 mt-2">
+                      Rows are in <span className="font-mono">Scraped-Data-Deleted</span> — restorable
+                      from the Deleted Records page.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={closeDeleteEmptyModal}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium py-2.5 rounded-lg transition-colors"
+                  >
+                    Close
+                  </button>
+                </>
               )}
             </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleDeleteEmpty}
-                disabled={deletingEmpty || countingEmpty || (emptyCount ?? 0) === 0}
-                className="flex-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
-              >
-                {deletingEmpty
-                  ? 'Deleting…'
-                  : countingEmpty
-                    ? 'Counting…'
-                    : (emptyCount ?? 0) === 0
-                      ? 'Nothing to delete'
-                      : `Delete ${(emptyCount ?? 0).toLocaleString()}`}
-              </button>
-              <button
-                onClick={() => { setShowDeleteEmptyModal(false); setEmptyCount(null); }}
-                disabled={deletingEmpty}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Delete confirmation modal */}
       {showDeleteModal && (
