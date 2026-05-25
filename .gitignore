@@ -62,3 +62,4 @@ CONVERSATION_SUMMARY.md
 
 # ── Claude Code (settings.local.json is device-specific) ────
 .claude/settings.local.json
+.claude/scheduled_tasks.lock

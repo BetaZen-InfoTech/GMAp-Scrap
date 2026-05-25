@@ -1,0 +1,40 @@
+name: flutter_admin
+description: "BetaZen G-Map Scraper Admin Dashboard"
+publish_to: 'none'
+version: 1.8.1+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # ── Network + auth ──────────────────────────────────────────────────────────
+  # dio: HTTP client with interceptors (Bearer-token injection + 401 catch).
+  dio: ^5.7.0
+
+  # ── State ───────────────────────────────────────────────────────────────────
+  # provider: minimal, no codegen. Matches the existing Zustand pattern on the
+  # Electron side conceptually (top-level store → widgets read selectively).
+  provider: ^6.1.2
+
+  # ── Persistence ─────────────────────────────────────────────────────────────
+  # shared_preferences persists the admin token + base-URL across launches.
+  # Tokens expire in 24h on the backend (adminAuth.js) so operational risk is
+  # small; switch to flutter_secure_storage later if policy tightens.
+  shared_preferences: ^2.3.2
+
+  # ── Formatting ──────────────────────────────────────────────────────────────
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
