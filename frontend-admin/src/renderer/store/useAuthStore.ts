@@ -62,8 +62,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
     // Set token first, then verify it's still valid against the backend
     setAuthToken(settings.authToken);
     try {
-      // Ping a lightweight protected endpoint to validate the token
-      await api.get('/api/admin/devices', { timeout: 5000 });
+      // Ping a lightweight protected endpoint to validate the token.
+      // 5s was tight when the backend is cold-starting; 30s matches the
+      // login-timeout bump in the main process so a slow boot doesn't
+      // boot the operator back to the login screen on app start.
+      await api.get('/api/admin/devices', { timeout: 30000 });
       // Token is valid
       set({ isAuthenticated: true, token: settings.authToken });
     } catch (err) {

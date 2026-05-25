@@ -20,7 +20,10 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_, password: string) => {
     const base = getApiBaseUrl();
     try {
-      const res = await axios.post(`${base}/api/admin/login`, { password }, { timeout: 10000 });
+      // 10s wasn't enough when the backend is cold-starting (free-tier hosting
+      // takes 30-60s to wake) or when the operator's link is slow. 60s
+      // matches what production users actually need.
+      const res = await axios.post(`${base}/api/admin/login`, { password }, { timeout: 60000 });
       if (res.data.success) {
         saveSettings({ authToken: res.data.token });
         return { success: true, token: res.data.token };

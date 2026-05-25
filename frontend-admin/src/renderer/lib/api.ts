@@ -43,8 +43,11 @@ export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler;
 }
 
+// 30s was the previous default; bumped to 60s in v1.8.2 to match the slower
+// cold-start / cold-DB-query reality. Pages that need to override (long
+// admin operations, dedup jobs, etc.) still pass their own timeout per request.
 const api = axios.create({
-  timeout: 30000,
+  timeout: 60000,
 });
 
 // Attach Bearer token to every request

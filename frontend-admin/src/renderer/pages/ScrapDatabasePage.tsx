@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { useScrapDatabaseStore, type ViewMode } from '../store/useScrapDatabaseStore';
 import { exportCSV, exportExcel } from '../lib/export';
+import api from '../lib/api';
 import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
 import ScrapTableView from '../components/ScrapTableView';
@@ -79,6 +80,55 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
   const [exporting, setExporting] = useState(false);
   const [fixingNumbers, setFixingNumbers] = useState(false);
   const [fixResult, setFixResult] = useState<{ scanned: number; modified: number } | null>(null);
+
+  // "Delete Empty" shortcut state — records with NO phone AND NO email AND
+  // NO website are essentially junk. We pre-count via the existing list
+  // endpoint (limit=1) so the operator sees the blast radius before confirming,
+  // then issue the soft-delete-filter PATCH with the same three missing-flags
+  // so the rows land in Scraped-Data-Deleted and can be restored from the
+  // Deleted Records page if anyone changes their mind.
+  const [showDeleteEmptyModal, setShowDeleteEmptyModal] = useState(false);
+  const [emptyCount, setEmptyCount] = useState<number | null>(null);
+  const [countingEmpty, setCountingEmpty] = useState(false);
+  const [deletingEmpty, setDeletingEmpty] = useState(false);
+
+  const openDeleteEmptyModal = async () => {
+    setShowDeleteEmptyModal(true);
+    setEmptyCount(null);
+    setCountingEmpty(true);
+    try {
+      const res = await api.get('/api/admin/scrap-database', {
+        params: { missingPhone: 'true', missingEmail: 'true', missingWebsite: 'true', page: 1, limit: 1 },
+      });
+      setEmptyCount(Number(res.data?.total) || 0);
+    } catch (err) {
+      setEmptyCount(0);
+      alert(`Failed to count empty records: ${(err as Error).message || 'Unknown'}`);
+    } finally {
+      setCountingEmpty(false);
+    }
+  };
+
+  const handleDeleteEmpty = async () => {
+    setDeletingEmpty(true);
+    try {
+      const res = await api.patch('/api/admin/scrap-database/soft-delete-filter', {
+        missingPhone: 'true', missingEmail: 'true', missingWebsite: 'true',
+      });
+      const deleted = Number(res.data?.deletedCount ?? res.data?.modifiedCount ?? 0);
+      setShowDeleteEmptyModal(false);
+      setEmptyCount(null);
+      // Surface the result inline near the Fix-Numbers banner so the operator
+      // doesn't miss it — same visual treatment for consistency.
+      setFixResult(null); // dismiss the older banner if present
+      alert(`Deleted ${deleted.toLocaleString()} empty record(s) — moved to Scraped-Data-Deleted (restorable from the Deleted Records page).`);
+      await fetchRecords(1);
+    } catch (err) {
+      alert(`Delete failed: ${(err as Error).message || 'Unknown'}`);
+    } finally {
+      setDeletingEmpty(false);
+    }
+  };
 
   useEffect(() => {
     fetchFilterOptions();
@@ -225,6 +275,19 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />
             </svg>
             {wasStarting ? 'Starting…' : 'Website Analysis'}
+          </button>
+
+          {/* Delete junk — records with NO phone, email, AND website */}
+          <button
+            onClick={openDeleteEmptyModal}
+            disabled={deletingEmpty || total === 0}
+            title="Soft-delete every record that has NO phone, NO email, AND NO website. Moved to Scraped-Data-Deleted (restorable)."
+            className="flex items-center gap-1.5 bg-rose-800 hover:bg-rose-700 disabled:opacity-50 text-rose-100 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete Empty
           </button>
 
           {/* Refresh */}
@@ -524,6 +587,68 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
           </>
         )}
       </div>
+
+      {/* Delete-empty confirmation modal — destructive, pre-counted */}
+      {showDeleteEmptyModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-9 h-9 rounded-xl bg-rose-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                <svg className="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete records with no contact info?</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Targets every row where <strong className="text-slate-300">phone</strong>,{' '}
+                  <strong className="text-slate-300">email</strong> AND{' '}
+                  <strong className="text-slate-300">website</strong> are all empty.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3 mb-4">
+              {countingEmpty ? (
+                <p className="text-sm text-slate-400">Counting records…</p>
+              ) : (
+                <p className="text-sm text-slate-200">
+                  <strong className="text-rose-300">{(emptyCount ?? 0).toLocaleString()}</strong>{' '}
+                  record{emptyCount === 1 ? '' : 's'} will be moved to{' '}
+                  <span className="font-mono text-slate-400">Scraped-Data-Deleted</span>.
+                  <br />
+                  <span className="text-xs text-slate-500">
+                    Restorable from the Deleted Records page with the admin password.
+                  </span>
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleDeleteEmpty}
+                disabled={deletingEmpty || countingEmpty || (emptyCount ?? 0) === 0}
+                className="flex-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              >
+                {deletingEmpty
+                  ? 'Deleting…'
+                  : countingEmpty
+                    ? 'Counting…'
+                    : (emptyCount ?? 0) === 0
+                      ? 'Nothing to delete'
+                      : `Delete ${(emptyCount ?? 0).toLocaleString()}`}
+              </button>
+              <button
+                onClick={() => { setShowDeleteEmptyModal(false); setEmptyCount(null); }}
+                disabled={deletingEmpty}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation modal */}
       {showDeleteModal && (
