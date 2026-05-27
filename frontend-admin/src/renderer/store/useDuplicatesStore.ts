@@ -55,6 +55,7 @@ interface DuplicatesStore {
   runAnalysis: () => Promise<void>;
   clearAnalyzeResult: () => void;
   runDeleteByPNA: () => Promise<void>;
+  runDeleteByNA:  () => Promise<void>;  // phone-agnostic — name+address only
   clearDeleteResult: () => void;
   runRestoreAll: () => Promise<void>;
   clearRestoreResult: () => void;
@@ -135,6 +136,22 @@ export const useDuplicatesStore = create<DuplicatesStore>((set, get) => ({
     set({ deleting: true, deleteResult: null });
     try {
       const res = await api.post('/api/admin/duplicates/delete-phone-name-address');
+      set({ deleteResult: res.data, deleting: false });
+      const { fetchRecords, fetchArchive } = get();
+      await Promise.all([fetchRecords(1), fetchArchive(1)]);
+    } catch {
+      set({ deleting: false });
+    }
+  },
+
+  // Phone-AGNOSTIC dedup. Backend groups by lowercase trimmed name+address only,
+  // so the same business with multiple phones (call centre + branch + cell)
+  // collapses to one row. Same archival mechanics + restore path as the
+  // phone-aware variant.
+  runDeleteByNA: async () => {
+    set({ deleting: true, deleteResult: null });
+    try {
+      const res = await api.post('/api/admin/duplicates/delete-name-address');
       set({ deleteResult: res.data, deleting: false });
       const { fetchRecords, fetchArchive } = get();
       await Promise.all([fetchRecords(1), fetchArchive(1)]);

@@ -112,12 +112,15 @@ const DuplicatesPage: React.FC = () => {
     fetchRecords, fetchArchive,
     setSearch, setArchiveSearch, setLimit, setTab,
     runAnalysis, clearAnalyzeResult,
-    runDeleteByPNA, clearDeleteResult,
+    runDeleteByPNA, runDeleteByNA, clearDeleteResult,
     runRestoreAll, clearRestoreResult,
   } = useDuplicatesStore();
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Phone-agnostic variant: same destructive flow as the PNA modal but with a
+  // separate state so the user sees a distinct warning about the wider key.
+  const [showDeleteNAConfirm, setShowDeleteNAConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [archiveSearchInput, setArchiveSearchInput] = useState('');
@@ -145,6 +148,11 @@ const DuplicatesPage: React.FC = () => {
   const handleDeleteConfirm = async () => {
     setShowDeleteConfirm(false);
     await runDeleteByPNA();
+  };
+
+  const handleDeleteNAConfirm = async () => {
+    setShowDeleteNAConfirm(false);
+    await runDeleteByNA();
   };
 
   const handleRestoreConfirm = async () => {
@@ -217,6 +225,21 @@ const DuplicatesPage: React.FC = () => {
                 Delete Duplicates
               </>
             )}
+          </button>
+
+          {/* Delete by Name+Address (phone-agnostic — catches same business
+              listed with multiple phone numbers) */}
+          <button
+            onClick={() => setShowDeleteNAConfirm(true)}
+            disabled={deleting || analyzing || restoring}
+            title="Delete duplicates ignoring phone — collapses the same business listed with multiple phone numbers"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-700 hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-lg shadow-rose-900/30"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 11l3-3 3 3M12 8v6" />
+            </svg>
+            Delete (Name+Addr)
           </button>
 
           {/* Analyze button */}
@@ -538,6 +561,59 @@ const DuplicatesPage: React.FC = () => {
               <button
                 onClick={handleDeleteConfirm}
                 className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors"
+              >
+                Yes, Delete & Archive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete by Name+Address (phone-agnostic) confirm modal */}
+      {showDeleteNAConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                <svg className="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white">Delete Duplicates by Name + Address (ignore phone)?</h2>
+                <p className="text-sm text-slate-400 mt-1 leading-relaxed">
+                  <strong className="text-slate-200">More aggressive</strong> than the phone-aware action above.
+                  Catches the same business listed with{' '}
+                  <strong className="text-rose-300">different phone numbers</strong> —
+                  call-centre lines, branch numbers, staff cells.
+                </p>
+                <p className="text-sm text-slate-400 mt-2 leading-relaxed">
+                  <strong className="text-slate-200">Step 1:</strong> Clears{' '}
+                  <span className="font-mono text-slate-300">isDuplicate</span> from all records.
+                  <br />
+                  <strong className="text-slate-200">Step 2:</strong> Groups by{' '}
+                  <strong className="text-slate-200">name + address</strong> (case-insensitive, trimmed).
+                  Oldest record stays in{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data</span>; every later duplicate is{' '}
+                  <strong className="text-rose-300">moved</strong> to{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span>{' '}
+                  (restorable from this same page).
+                </p>
+                <p className="text-xs text-slate-500 mt-2">
+                  Phone numbers on the duplicates aren&apos;t lost — they&apos;re preserved on the archived rows.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteNAConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteNAConfirm}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition-colors"
               >
                 Yes, Delete & Archive
               </button>
