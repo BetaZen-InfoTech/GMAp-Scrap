@@ -820,16 +820,22 @@ function waitIdle() {
 //
 // Spawned as one of N parallel PM2 workers (typically 4). Each worker:
 //   1. Pulls the unscraped-website slice [rangeFrom..rangeTo) from the backend
-//      via GET /api/scraped-data/website-pool — all N workers see the same
-//      _id-sorted snapshot,
+//      via GET /api/scraped-data/website-pool. As of backend v1.8.6 this queue
+//      is the DEDUPED Website-Analysis collection (one row per unique website),
+//      so each site is visited once instead of ~14× across duplicate G-Map
+//      rows. All N workers see the same _id-sorted snapshot.
 //   2. Slices its own chunk by workerIndex (worker 0 of 4 over [0..100) takes
 //      indices 0..24; worker 3 takes 75..99),
 //   3. For each site, harvests email/phone/contact-name via Playwright,
 //   4. Posts the harvested rows to POST /api/scraped-data/from-website — the
-//      backend tags them scrapFrom='website', scrapWebsite=true and marks
-//      every record sharing the URL so the queue stops surfacing them,
+//      backend saves the contacts to Scraped-Data and flips scrapWebsite=true
+//      on every row sharing the URL in BOTH Website-Analysis (the queue) and
+//      Scraped-Data, so the site never resurfaces.
 //   5. If a site yielded nothing, PATCH /mark-website-scraped on the source
-//      id so the next pass doesn't keep revisiting dead URLs.
+//      id (a Website-Analysis _id) so the next pass doesn't revisit dead URLs.
+//
+// No code here depends on which collection backs the pool — the endpoints
+// abstract it and Website-Analysis mirrors Scraped-Data's field shape.
 async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rangeFrom, rangeTo }) {
   const sessionId = uuidv4();
   const startTime = Date.now();
@@ -869,7 +875,7 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
   const startOffset = workerIndex * base + Math.min(workerIndex, extra);
   const myChunk = sites.slice(startOffset, startOffset + chunkSize);
 
-  print(chalk.cyan(`  Snapshot: ${sites.length} unscraped websites. My slice: ${myChunk.length} (offset ${startOffset}).`));
+  print(chalk.cyan(`  Snapshot: ${sites.length} unique unscraped websites. My slice: ${myChunk.length} (offset ${startOffset}).`));
   if (myChunk.length === 0) {
     print(chalk.yellow('  Nothing to do — chunk is empty. Sleeping.'));
     waitIdle();
