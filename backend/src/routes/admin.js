@@ -3131,30 +3131,36 @@ router.post('/website-analysis/start', async (_req, res) => {
 });
 
 // GET /api/admin/website-analysis/jobs — paginated history
-// Also returns archive total + how many G-Map websites have / haven't been
-// website-scraped yet (scrapWebsite flag), so the page can show a
-// scraped-vs-pending breakdown without a second round-trip. These counts use
-// the website_pool_idx (scrapFrom+scrapWebsite, partial on G-Map) so they're
-// index-only counts, cheap enough to compute on each list fetch (NOT on the
-// 3s single-job poll).
+// Returns:
+//   archiveTotal       — unique websites in Website-Analysis (the scrape queue)
+//   scrapedWebsites    — of those, how many have been contact-scraped
+//   unscrapedWebsites  — of those, how many are still pending
+//   sourceRows         — raw G-Map Scraped-Data rows with a website (the
+//                        pre-dedup count; archiveTotal/sourceRows = dedup ratio)
+// v1.8.6: scraped/unscraped now count UNIQUE websites (Website-Analysis +
+// scrapWebsite flag), not raw Scraped-Data rows — that's the queue the scraper
+// actually works through now. Index-only counts (website + scrapWebsite_idx),
+// computed on the list fetch, NOT the 3s single-job poll.
 router.get('/website-analysis/jobs', async (req, res) => {
   try {
     const page  = Math.max(1, Number(req.query.page)  || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     const skip  = (page - 1) * limit;
 
-    const [data, total, archiveTotal, scrapedWebsites, unscrapedWebsites] = await Promise.all([
+    const [data, total, archiveTotal, scrapedWebsites, unscrapedWebsites, sourceRows] = await Promise.all([
       WebsiteAnalysisJob.find({}).sort({ startedAt: -1 }).skip(skip).limit(limit).lean(),
       WebsiteAnalysisJob.countDocuments({}),
       WebsiteAnalysis.estimatedDocumentCount(),
-      ScrapedData.countDocuments({ ...WA_FILTER, scrapWebsite: true }),
-      ScrapedData.countDocuments({ ...WA_FILTER, scrapWebsite: { $ne: true } }),
+      WebsiteAnalysis.countDocuments({ scrapWebsite: true }),
+      WebsiteAnalysis.countDocuments({ scrapWebsite: { $ne: true } }),
+      ScrapedData.countDocuments(WA_FILTER),
     ]);
     res.json({
       data, total, page, limit, archiveTotal,
       scrapedWebsites,
       unscrapedWebsites,
-      totalWebsites: scrapedWebsites + unscrapedWebsites,
+      totalWebsites: archiveTotal,  // unique websites = the scrape queue size
+      sourceRows,                   // raw G-Map rows (pre-dedup) for context
     });
   } catch (err) {
     console.error('[website-analysis/jobs] Error:', err.message);

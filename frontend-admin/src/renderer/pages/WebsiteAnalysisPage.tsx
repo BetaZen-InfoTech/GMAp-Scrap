@@ -37,7 +37,7 @@ const WebsiteAnalysisPage: React.FC = () => {
     jobs, jobsTotal, jobsPage, jobsLimit, jobsLoading, archiveTotal,
     records, recordsTotal, recordsPage, recordsLimit, recordsLoading, recordsSearch,
     starting, startResult, startError,
-    scrapedWebsites, unscrapedWebsites, totalWebsites,
+    scrapedWebsites, unscrapedWebsites, totalWebsites, sourceRows,
     fetchJobs, pollActiveJob, start, stopJob, fetchRecords,
     setRecordsSearch, setRecordsLimit, clearStartResult,
   } = useWebsiteAnalysisStore();
@@ -241,28 +241,24 @@ const WebsiteAnalysisPage: React.FC = () => {
         </div>
       )}
 
-      {/* Stat cards — archive size + website-scraper pool breakdown */}
+      {/* Stat cards — unique-website queue + contact-scrape progress.
+          As of v1.8.6 the scraper works the deduped Website-Analysis queue
+          (unique sites), so progress is tracked against `archiveTotal`. The
+          "Source rows" card shows the raw pre-dedup count for context. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-1">
             <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
             </svg>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Archive</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Unique websites</p>
           </div>
           <p className="text-2xl font-bold text-white">{archiveTotal.toLocaleString()}</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Unique websites</p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Total websites</p>
-          </div>
-          <p className="text-2xl font-bold text-white">{totalWebsites.toLocaleString()}</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">G-Map rows with a site</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {sourceRows > 0
+              ? `deduped from ${sourceRows.toLocaleString()} rows`
+              : 'the scrape queue'}
+          </p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -274,7 +270,7 @@ const WebsiteAnalysisPage: React.FC = () => {
           </div>
           <p className="text-2xl font-bold text-emerald-400">{scrapedWebsites.toLocaleString()}</p>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            {totalWebsites > 0 ? `${Math.round((scrapedWebsites / totalWebsites) * 100)}% of total` : 'Contact info pulled'}
+            {totalWebsites > 0 ? `${Math.round((scrapedWebsites / totalWebsites) * 100)}% of unique` : 'Contact info pulled'}
           </p>
         </div>
 
@@ -287,6 +283,21 @@ const WebsiteAnalysisPage: React.FC = () => {
           </div>
           <p className="text-2xl font-bold text-amber-400">{unscrapedWebsites.toLocaleString()}</p>
           <p className="text-[11px] text-slate-500 mt-0.5">Pending the Website Scraper</p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2 1 3 8 3s8-1 8-3V7M4 7c0 2 1 3 8 3s8-1 8-3M4 7c0-2 1-3 8-3s8 1 8 3" />
+            </svg>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Source rows</p>
+          </div>
+          <p className="text-2xl font-bold text-white">{sourceRows.toLocaleString()}</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {sourceRows > 0 && archiveTotal > 0
+              ? `${(sourceRows / archiveTotal).toFixed(1)}× dup ratio`
+              : 'Raw G-Map rows w/ site'}
+          </p>
         </div>
       </div>
 

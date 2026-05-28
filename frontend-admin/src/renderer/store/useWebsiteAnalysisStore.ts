@@ -43,11 +43,13 @@ interface WebsiteAnalysisStore {
   jobsLoading: boolean;
   archiveTotal: number;
 
-  // Website-scraper pool breakdown (from /jobs response) — how many G-Map
-  // websites have been contact-scraped vs still pending.
+  // Website-scraper pool breakdown (from /jobs response). As of v1.8.6 these
+  // count UNIQUE websites (Website-Analysis), the queue the scraper works
+  // through. `sourceRows` is the raw pre-dedup G-Map row count for context.
   scrapedWebsites: number;
   unscrapedWebsites: number;
   totalWebsites: number;
+  sourceRows: number;
 
   // Browse the deduped archive
   records: WebsiteAnalysisRecord[];
@@ -83,6 +85,7 @@ export const useWebsiteAnalysisStore = create<WebsiteAnalysisStore>((set, get) =
   scrapedWebsites: 0,
   unscrapedWebsites: 0,
   totalWebsites: 0,
+  sourceRows: 0,
 
   records: [],
   recordsTotal: 0,
@@ -109,6 +112,7 @@ export const useWebsiteAnalysisStore = create<WebsiteAnalysisStore>((set, get) =
         scrapedWebsites: res.data.scrapedWebsites || 0,
         unscrapedWebsites: res.data.unscrapedWebsites || 0,
         totalWebsites: res.data.totalWebsites || 0,
+        sourceRows: res.data.sourceRows || 0,
         jobsPage: page,
         jobsLoading: false,
       });

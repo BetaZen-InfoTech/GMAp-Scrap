@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ScrapedData = require('../models/ScrapedData');
+const WebsiteAnalysis = require('../models/WebsiteAnalysis');
 const SessionStats = require('../models/SessionStats');
 const Device = require('../models/Device');
 const { fixPhoneNumber } = require('../utils/phoneFixer');
@@ -310,9 +311,16 @@ router.get('/session-stats/:jobId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/scraped-data/website-pool?from=X&to=Y
-// Returns the slice [from..to) of the unscraped-website pool (G-Map records
-// with a website that haven't been processed yet). All N CLI workers running
-// the same task hit this with the same from/to and slice their chunk locally.
+// Returns the slice [from..to) of the unscraped-website pool.
+//
+// v1.8.6: the queue is now the deduped Website-Analysis collection (one row
+// per UNIQUE website) instead of raw Scraped-Data. Raw Scraped-Data had ~14×
+// duplicate URLs (5.9M rows → 423K unique), so the old queue made the scraper
+// visit the same site over and over. The operator must run the Website
+// Analysis (dedup) job first to populate this queue.
+//
+// All N CLI workers running the same task hit this with the same from/to and
+// slice their own chunk locally.
 router.get('/website-pool', async (req, res) => {
   try {
     const from = Math.max(0, parseInt(req.query.from, 10) || 0);
@@ -321,16 +329,11 @@ router.get('/website-pool', async (req, res) => {
       return res.status(400).json({ error: 'to must be an integer > from' });
     }
     // Cap the per-request size so a typo (from=0 to=10000000) doesn't pull
-    // millions of rows through the API server. 25k is comfortably above the
-    // 100/500 typical operator pick but small enough to stream over HTTP.
+    // millions of rows through the API server.
     const limit = Math.min(25000, to - from);
 
-    const sites = await ScrapedData.find(
-      {
-        scrapFrom: 'G-Map',
-        website: { $nin: [null, ''] },
-        scrapWebsite: { $ne: true },
-      },
+    const sites = await WebsiteAnalysis.find(
+      { scrapWebsite: { $ne: true } },
       {
         _id: 1, name: 1, address: 1, pincode: 1, plusCode: 1, latitude: 1, longitude: 1,
         category: 1, website: 1, scrapKeyword: 1, scrapCategory: 1, scrapSubCategory: 1,
@@ -434,19 +437,43 @@ router.post('/from-website', async (req, res) => {
       }
     }
 
-    // Mark every record carrying this URL as scraped so the queue stops
-    // surfacing them. Fire-and-forget shape: a bad sourceId shouldn't fail
-    // the write that already succeeded.
+    // Mark the source website scraped so the queue stops surfacing it.
+    // The queue is now Website-Analysis (unique websites), so sourceId is a
+    // WebsiteAnalysis _id — but we resolve the website URL and mark BOTH
+    // collections by URL: Website-Analysis (the scrape queue) AND Scraped-Data
+    // (so the legacy admin browser-flow queue stays consistent too).
+    // Fire-and-forget: a bad sourceId shouldn't fail the write that succeeded.
     if (sourceId) {
       try {
-        const source = await ScrapedData.findById(sourceId, { website: 1 }).lean();
-        if (source?.website) {
-          await ScrapedData.updateMany(
-            { website: source.website },
-            { $set: { scrapWebsite: true } }
-          );
+        // sourceId is a WebsiteAnalysis _id in the v1.8.6 flow; fall back to a
+        // Scraped-Data lookup for any legacy caller still passing those ids.
+        let website = null;
+        const waSrc = await WebsiteAnalysis.findById(sourceId, { website: 1 }).lean();
+        if (waSrc?.website) {
+          website = waSrc.website;
         } else {
-          await ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } });
+          const sdSrc = await ScrapedData.findById(sourceId, { website: 1 }).lean();
+          website = sdSrc?.website || null;
+        }
+
+        if (website) {
+          const now = new Date();
+          await Promise.all([
+            WebsiteAnalysis.updateMany(
+              { website },
+              { $set: { scrapWebsite: true, contactScrapedAt: now } }
+            ),
+            ScrapedData.updateMany(
+              { website },
+              { $set: { scrapWebsite: true } }
+            ),
+          ]);
+        } else {
+          // No URL resolved — at least flip the source row by id in both.
+          await Promise.all([
+            WebsiteAnalysis.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true, contactScrapedAt: new Date() } }),
+            ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } }),
+          ]);
         }
       } catch (_) { /* non-fatal */ }
     }
@@ -469,31 +496,36 @@ router.post('/from-website', async (req, res) => {
 // CLI calls this when a site yields no contacts — so the next worker pass
 // doesn't keep revisiting dead URLs.
 //
-// Body: { ids: [...] }  (Scraped-Data _ids, NOT websites)
+// Body: { ids: [...] }  (Website-Analysis _ids in the v1.8.6 flow)
+// Resolves each id's website URL and marks BOTH Website-Analysis (the scrape
+// queue) and Scraped-Data (legacy admin queue) by URL.
 router.patch('/mark-website-scraped', async (req, res) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids array required' });
     }
-    // Mark every record sharing a URL with any of the ids — same semantics as
-    // /from-website above so the queue stays consistent.
-    const docs = await ScrapedData.find({ _id: { $in: ids } }, { website: 1 }).lean();
-    const urls = [...new Set(docs.map((d) => d.website).filter(Boolean))];
+    // Resolve URLs from the Website-Analysis queue first, fall back to
+    // Scraped-Data for any legacy id.
+    const waDocs = await WebsiteAnalysis.find({ _id: { $in: ids } }, { website: 1 }).lean();
+    let urls = waDocs.map((d) => d.website).filter(Boolean);
+    if (urls.length === 0) {
+      const sdDocs = await ScrapedData.find({ _id: { $in: ids } }, { website: 1 }).lean();
+      urls = sdDocs.map((d) => d.website).filter(Boolean);
+    }
+    urls = [...new Set(urls)];
 
+    const now = new Date();
     let modified = 0;
     if (urls.length > 0) {
-      const r = await ScrapedData.updateMany(
-        { website: { $in: urls } },
-        { $set: { scrapWebsite: true } }
-      );
-      modified = r.modifiedCount;
+      const [waR] = await Promise.all([
+        WebsiteAnalysis.updateMany({ website: { $in: urls } }, { $set: { scrapWebsite: true, contactScrapedAt: now } }),
+        ScrapedData.updateMany({ website: { $in: urls } }, { $set: { scrapWebsite: true } }),
+      ]);
+      modified = waR.modifiedCount;
     } else {
-      const r = await ScrapedData.updateMany(
-        { _id: { $in: ids } },
-        { $set: { scrapWebsite: true } }
-      );
-      modified = r.modifiedCount;
+      const waR = await WebsiteAnalysis.updateMany({ _id: { $in: ids } }, { $set: { scrapWebsite: true, contactScrapedAt: now } });
+      modified = waR.modifiedCount;
     }
     res.json({ success: true, modified });
   } catch (err) {

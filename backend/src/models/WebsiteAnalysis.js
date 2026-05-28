@@ -32,6 +32,14 @@ const websiteAnalysisSchema = new mongoose.Schema(
     scrapFrom: { type: String, default: 'G-Map' },
     // Origin pointer: the _id of the source Scraped-Data doc this entry came from.
     sourceId: { type: String },
+
+    // ── Website-scraper progress (v1.8.6) ──
+    // This collection is now the SCRAPE QUEUE for the website scraper: it holds
+    // one row per unique website, so the scraper visits each site exactly once
+    // (the raw Scraped-Data had ~14× duplicate URLs). scrapWebsite flips true
+    // when contacts have been harvested (or the site yielded nothing).
+    scrapWebsite: { type: Boolean, default: false, index: true },
+    contactScrapedAt: { type: Date },
   },
   {
     collection: 'Website-Analysis',
@@ -40,5 +48,10 @@ const websiteAnalysisSchema = new mongoose.Schema(
 );
 
 websiteAnalysisSchema.index({ website: 1 }, { unique: true });
+
+// Pool query index: the website scraper pulls `scrapWebsite: {$ne:true}` sorted
+// by _id. This compound index covers the filter + sort so the queue fetch
+// stays an index scan even as the collection grows.
+websiteAnalysisSchema.index({ scrapWebsite: 1, _id: 1 });
 
 module.exports = mongoose.model('WebsiteAnalysis', websiteAnalysisSchema);
