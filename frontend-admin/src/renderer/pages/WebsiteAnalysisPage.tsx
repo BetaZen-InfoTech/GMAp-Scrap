@@ -37,13 +37,24 @@ const WebsiteAnalysisPage: React.FC = () => {
     jobs, jobsTotal, jobsPage, jobsLimit, jobsLoading, archiveTotal,
     records, recordsTotal, recordsPage, recordsLimit, recordsLoading, recordsSearch,
     starting, startResult, startError,
-    fetchJobs, pollActiveJob, start, fetchRecords,
+    scrapedWebsites, unscrapedWebsites, totalWebsites,
+    fetchJobs, pollActiveJob, start, stopJob, fetchRecords,
     setRecordsSearch, setRecordsLimit, clearStartResult,
   } = useWebsiteAnalysisStore();
 
   const [tab, setTab] = useState<Tab>('jobs');
   const [searchInput, setSearchInput] = useState('');
   const [confirmStart, setConfirmStart] = useState(false);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
+
+  const handleStopJob = async (jobId: string) => {
+    setStoppingId(jobId);
+    try {
+      await stopJob(jobId);
+    } finally {
+      setStoppingId(null);
+    }
+  };
 
   useEffect(() => {
     fetchJobs(1);
@@ -156,9 +167,26 @@ const WebsiteAnalysisPage: React.FC = () => {
                 started {fmt(headerJob.startedAt)} · duration {durationLabel(headerJob)}
               </span>
             </div>
-            <span className="text-xs text-slate-500 font-mono">
-              {headerJob._id.slice(-8)}
-            </span>
+            <div className="flex items-center gap-3">
+              {/* Dismiss — only while the job is live. Flips status to stopped;
+                  the worker bails within ~1 batch. */}
+              {(headerJob.status === 'running' || headerJob.status === 'queued') && (
+                <button
+                  onClick={() => handleStopJob(headerJob._id)}
+                  disabled={stoppingId === headerJob._id}
+                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded bg-red-600/90 hover:bg-red-600 disabled:opacity-50 text-white transition-colors"
+                  title="Cancel this job — the worker stops on its next batch checkpoint"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  {stoppingId === headerJob._id ? 'Dismissing…' : 'Dismiss'}
+                </button>
+              )}
+              <span className="text-xs text-slate-500 font-mono">
+                {headerJob._id.slice(-8)}
+              </span>
+            </div>
           </div>
 
           {/* Progress bar */}
@@ -213,16 +241,52 @@ const WebsiteAnalysisPage: React.FC = () => {
         </div>
       )}
 
-      {/* Archive stat card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-4">
-        <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
-          <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
-          </svg>
-        </div>
-        <div>
+      {/* Stat cards — archive size + website-scraper pool breakdown */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
+            </svg>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Archive</p>
+          </div>
           <p className="text-2xl font-bold text-white">{archiveTotal.toLocaleString()}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Records in Website-Analysis (unique websites)</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">Unique websites</p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Total websites</p>
+          </div>
+          <p className="text-2xl font-bold text-white">{totalWebsites.toLocaleString()}</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">G-Map rows with a site</p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Scraped</p>
+          </div>
+          <p className="text-2xl font-bold text-emerald-400">{scrapedWebsites.toLocaleString()}</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {totalWebsites > 0 ? `${Math.round((scrapedWebsites / totalWebsites) * 100)}% of total` : 'Contact info pulled'}
+          </p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Not scraped</p>
+          </div>
+          <p className="text-2xl font-bold text-amber-400">{unscrapedWebsites.toLocaleString()}</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">Pending the Website Scraper</p>
         </div>
       </div>
 
@@ -275,10 +339,13 @@ const WebsiteAnalysisPage: React.FC = () => {
                       <th className="px-4 py-3 font-medium text-right">Skipped</th>
                       <th className="px-4 py-3 font-medium text-right">Errored</th>
                       <th className="px-4 py-3 font-medium">Job ID</th>
+                      <th className="px-4 py-3 font-medium text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {jobs.map((j) => (
+                    {jobs.map((j) => {
+                      const cancellable = j.status === 'running' || j.status === 'queued';
+                      return (
                       <tr key={j._id} className="hover:bg-slate-800/40 transition-colors">
                         <td className="px-4 py-3">
                           <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[j.status]}`}>
@@ -296,8 +363,22 @@ const WebsiteAnalysisPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-600 text-xs font-mono">{j._id.slice(-8)}</td>
+                        <td className="px-4 py-3 text-right">
+                          {cancellable ? (
+                            <button
+                              onClick={() => handleStopJob(j._id)}
+                              disabled={stoppingId === j._id}
+                              className="text-[11px] font-medium px-2 py-0.5 rounded bg-red-600/90 hover:bg-red-600 disabled:opacity-50 text-white transition-colors"
+                            >
+                              {stoppingId === j._id ? '…' : 'Dismiss'}
+                            </button>
+                          ) : (
+                            <span className="text-slate-700 text-xs">—</span>
+                          )}
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

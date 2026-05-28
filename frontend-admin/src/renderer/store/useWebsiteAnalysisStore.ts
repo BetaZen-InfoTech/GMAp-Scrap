@@ -43,6 +43,12 @@ interface WebsiteAnalysisStore {
   jobsLoading: boolean;
   archiveTotal: number;
 
+  // Website-scraper pool breakdown (from /jobs response) — how many G-Map
+  // websites have been contact-scraped vs still pending.
+  scrapedWebsites: number;
+  unscrapedWebsites: number;
+  totalWebsites: number;
+
   // Browse the deduped archive
   records: WebsiteAnalysisRecord[];
   recordsTotal: number;
@@ -59,6 +65,7 @@ interface WebsiteAnalysisStore {
   fetchJobs: (page?: number) => Promise<void>;
   pollActiveJob: () => Promise<WebsiteAnalysisJob | null>;
   start: () => Promise<{ success: boolean; alreadyRunning?: boolean; jobId?: string; error?: string }>;
+  stopJob: (jobId: string) => Promise<{ success: boolean; error?: string }>;
   fetchRecords: (page?: number) => Promise<void>;
   setRecordsSearch: (search: string) => void;
   setRecordsLimit: (limit: number) => void;
@@ -72,6 +79,10 @@ export const useWebsiteAnalysisStore = create<WebsiteAnalysisStore>((set, get) =
   jobsLimit: 10,
   jobsLoading: false,
   archiveTotal: 0,
+
+  scrapedWebsites: 0,
+  unscrapedWebsites: 0,
+  totalWebsites: 0,
 
   records: [],
   recordsTotal: 0,
@@ -95,6 +106,9 @@ export const useWebsiteAnalysisStore = create<WebsiteAnalysisStore>((set, get) =
         jobs: res.data.data,
         jobsTotal: res.data.total,
         archiveTotal: res.data.archiveTotal || 0,
+        scrapedWebsites: res.data.scrapedWebsites || 0,
+        unscrapedWebsites: res.data.unscrapedWebsites || 0,
+        totalWebsites: res.data.totalWebsites || 0,
         jobsPage: page,
         jobsLoading: false,
       });
@@ -141,6 +155,27 @@ export const useWebsiteAnalysisStore = create<WebsiteAnalysisStore>((set, get) =
       const msg = e.response?.data?.error || e.message || 'Failed to start';
       set({ starting: false, startError: msg });
       return { success: false, error: msg };
+    }
+  },
+
+  // Cancel a running/queued job. Optimistically flip the local copy to
+  // 'stopped' so the UI reacts instantly, then refresh from the server. The
+  // worker honours the stop within ~1 batch (see the backend status check).
+  stopJob: async (jobId) => {
+    try {
+      await api.post(`/api/admin/website-analysis/jobs/${jobId}/stop`);
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j._id === jobId && (j.status === 'running' || j.status === 'queued')
+            ? { ...j, status: 'stopped' }
+            : j
+        ),
+      }));
+      await get().fetchJobs(get().jobsPage);
+      return { success: true };
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string };
+      return { success: false, error: e.response?.data?.error || e.message || 'Failed to stop job' };
     }
   },
 

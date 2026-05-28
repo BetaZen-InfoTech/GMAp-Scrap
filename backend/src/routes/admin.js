@@ -2992,14 +2992,12 @@ const WA_HEARTBEAT_STALE_MS = 10 * 60 * 1000; // 10 min
  * source collection. Fire-and-forget from the start endpoint.
  */
 async function runWebsiteAnalysisJob(jobId) {
-  const job = await WebsiteAnalysisJob.findById(jobId);
-  if (!job) return;
   try {
     const total = await ScrapedData.countDocuments(WA_FILTER);
-    job.totalToProcess = total;
-    job.status = 'running';
-    job.lastProgressAt = new Date();
-    await job.save();
+    await WebsiteAnalysisJob.updateOne(
+      { _id: jobId },
+      { $set: { totalToProcess: total, status: 'running', lastProgressAt: new Date() } }
+    );
 
     const cursor = ScrapedData.find(WA_FILTER, {
       sessionId: 1, deviceId: 1, name: 1, nameEnglish: 1, nameLocal: 1,
@@ -3011,6 +3009,9 @@ async function runWebsiteAnalysisJob(jobId) {
 
     let buffer = [];
 
+    // Counters are written via atomic $inc (NOT a full job.save) so an
+    // operator's external "stop" write to the status field is never clobbered
+    // back to "running" by the worker. Status is read separately below.
     const flush = async () => {
       if (buffer.length === 0) return;
       const docs = buffer.map((r) => {
@@ -3019,46 +3020,70 @@ async function runWebsiteAnalysisJob(jobId) {
       });
       buffer = [];
 
+      let insDelta = 0, skipDelta = 0, errDelta = 0;
       try {
         await WebsiteAnalysis.insertMany(docs, { ordered: false });
-        job.inserted += docs.length;
+        insDelta = docs.length;
       } catch (err) {
         // Per-doc partial success: BulkWriteError carries .insertedCount and
         // an array of writeErrors. E11000 = duplicate website (expected).
-        const insertedCount = err.result?.insertedCount ?? err.insertedDocs?.length ?? 0;
+        insDelta = err.result?.insertedCount ?? err.insertedDocs?.length ?? 0;
         const writeErrors = err.writeErrors || [];
-        let dupCount = 0;
-        let otherErrors = 0;
         for (const we of writeErrors) {
-          if (we.err?.code === 11000 || we.code === 11000) dupCount++;
-          else otherErrors++;
+          if (we.err?.code === 11000 || we.code === 11000) skipDelta++;
+          else errDelta++;
         }
-        job.inserted += insertedCount;
-        job.skipped += dupCount;
-        job.errored += otherErrors;
       }
-      job.processed += docs.length;
-      job.lastProgressAt = new Date();
-      await job.save();
+      await WebsiteAnalysisJob.updateOne(
+        { _id: jobId },
+        {
+          $inc: { inserted: insDelta, skipped: skipDelta, errored: errDelta, processed: docs.length },
+          $set: { lastProgressAt: new Date() },
+        }
+      );
     };
 
+    // Returns true if the operator (or stale-reaper) flipped the job to a
+    // terminal state while we were running — caller breaks out cleanly.
+    const isCancelled = async () => {
+      const fresh = await WebsiteAnalysisJob.findById(jobId, { status: 1 }).lean();
+      return !fresh || fresh.status === 'stopped' || fresh.status === 'error';
+    };
+
+    let cancelled = false;
     for await (const doc of cursor) {
       buffer.push(doc);
-      if (buffer.length >= WA_BATCH) await flush();
+      if (buffer.length >= WA_BATCH) {
+        await flush();
+        if (await isCancelled()) { cancelled = true; break; }
+      }
     }
-    await flush();
+    if (!cancelled) {
+      await flush();
+      cancelled = await isCancelled();
+    }
 
-    job.status = 'completed';
-    job.completedAt = new Date();
-    job.lastProgressAt = new Date();
-    await job.save();
+    if (cancelled) {
+      try { await cursor.close(); } catch (_) { /* ignore */ }
+      // Don't touch status — it's already 'stopped'/'error' from the external
+      // write. Just stamp the heartbeat so the UI shows the final counts.
+      await WebsiteAnalysisJob.updateOne({ _id: jobId }, { $set: { lastProgressAt: new Date() } });
+      return;
+    }
+
+    // Normal completion — guard on status so we never resurrect a job that was
+    // stopped between the last batch and now.
+    await WebsiteAnalysisJob.updateOne(
+      { _id: jobId, status: { $ne: 'stopped' } },
+      { $set: { status: 'completed', completedAt: new Date(), lastProgressAt: new Date() } }
+    );
   } catch (err) {
     console.error('[website-analysis worker] Fatal:', err.message);
     try {
-      job.status = 'error';
-      job.errorMessage = err.message;
-      job.lastProgressAt = new Date();
-      await job.save();
+      await WebsiteAnalysisJob.updateOne(
+        { _id: jobId, status: { $ne: 'stopped' } },
+        { $set: { status: 'error', errorMessage: err.message, lastProgressAt: new Date() } }
+      );
     } catch (_) { /* ignore */ }
   }
 }
@@ -3106,21 +3131,57 @@ router.post('/website-analysis/start', async (_req, res) => {
 });
 
 // GET /api/admin/website-analysis/jobs — paginated history
+// Also returns archive total + how many G-Map websites have / haven't been
+// website-scraped yet (scrapWebsite flag), so the page can show a
+// scraped-vs-pending breakdown without a second round-trip. These counts use
+// the website_pool_idx (scrapFrom+scrapWebsite, partial on G-Map) so they're
+// index-only counts, cheap enough to compute on each list fetch (NOT on the
+// 3s single-job poll).
 router.get('/website-analysis/jobs', async (req, res) => {
   try {
     const page  = Math.max(1, Number(req.query.page)  || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     const skip  = (page - 1) * limit;
 
-    const [data, total, archiveTotal] = await Promise.all([
+    const [data, total, archiveTotal, scrapedWebsites, unscrapedWebsites] = await Promise.all([
       WebsiteAnalysisJob.find({}).sort({ startedAt: -1 }).skip(skip).limit(limit).lean(),
       WebsiteAnalysisJob.countDocuments({}),
       WebsiteAnalysis.estimatedDocumentCount(),
+      ScrapedData.countDocuments({ ...WA_FILTER, scrapWebsite: true }),
+      ScrapedData.countDocuments({ ...WA_FILTER, scrapWebsite: { $ne: true } }),
     ]);
-    res.json({ data, total, page, limit, archiveTotal });
+    res.json({
+      data, total, page, limit, archiveTotal,
+      scrapedWebsites,
+      unscrapedWebsites,
+      totalWebsites: scrapedWebsites + unscrapedWebsites,
+    });
   } catch (err) {
     console.error('[website-analysis/jobs] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/admin/website-analysis/jobs/:id/stop — cancel a running/queued job
+// Flips the doc to status='stopped'. The worker checks the status between
+// batches (see runWebsiteAnalysisJob) and exits cleanly on the next check —
+// usually within one batch (~500 rows). Already-terminal jobs are returned
+// as-is so a double-click is harmless.
+router.post('/website-analysis/jobs/:id/stop', async (req, res) => {
+  try {
+    const job = await WebsiteAnalysisJob.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    if (job.status === 'running' || job.status === 'queued') {
+      job.status = 'stopped';
+      job.errorMessage = 'Cancelled by operator';
+      job.lastProgressAt = new Date();
+      await job.save();
+    }
+    res.json({ success: true, job });
+  } catch (err) {
+    console.error('[website-analysis/jobs/:id/stop] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
   }
 });
 
