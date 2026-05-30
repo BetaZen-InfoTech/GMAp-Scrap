@@ -2526,8 +2526,9 @@ router.get('/duplicates', async (req, res) => {
     const filter = { isDuplicate: true };
     if (search) {
       filter.$or = [
-        { name: { $regex: escapeRegex(search), $options: 'i' } },
-        { phone: { $regex: escapeRegex(search), $options: 'i' } },
+        { name:    { $regex: escapeRegex(search), $options: 'i' } },
+        { phone:   { $regex: escapeRegex(search), $options: 'i' } },
+        { email:   { $regex: escapeRegex(search), $options: 'i' } },
         { address: { $regex: escapeRegex(search), $options: 'i' } },
         { website: { $regex: escapeRegex(search), $options: 'i' } },
       ];
@@ -2770,8 +2771,9 @@ router.get('/duplicates/archive', async (req, res) => {
     const filter = {};
     if (search) {
       filter.$or = [
-        { name: { $regex: escapeRegex(search), $options: 'i' } },
-        { phone: { $regex: escapeRegex(search), $options: 'i' } },
+        { name:    { $regex: escapeRegex(search), $options: 'i' } },
+        { phone:   { $regex: escapeRegex(search), $options: 'i' } },
+        { email:   { $regex: escapeRegex(search), $options: 'i' } },
         { address: { $regex: escapeRegex(search), $options: 'i' } },
         { website: { $regex: escapeRegex(search), $options: 'i' } },
       ];

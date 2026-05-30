@@ -31,6 +31,7 @@ const DupTable: React.FC<DupTableProps> = ({ records, showMovedAt }) => {
             <th className="px-4 py-3 font-medium">#</th>
             <th className="px-4 py-3 font-medium">Name</th>
             <th className="px-4 py-3 font-medium">Phone</th>
+            <th className="px-4 py-3 font-medium">Email</th>
             <th className="px-4 py-3 font-medium">Website</th>
             <th className="px-4 py-3 font-medium">Address</th>
             <th className="px-4 py-3 font-medium">Category</th>
@@ -65,6 +66,11 @@ const DupTable: React.FC<DupTableProps> = ({ records, showMovedAt }) => {
                 ) : (
                   <span className="text-slate-600 italic text-xs">—</span>
                 )}
+              </td>
+              <td className="px-4 py-3 max-w-[160px]">
+                {r.email
+                  ? <span className="text-amber-300 text-xs truncate block" title={r.email}>{r.email}</span>
+                  : <span className="text-slate-600 italic text-xs">—</span>}
               </td>
               <td className="px-4 py-3 max-w-[140px]">
                 {r.website
@@ -397,7 +403,7 @@ const DuplicatesPage: React.FC = () => {
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Search name, phone, address..."
+                placeholder="Search name, phone, email, website, address..."
                 className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
@@ -465,7 +471,7 @@ const DuplicatesPage: React.FC = () => {
                 value={archiveSearchInput}
                 onChange={(e) => setArchiveSearchInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleArchiveSearch()}
-                placeholder="Search name, phone, address..."
+                placeholder="Search name, phone, email, website, address..."
                 className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
               />
             </div>
