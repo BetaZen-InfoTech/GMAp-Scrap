@@ -2645,72 +2645,59 @@ router.post('/duplicates/analyze', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/delete-phone-name-address ──
-// Step 1: Unset isDuplicate field from ALL records in Scraped-Data (permanently removed).
-// Step 2: Finds records where phone + name + address all match (case-insensitive, trimmed).
-//         Keeps the OLDEST record in Scraped-Data, moves 2nd+ duplicates to Scraped-Data-Duplicate.
-// isDuplicate is NOT re-added after this operation.
+// v1.8.15 — Now archives every row where isDuplicate=true (i.e. the rows
+// that the latest "Analyze Duplicates" run flagged). It does NOT run its
+// own dedup pass — Analyze is the source of truth for what's a duplicate.
+//
+// Why the URL still says "phone-name-address": kept for back-compat with
+// the existing frontend store action. The legacy behaviour (run a
+// separate phone+name+address scan, then unset every flag) was the bug —
+// it ignored what Analyze had flagged and clobbered the user's intent.
+// Now the contract is simple:
+//
+//   Analyze (sets isDuplicate=true on dups based on phone+email+website)
+//   → Delete (moves every isDuplicate=true row to Scraped-Data-Duplicate)
+//
+// Idempotent: if nothing is flagged, no rows move.
 router.post('/duplicates/delete-phone-name-address', async (req, res) => {
   try {
-    // Step 1: Permanently remove isDuplicate field from all records
-    await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
+    // Pull only ids to keep memory bounded on a 100k-flag run.
+    const flaggedRows = await ScrapedData.find(
+      { isDuplicate: true },
+      { _id: 1 }
+    ).lean();
+    const flaggedIds = flaggedRows.map((r) => r._id);
 
-    const groups = await ScrapedData.aggregate([
-      {
-        $match: {
-          phone:   { $nin: [null, ''] },
-          name:    { $nin: [null, ''] },
-          address: { $nin: [null, ''] },
-        },
-      },
-      { $sort: { _id: 1 } }, // oldest first
-      {
-        $group: {
-          _id: {
-            phone:   { $toLower: { $trim: { input: '$phone' } } },
-            name:    { $toLower: { $trim: { input: '$name' } } },
-            address: { $toLower: { $trim: { input: '$address' } } },
-          },
-          docs: { $push: { id: '$_id', createdAt: '$createdAt' } },
-          count: { $sum: 1 },
-        },
-      },
-      { $match: { count: { $gte: 2 } } },
-    ], { allowDiskUse: true });
-
-    if (groups.length === 0) {
-      return res.json({ success: true, movedCount: 0, groupCount: 0 });
+    if (flaggedIds.length === 0) {
+      return res.json({ success: true, movedCount: 0, flaggedCount: 0 });
     }
 
-    const moveIds = [];
-
-    for (const group of groups) {
-      const sorted = group.docs.slice().sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-      for (let i = 1; i < sorted.length; i++) moveIds.push(sorted[i].id);
-    }
-
-    // Fetch full records in batches and archive to Scraped-Data-Duplicate
+    // Move in 500-row chunks so neither side materializes a giant payload.
     const BATCH = 500;
     const now = new Date();
     let movedCount = 0;
 
-    for (let i = 0; i < moveIds.length; i += BATCH) {
-      const batchIds = moveIds.slice(i, i + BATCH);
+    for (let i = 0; i < flaggedIds.length; i += BATCH) {
+      const batchIds = flaggedIds.slice(i, i + BATCH);
       const recordsToMove = await ScrapedData.find({ _id: { $in: batchIds } }).lean();
-      if (recordsToMove.length > 0) {
-        const dupDocs = recordsToMove.map((r) => {
-          const { _id, __v, ...rest } = r;
-          return { ...rest, originalId: String(_id), movedAt: now };
-        });
-        await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
-        const del = await ScrapedData.deleteMany({ _id: { $in: batchIds } });
-        movedCount += del.deletedCount;
-      }
+      if (recordsToMove.length === 0) continue;
+
+      const dupDocs = recordsToMove.map((r) => {
+        const { _id, __v, isDuplicate, ...rest } = r;
+        return { ...rest, originalId: String(_id), movedAt: now };
+      });
+      await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
+      const del = await ScrapedData.deleteMany({ _id: { $in: batchIds } });
+      movedCount += del.deletedCount;
     }
 
-    res.json({ success: true, movedCount, groupCount: groups.length });
+    // movedCount and flaggedCount are the same number — kept both for the
+    // frontend banner. groupCount is retained as an alias for back-compat
+    // with the existing DeleteResult interface.
+    res.json({ success: true, movedCount, flaggedCount: movedCount, groupCount: movedCount });
   } catch (err) {
-    console.error('[admin/duplicates/delete-phone-name-address] Error:', err.message);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[admin/duplicates/delete-flagged] Error:', err.message);
+    res.status(500).json({ error: 'Server error', message: err.message });
   }
 });
 

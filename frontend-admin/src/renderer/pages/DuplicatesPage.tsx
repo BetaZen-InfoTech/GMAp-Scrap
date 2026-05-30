@@ -307,9 +307,11 @@ const DuplicatesPage: React.FC = () => {
             <div>
               <p className="text-sm text-red-300 font-semibold">Delete complete</p>
               <p className="text-xs text-red-400/70 mt-0.5">
-                Found <strong>{deleteResult.groupCount}</strong> duplicate groups (Phone + Name + Address) &mdash; moved{' '}
-                <strong>{deleteResult.movedCount}</strong> records to <span className="font-mono">Scraped-Data-Duplicate</span>.
-                All <span className="font-mono">isDuplicate</span> fields removed.
+                Moved <strong>{deleteResult.movedCount.toLocaleString()}</strong> flagged duplicates to{' '}
+                <span className="font-mono">Scraped-Data-Duplicate</span>.
+                {deleteResult.movedCount === 0 && (
+                  <> Nothing was flagged — run <strong className="text-slate-200">Analyze Duplicates</strong> first.</>
+                )}
               </p>
             </div>
           </div>
@@ -505,7 +507,7 @@ const DuplicatesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Delete by Phone+Name+Address confirm modal */}
+      {/* Delete confirm modal — archives every isDuplicate=true row */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
@@ -516,19 +518,21 @@ const DuplicatesPage: React.FC = () => {
                 </svg>
               </div>
               <div>
-                <h2 className="text-base font-bold text-white">Delete Duplicates by Phone + Name + Address?</h2>
+                <h2 className="text-base font-bold text-white">Archive flagged duplicates?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  <strong className="text-slate-200">Step 1:</strong> Clears the{' '}
-                  <span className="font-mono text-slate-300">isDuplicate</span> field from all records.
-                  <br />
-                  <strong className="text-slate-200">Step 2:</strong> Finds records where{' '}
-                  <strong className="text-slate-200">phone + name + address</strong> all match (case-insensitive).
-                  The <strong className="text-slate-200">oldest record</strong> stays in{' '}
-                  <span className="font-mono text-slate-300">Scraped-Data</span>; all others are{' '}
-                  <strong className="text-red-300">moved</strong> to{' '}
+                  Moves every row currently flagged{' '}
+                  <span className="font-mono text-slate-300">isDuplicate: true</span> out of{' '}
+                  <span className="font-mono text-slate-300">Scraped-Data</span> and into{' '}
                   <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span>.
                 </p>
-                <p className="text-xs text-slate-500 mt-2">This action cannot be undone.</p>
+                <p className="text-sm text-slate-400 mt-2 leading-relaxed">
+                  <strong className="text-slate-200">Analyze Duplicates</strong> is what flags the rows;
+                  this action just archives what Analyze produced. If you haven&apos;t run Analyze yet, run it first —
+                  otherwise nothing will move.
+                </p>
+                <p className="text-xs text-slate-500 mt-2">
+                  Reversible: <strong className="text-emerald-300">Restore All</strong> pulls everything back.
+                </p>
               </div>
             </div>
             <div className="flex gap-3 justify-end">
