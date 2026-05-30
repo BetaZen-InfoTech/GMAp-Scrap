@@ -1,6 +1,6 @@
 {
   "name": "betazen-gmap-scrap-backend",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "description": "BetaZen G-Map Scraper Backend API",
   "main": "src/index.js",
   "scripts": {
@@ -8,7 +8,9 @@
     "dev": "nodemon src/index.js",
     "seed": "node src/scripts/seed.js",
     "remove-duplicate-flag": "node src/scripts/removeDuplicateFlag.js",
-    "migrate:normalize-scrapfrom-website": "node src/migrations/normalizeScrapFromWebsite.js"
+    "migrate:normalize-scrapfrom-website": "node src/migrations/normalizeScrapFromWebsite.js",
+    "diagnose:website-analysis": "node src/scripts/diagnose-website-analysis.js",
+    "dedup:website-analysis": "node src/scripts/dedupWebsiteAnalysis.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

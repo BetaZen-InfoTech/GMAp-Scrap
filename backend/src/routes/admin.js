@@ -2928,38 +2928,112 @@ async function runWebsiteAnalysisJob(jobId) {
 
     let buffer = [];
 
-    // v1.8.7 — flush() now returns the post-update job status (via
-    // findOneAndUpdate) so the worker can do the counter $inc + heartbeat
-    // + cancellation check in ONE round trip instead of two. The atomic
-    // $inc keeps an operator's external "stop" write from being clobbered
-    // back to "running" — findOneAndUpdate with $inc/$set only touches
-    // those operators' fields, never `status`.
+    // v1.8.9 — Dedup is now done at the application layer, not just by the
+    // unique index. Three-step pipeline per flush:
+    //
+    //   1. Within-batch dedup — the same website URL can appear many times
+    //      across G-Map rows in a single 500-row buffer. Keep only the first.
+    //   2. Pre-check existing — query Website-Analysis once for any of the
+    //      candidate URLs that are already in the collection, skip those.
+    //   3. insertMany the survivors with rawResult:true so we get an
+    //      authoritative insertedCount + writeErrors back. The unique index
+    //      remains the ultimate guarantor against races between workers, but
+    //      we no longer DEPEND on it for correctness — if it's missing in
+    //      prod for any reason (autoIndex was failing silently before this
+    //      version), the pre-check still produces correct dedup behavior.
+    //
+    // Counters: every source row processed by the flush is accounted for as
+    // exactly one of inserted / skipped / errored. processed increments by
+    // the full pre-dedup row count so the progress bar tracks source scan,
+    // not insert count.
     const flush = async () => {
       if (buffer.length === 0) return null;
-      const docs = buffer.map((r) => {
+      const sourceRows = buffer.map((r) => {
         const { _id, ...rest } = r;
         return { ...rest, sourceId: String(_id) };
       });
       buffer = [];
 
-      let insDelta = 0, skipDelta = 0, errDelta = 0;
-      try {
-        await WebsiteAnalysis.insertMany(docs, { ordered: false });
-        insDelta = docs.length;
-      } catch (err) {
-        // Per-doc partial success: BulkWriteError carries .insertedCount and
-        // an array of writeErrors. E11000 = duplicate website (expected).
-        insDelta = err.result?.insertedCount ?? err.insertedDocs?.length ?? 0;
-        const writeErrors = err.writeErrors || [];
-        for (const we of writeErrors) {
-          if (we.err?.code === 11000 || we.code === 11000) skipDelta++;
-          else errDelta++;
+      const processedRows = sourceRows.length;
+
+      // ── 1. Within-batch dedup ──
+      const seen = new Set();
+      const uniqueInBatch = [];
+      let intraBatchSkip = 0;
+      for (const d of sourceRows) {
+        if (!d.website) { intraBatchSkip++; continue; }
+        if (seen.has(d.website)) { intraBatchSkip++; continue; }
+        seen.add(d.website);
+        uniqueInBatch.push(d);
+      }
+
+      // ── 2. Pre-check what's already in Website-Analysis ──
+      let existingSkip = 0;
+      let candidates = uniqueInBatch;
+      if (uniqueInBatch.length > 0) {
+        const urls = uniqueInBatch.map((d) => d.website);
+        const existing = await WebsiteAnalysis.find(
+          { website: { $in: urls } },
+          { website: 1, _id: 0 }
+        ).lean();
+        if (existing.length > 0) {
+          const existingSet = new Set(existing.map((e) => e.website));
+          existingSkip = existingSet.size;
+          candidates = uniqueInBatch.filter((d) => !existingSet.has(d.website));
         }
       }
+
+      // ── 3. Insert the survivors ──
+      let insDelta = 0, raceSkip = 0, errDelta = 0;
+      if (candidates.length > 0) {
+        try {
+          const result = await WebsiteAnalysis.insertMany(candidates, {
+            ordered: false,
+            rawResult: true,
+          });
+          insDelta = result?.insertedCount ?? 0;
+          // mongoose 9.x decorates rawResult.mongoose.results with per-doc
+          // outcomes when ordered:false. Anything with a writeError code
+          // 11000 means another worker inserted the same URL between our
+          // pre-check and this write — count it as a (race-induced) skip.
+          const perDoc = result?.mongoose?.results || [];
+          for (const r of perDoc) {
+            if (!r) continue;
+            const code = r.code ?? r.err?.code;
+            if (code === 11000) raceSkip++;
+            else if (code) errDelta++;
+          }
+          // Reconciliation: if the driver returned a result we couldn't fully
+          // parse (different mongoose patch), close the gap with skips. We'd
+          // rather over-report skips than have processed != ins+skip+err.
+          const accounted = insDelta + raceSkip + errDelta;
+          if (accounted < candidates.length) raceSkip += candidates.length - accounted;
+        } catch (err) {
+          // Mongoose may still throw in edge cases (e.g. all-error batches in
+          // some patch versions). Extract counts defensively.
+          insDelta = err.result?.insertedCount ?? err.insertedDocs?.length ?? 0;
+          const writeErrors = err.writeErrors || [];
+          for (const we of writeErrors) {
+            const code = we.code ?? we.err?.code;
+            if (code === 11000) raceSkip++;
+            else errDelta++;
+          }
+          const accounted = insDelta + raceSkip + errDelta;
+          if (accounted < candidates.length) errDelta += candidates.length - accounted;
+        }
+      }
+
+      const skipDelta = intraBatchSkip + existingSkip + raceSkip;
+
       const fresh = await WebsiteAnalysisJob.findOneAndUpdate(
         { _id: jobId },
         {
-          $inc: { inserted: insDelta, skipped: skipDelta, errored: errDelta, processed: docs.length },
+          $inc: {
+            inserted: insDelta,
+            skipped:  skipDelta,
+            errored:  errDelta,
+            processed: processedRows,
+          },
           $set: { lastProgressAt: new Date() },
         },
         { new: true, projection: { status: 1 }, lean: true }
