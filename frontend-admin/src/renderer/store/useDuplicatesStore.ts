@@ -6,6 +6,7 @@ export type DuplicatesTab = 'flagged' | 'archive';
 
 interface AnalyzeResult {
   flaggedCount: number;
+  groupCount?: number;
   mainTotal: number;
   archiveTotal: number;
 }

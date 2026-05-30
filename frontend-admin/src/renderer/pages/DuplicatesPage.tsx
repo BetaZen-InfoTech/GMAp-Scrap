@@ -258,6 +258,9 @@ const DuplicatesPage: React.FC = () => {
               <p className="text-xs text-blue-400/70 mt-0.5">
                 <span className="font-mono">Scraped-Data</span>: <strong>{analyzeResult.mainTotal.toLocaleString()}</strong> total &mdash;{' '}
                 <strong>{analyzeResult.flaggedCount.toLocaleString()}</strong> flagged as duplicate
+                {analyzeResult.groupCount != null && (
+                  <> ({analyzeResult.groupCount.toLocaleString()} match groups on phone + email + website)</>
+                )}
                 &emsp;|&emsp;
                 <span className="font-mono">Archive</span>: <strong>{analyzeResult.archiveTotal.toLocaleString()}</strong> records
               </p>
@@ -445,7 +448,7 @@ const DuplicatesPage: React.FC = () => {
               <span className="text-sm font-semibold text-white">Scraped-Data-Duplicate Collection</span>
             </div>
             <p className="text-xs text-slate-500">
-              Records moved here by the Analyze Duplicates action — exact matches on name + phone + website + address.
+              Records moved here by the Delete Duplicates action. Analyze Duplicates flags matches on phone + email + website (all three must match).
             </p>
           </div>
 
@@ -600,9 +603,17 @@ const DuplicatesPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-white">Run Duplicate Analysis?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  Counts records in <span className="font-mono text-slate-300">Scraped-Data</span> (total + flagged as duplicate)
-                  and in <span className="font-mono text-slate-300">Scraped-Data-Duplicate</span> (archive).
-                  <strong className="text-slate-200"> No records are moved or deleted.</strong> This is a read-only operation.
+                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records where{' '}
+                  <strong className="text-orange-300">phone + email + website</strong> all match
+                  (case-insensitive, trimmed; rows with any of the three empty are skipped).
+                  Within each match group the <strong className="text-slate-200">oldest record stays clean</strong>;
+                  every later one is flagged <span className="font-mono text-slate-300">isDuplicate: true</span>.
+                </p>
+                <p className="text-xs text-slate-500 mt-2">
+                  No records are moved or deleted by this step — only flagged. The flagged rows show up under{' '}
+                  <strong className="text-slate-200">Flagged Duplicates</strong>; the{' '}
+                  <strong className="text-slate-200">Delete Duplicates</strong> action is what archives them.
+                  Idempotent — re-running clears prior flags first.
                 </p>
               </div>
             </div>

@@ -2546,20 +2546,87 @@ router.get('/duplicates', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/analyze ──
-// Read-only: returns collection counts and flagged duplicate count.
-// Does NOT move or modify any records.
+// v1.8.10 — Now actively scans Scraped-Data for duplicates and flags them.
+//
+// Dedup key: phone + email + website (all three must be non-empty and
+// identical, case-insensitive + whitespace-trimmed). The strictest of the
+// three keys we use, intended for "definitely the same listing" matches —
+// any record where one of those fields is empty is excluded from the scan
+// entirely (so e.g. two records missing email don't collapse into each
+// other on phone+website alone).
+//
+// Idempotent — clears all existing isDuplicate flags first, then re-flags
+// based on the current data. Within each duplicate group the OLDEST row
+// (smallest _id) stays clean; every later row gets isDuplicate=true.
+// Records are NOT moved — only flagged. The "Delete Duplicates" action is
+// what archives them to Scraped-Data-Duplicate.
 router.post('/duplicates/analyze', async (req, res) => {
   try {
-    const [flaggedCount, mainTotal, archiveTotal] = await Promise.all([
-      ScrapedData.countDocuments({ isDuplicate: true }),
+    // 1. Clear stale flags from any previous run so re-analysing reflects
+    //    current data, not historical state.
+    await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
+
+    // 2. Group by (phone, email, website), case-insensitive + trimmed.
+    //    $sort: { _id: 1 } guarantees the oldest row is at position 0 of
+    //    every group's ids array.
+    const groups = await ScrapedData.aggregate([
+      {
+        $match: {
+          phone:   { $nin: [null, ''] },
+          email:   { $nin: [null, ''] },
+          website: { $nin: [null, ''] },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $group: {
+          _id: {
+            phone:   { $toLower: { $trim: { input: '$phone' } } },
+            email:   { $toLower: { $trim: { input: '$email' } } },
+            website: { $toLower: { $trim: { input: '$website' } } },
+          },
+          ids:   { $push: '$_id' },
+          count: { $sum: 1 },
+        },
+      },
+      { $match: { count: { $gte: 2 } } },
+    ], { allowDiskUse: true });
+
+    // 3. Collect the IDs to flag (everything except each group's oldest).
+    const flagIds = [];
+    for (const g of groups) {
+      for (let i = 1; i < g.ids.length; i++) flagIds.push(g.ids[i]);
+    }
+
+    // 4. Bulk-set isDuplicate=true in chunks so a 100k-flag update doesn't
+    //    build one giant $in array on the server.
+    const BATCH = 1000;
+    let flaggedCount = 0;
+    for (let i = 0; i < flagIds.length; i += BATCH) {
+      const chunk = flagIds.slice(i, i + BATCH);
+      const r = await ScrapedData.updateMany(
+        { _id: { $in: chunk } },
+        { $set: { isDuplicate: true } }
+      );
+      flaggedCount += r.modifiedCount;
+    }
+
+    // 5. Final counts for the UI banner.
+    const [mainTotal, archiveTotal] = await Promise.all([
       ScrapedData.countDocuments({}),
       ScrapedDataDuplicate.countDocuments({}),
     ]);
 
-    res.json({ success: true, flaggedCount, mainTotal, archiveTotal });
+    res.json({
+      success:    true,
+      flaggedCount,
+      groupCount: groups.length,
+      mainTotal,
+      archiveTotal,
+    });
   } catch (err) {
     console.error('[admin/duplicates/analyze] Error:', err.message);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error', message: err.message });
   }
 });
 
