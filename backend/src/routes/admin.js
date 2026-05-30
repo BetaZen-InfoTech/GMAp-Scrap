@@ -868,7 +868,7 @@ router.patch('/devices/:deviceId/scrape-tasks', adminAuth, async (req, res) => {
             rangeFrom,
             rangeTo,
             limit: rangeTo - rangeFrom,  // mirror for back-compat consumers
-            workers: Math.max(1, Math.min(16, Number(t.workers) || 4)),
+            workers: Math.max(1, Math.min(100000, Number(t.workers) || 4)),
           };
         }
         const startPin = String(t.startPin || '').trim();

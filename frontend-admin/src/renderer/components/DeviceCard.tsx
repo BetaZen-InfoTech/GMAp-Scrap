@@ -81,7 +81,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
             rangeFrom,
             rangeTo,
             limit: rangeTo - rangeFrom,  // back-compat alias for older readers
-            workers: Math.max(1, Math.min(16, Number(t.workers) || 4)),
+            workers: Math.max(1, Math.min(100000, Number(t.workers) || 4)),
           };
         }
         return {
@@ -371,14 +371,14 @@ const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick, onArchive, onS
                     <input
                       type="number"
                       min={1}
-                      max={16}
+                      max={100000}
                       data-field="workers"
                       value={String(t.workers ?? 4)}
-                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, workers: Math.max(1, Math.min(16, Number(e.target.value) || 4)) } : x))}
+                      onChange={(e) => setTaskList(taskList.map((x, i) => i === idx ? { ...x, workers: Math.max(1, Math.min(100000, Number(e.target.value) || 4)) } : x))}
                       onKeyDown={(e) => handleTaskKey(e, idx, 'jobs')}
                       placeholder="W"
-                      title="Parallel workers (each runs as its own PM2 process)"
-                      className="w-10 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
+                      title="Parallel workers (each runs as its own PM2 process). Max 100000 — the host needs to actually have the CPU/RAM/network to run this many."
+                      className="w-20 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-white font-mono focus:outline-none focus:border-blue-500"
                     />
                   </>
                 )}
