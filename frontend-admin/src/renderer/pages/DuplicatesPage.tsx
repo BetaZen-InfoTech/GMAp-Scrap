@@ -258,8 +258,13 @@ const DuplicatesPage: React.FC = () => {
               <p className="text-xs text-blue-400/70 mt-0.5">
                 <span className="font-mono">Scraped-Data</span>: <strong>{analyzeResult.mainTotal.toLocaleString()}</strong> total &mdash;{' '}
                 <strong>{analyzeResult.flaggedCount.toLocaleString()}</strong> flagged as duplicate
-                {analyzeResult.groupCount != null && (
-                  <> ({analyzeResult.groupCount.toLocaleString()} match groups on phone + email + website)</>
+                {analyzeResult.breakdown && (
+                  <>
+                    {' '}
+                    (<span className="text-blue-200">phone:</span> {analyzeResult.breakdown.phoneGroups.toLocaleString()} groups,{' '}
+                    <span className="text-blue-200">email:</span> {analyzeResult.breakdown.emailGroups.toLocaleString()} groups,{' '}
+                    <span className="text-blue-200">website:</span> {analyzeResult.breakdown.websiteGroups.toLocaleString()} groups)
+                  </>
                 )}
                 &emsp;|&emsp;
                 <span className="font-mono">Archive</span>: <strong>{analyzeResult.archiveTotal.toLocaleString()}</strong> records
@@ -448,7 +453,7 @@ const DuplicatesPage: React.FC = () => {
               <span className="text-sm font-semibold text-white">Scraped-Data-Duplicate Collection</span>
             </div>
             <p className="text-xs text-slate-500">
-              Records moved here by the Delete Duplicates action. Analyze Duplicates flags matches on phone + email + website (all three must match).
+              Records moved here by the Delete Duplicates action. Analyze Duplicates flags rows that share phone OR email OR website with another row.
             </p>
           </div>
 
@@ -603,9 +608,14 @@ const DuplicatesPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-white">Run Duplicate Analysis?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records where{' '}
-                  <strong className="text-orange-300">phone + email + website</strong> all match
-                  (case-insensitive, trimmed; rows with any of the three empty are skipped).
+                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records that share{' '}
+                  <strong className="text-orange-300">phone</strong>,{' '}
+                  <strong className="text-orange-300">email</strong>, or{' '}
+                  <strong className="text-orange-300">website</strong> with another row (case-insensitive, trimmed;
+                  empty values never match each other). Each field is checked independently — a record is flagged if it
+                  matches on <strong className="text-slate-200">any</strong> of the three.
+                </p>
+                <p className="text-sm text-slate-400 mt-2 leading-relaxed">
                   Within each match group the <strong className="text-slate-200">oldest record stays clean</strong>;
                   every later one is flagged <span className="font-mono text-slate-300">isDuplicate: true</span>.
                 </p>

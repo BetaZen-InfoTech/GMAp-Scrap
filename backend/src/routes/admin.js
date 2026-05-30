@@ -2546,64 +2546,75 @@ router.get('/duplicates', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/analyze ──
-// v1.8.10 — Now actively scans Scraped-Data for duplicates and flags them.
+// v1.8.12 — Dedup key changed from "phone AND email AND website all match"
+// (which yielded 0 on real data because most G-Map rows are missing email
+// and/or website) to three independent OR'd passes.
 //
-// Dedup key: phone + email + website (all three must be non-empty and
-// identical, case-insensitive + whitespace-trimmed). The strictest of the
-// three keys we use, intended for "definitely the same listing" matches —
-// any record where one of those fields is empty is excluded from the scan
-// entirely (so e.g. two records missing email don't collapse into each
-// other on phone+website alone).
+// A record is flagged duplicate if it shares ANY of these with another row:
+//   • phone   (non-empty, lowercased + trimmed)
+//   • email   (non-empty, lowercased + trimmed)
+//   • website (non-empty, lowercased + trimmed)
+//
+// Each field is checked independently. Empty values never match each other
+// (two rows both missing email don't collapse on that). Within each match
+// group the OLDEST row (smallest _id) stays clean; everything later in
+// that group gets isDuplicate=true. The final flag set is the UNION of
+// the three passes — so a row flagged on phone OR email OR website is
+// flagged, period.
 //
 // Idempotent — clears all existing isDuplicate flags first, then re-flags
-// based on the current data. Within each duplicate group the OLDEST row
-// (smallest _id) stays clean; every later row gets isDuplicate=true.
-// Records are NOT moved — only flagged. The "Delete Duplicates" action is
-// what archives them to Scraped-Data-Duplicate.
+// based on current data. Records are NOT moved here, only flagged. The
+// "Delete Duplicates" action archives them to Scraped-Data-Duplicate.
 router.post('/duplicates/analyze', async (req, res) => {
   try {
-    // 1. Clear stale flags from any previous run so re-analysing reflects
-    //    current data, not historical state.
+    // 1. Clear stale flags so re-analysing reflects current data.
     await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
 
-    // 2. Group by (phone, email, website), case-insensitive + trimmed.
-    //    $sort: { _id: 1 } guarantees the oldest row is at position 0 of
-    //    every group's ids array.
-    const groups = await ScrapedData.aggregate([
-      {
-        $match: {
-          phone:   { $nin: [null, ''] },
-          email:   { $nin: [null, ''] },
-          website: { $nin: [null, ''] },
-        },
-      },
-      { $sort: { _id: 1 } },
-      {
-        $group: {
-          _id: {
-            phone:   { $toLower: { $trim: { input: '$phone' } } },
-            email:   { $toLower: { $trim: { input: '$email' } } },
-            website: { $toLower: { $trim: { input: '$website' } } },
+    // 2. Independent group-by passes — one per identifier field. Each
+    //    returns { groupCount, flagIds } where flagIds = every doc in a
+    //    same-value group except the oldest. Runs in parallel.
+    const passByField = async (field) => {
+      const groups = await ScrapedData.aggregate([
+        { $match: { [field]: { $nin: [null, ''] } } },
+        { $sort: { _id: 1 } },
+        {
+          $group: {
+            _id: { $toLower: { $trim: { input: `$${field}` } } },
+            ids: { $push: '$_id' },
+            count: { $sum: 1 },
           },
-          ids:   { $push: '$_id' },
-          count: { $sum: 1 },
         },
-      },
-      { $match: { count: { $gte: 2 } } },
-    ], { allowDiskUse: true });
+        { $match: { count: { $gte: 2 } } },
+      ], { allowDiskUse: true });
 
-    // 3. Collect the IDs to flag (everything except each group's oldest).
-    const flagIds = [];
-    for (const g of groups) {
-      for (let i = 1; i < g.ids.length; i++) flagIds.push(g.ids[i]);
-    }
+      const flagIds = [];
+      for (const g of groups) {
+        for (let i = 1; i < g.ids.length; i++) flagIds.push(g.ids[i]);
+      }
+      return { groupCount: groups.length, flagIds };
+    };
 
-    // 4. Bulk-set isDuplicate=true in chunks so a 100k-flag update doesn't
-    //    build one giant $in array on the server.
+    const [phoneRes, emailRes, websiteRes] = await Promise.all([
+      passByField('phone'),
+      passByField('email'),
+      passByField('website'),
+    ]);
+
+    // 3. Union the three flag sets. A record flagged by any pass is flagged.
+    //    Map keyed by hex-string id, valued by the live ObjectId instance —
+    //    keeps duplicates collapsed without converting back through the
+    //    ObjectId constructor.
+    const flagMap = new Map();
+    for (const id of phoneRes.flagIds)   flagMap.set(String(id), id);
+    for (const id of emailRes.flagIds)   flagMap.set(String(id), id);
+    for (const id of websiteRes.flagIds) flagMap.set(String(id), id);
+
+    // 4. Bulk-set isDuplicate=true in chunks of 1000 (avoid giant $in arrays).
+    const allIds = [...flagMap.values()];
     const BATCH = 1000;
     let flaggedCount = 0;
-    for (let i = 0; i < flagIds.length; i += BATCH) {
-      const chunk = flagIds.slice(i, i + BATCH);
+    for (let i = 0; i < allIds.length; i += BATCH) {
+      const chunk = allIds.slice(i, i + BATCH);
       const r = await ScrapedData.updateMany(
         { _id: { $in: chunk } },
         { $set: { isDuplicate: true } }
@@ -2620,7 +2631,12 @@ router.post('/duplicates/analyze', async (req, res) => {
     res.json({
       success:    true,
       flaggedCount,
-      groupCount: groups.length,
+      groupCount: phoneRes.groupCount + emailRes.groupCount + websiteRes.groupCount,
+      breakdown: {
+        phoneGroups:   phoneRes.groupCount,
+        emailGroups:   emailRes.groupCount,
+        websiteGroups: websiteRes.groupCount,
+      },
       mainTotal,
       archiveTotal,
     });
