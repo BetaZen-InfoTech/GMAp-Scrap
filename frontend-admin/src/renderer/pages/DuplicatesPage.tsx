@@ -258,13 +258,8 @@ const DuplicatesPage: React.FC = () => {
               <p className="text-xs text-blue-400/70 mt-0.5">
                 <span className="font-mono">Scraped-Data</span>: <strong>{analyzeResult.mainTotal.toLocaleString()}</strong> total &mdash;{' '}
                 <strong>{analyzeResult.flaggedCount.toLocaleString()}</strong> flagged as duplicate
-                {analyzeResult.breakdown && (
-                  <>
-                    {' '}
-                    (<span className="text-blue-200">phone:</span> {analyzeResult.breakdown.phoneGroups.toLocaleString()} groups,{' '}
-                    <span className="text-blue-200">email:</span> {analyzeResult.breakdown.emailGroups.toLocaleString()} groups,{' '}
-                    <span className="text-blue-200">website:</span> {analyzeResult.breakdown.websiteGroups.toLocaleString()} groups)
-                  </>
+                {analyzeResult.groupCount != null && (
+                  <> ({analyzeResult.groupCount.toLocaleString()} match groups on phone + email + website)</>
                 )}
                 &emsp;|&emsp;
                 <span className="font-mono">Archive</span>: <strong>{analyzeResult.archiveTotal.toLocaleString()}</strong> records
@@ -453,7 +448,7 @@ const DuplicatesPage: React.FC = () => {
               <span className="text-sm font-semibold text-white">Scraped-Data-Duplicate Collection</span>
             </div>
             <p className="text-xs text-slate-500">
-              Records moved here by the Delete Duplicates action. Analyze Duplicates flags rows that share phone OR email OR website with another row.
+              Records moved here by the Delete Duplicates action. Analyze Duplicates flags rows where phone + email + website all match another row (all three must be non-empty).
             </p>
           </div>
 
@@ -608,12 +603,10 @@ const DuplicatesPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-white">Run Duplicate Analysis?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records that share{' '}
-                  <strong className="text-orange-300">phone</strong>,{' '}
-                  <strong className="text-orange-300">email</strong>, or{' '}
-                  <strong className="text-orange-300">website</strong> with another row (case-insensitive, trimmed;
-                  empty values never match each other). Each field is checked independently — a record is flagged if it
-                  matches on <strong className="text-slate-200">any</strong> of the three.
+                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records where{' '}
+                  <strong className="text-orange-300">phone AND email AND website</strong> all match another row
+                  (case-insensitive, trimmed). Rows where any of the three is empty are skipped — they can never
+                  participate in a match group.
                 </p>
                 <p className="text-sm text-slate-400 mt-2 leading-relaxed">
                   Within each match group the <strong className="text-slate-200">oldest record stays clean</strong>;
@@ -623,7 +616,8 @@ const DuplicatesPage: React.FC = () => {
                   No records are moved or deleted by this step — only flagged. The flagged rows show up under{' '}
                   <strong className="text-slate-200">Flagged Duplicates</strong>; the{' '}
                   <strong className="text-slate-200">Delete Duplicates</strong> action is what archives them.
-                  Idempotent — re-running clears prior flags first.
+                  Idempotent — every existing <span className="font-mono text-slate-300">isDuplicate</span> flag is
+                  cleared before the scan runs, so re-running yields a fresh result.
                 </p>
               </div>
             </div>
