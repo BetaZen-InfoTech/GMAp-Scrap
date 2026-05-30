@@ -3009,11 +3009,14 @@ async function runWebsiteAnalysisJob(jobId) {
 
     let buffer = [];
 
-    // Counters are written via atomic $inc (NOT a full job.save) so an
-    // operator's external "stop" write to the status field is never clobbered
-    // back to "running" by the worker. Status is read separately below.
+    // v1.8.7 — flush() now returns the post-update job status (via
+    // findOneAndUpdate) so the worker can do the counter $inc + heartbeat
+    // + cancellation check in ONE round trip instead of two. The atomic
+    // $inc keeps an operator's external "stop" write from being clobbered
+    // back to "running" — findOneAndUpdate with $inc/$set only touches
+    // those operators' fields, never `status`.
     const flush = async () => {
-      if (buffer.length === 0) return;
+      if (buffer.length === 0) return null;
       const docs = buffer.map((r) => {
         const { _id, ...rest } = r;
         return { ...rest, sourceId: String(_id) };
@@ -3034,33 +3037,30 @@ async function runWebsiteAnalysisJob(jobId) {
           else errDelta++;
         }
       }
-      await WebsiteAnalysisJob.updateOne(
+      const fresh = await WebsiteAnalysisJob.findOneAndUpdate(
         { _id: jobId },
         {
           $inc: { inserted: insDelta, skipped: skipDelta, errored: errDelta, processed: docs.length },
           $set: { lastProgressAt: new Date() },
-        }
+        },
+        { new: true, projection: { status: 1 }, lean: true }
       );
+      return fresh;
     };
 
-    // Returns true if the operator (or stale-reaper) flipped the job to a
-    // terminal state while we were running — caller breaks out cleanly.
-    const isCancelled = async () => {
-      const fresh = await WebsiteAnalysisJob.findById(jobId, { status: 1 }).lean();
-      return !fresh || fresh.status === 'stopped' || fresh.status === 'error';
-    };
+    const isTerminal = (jobDoc) => !jobDoc || jobDoc.status === 'stopped' || jobDoc.status === 'error';
 
     let cancelled = false;
     for await (const doc of cursor) {
       buffer.push(doc);
       if (buffer.length >= WA_BATCH) {
-        await flush();
-        if (await isCancelled()) { cancelled = true; break; }
+        const after = await flush();
+        if (isTerminal(after)) { cancelled = true; break; }
       }
     }
     if (!cancelled) {
-      await flush();
-      cancelled = await isCancelled();
+      const after = await flush();
+      cancelled = isTerminal(after);
     }
 
     if (cancelled) {
@@ -3137,24 +3137,47 @@ router.post('/website-analysis/start', async (_req, res) => {
 //   unscrapedWebsites  — of those, how many are still pending
 //   sourceRows         — raw G-Map Scraped-Data rows with a website (the
 //                        pre-dedup count; archiveTotal/sourceRows = dedup ratio)
+//
+// v1.8.7 — Stats are cached for WA_STATS_TTL_MS (15s). The list of job docs is
+// always fresh, but the three heavy counts (archiveTotal over Website-Analysis,
+// scrapedWebsites over the same, sourceRows over 5.9M-row Scraped-Data) are
+// recomputed at most every 15s. Without this cache, every admin UI refresh
+// (which the page does on mount, on pagination, and on job-completion event)
+// hit the DB with a full source-rows count — gigabytes of index scanning per
+// click. unscrapedWebsites is now derived (archiveTotal - scrapedWebsites)
+// rather than queried separately, saving one $ne-style count per refresh.
+//
 // v1.8.6: scraped/unscraped now count UNIQUE websites (Website-Analysis +
 // scrapWebsite flag), not raw Scraped-Data rows — that's the queue the scraper
-// actually works through now. Index-only counts (website + scrapWebsite_idx),
-// computed on the list fetch, NOT the 3s single-job poll.
+// actually works through now.
+const WA_STATS_TTL_MS = 15 * 1000;
+let waStatsCache = { at: 0, archiveTotal: 0, scrapedWebsites: 0, sourceRows: 0 };
+
+async function getWebsiteAnalysisStats() {
+  const now = Date.now();
+  if (now - waStatsCache.at < WA_STATS_TTL_MS) return waStatsCache;
+  const [archiveTotal, scrapedWebsites, sourceRows] = await Promise.all([
+    WebsiteAnalysis.estimatedDocumentCount(),
+    WebsiteAnalysis.countDocuments({ scrapWebsite: true }),
+    ScrapedData.countDocuments(WA_FILTER),
+  ]);
+  waStatsCache = { at: now, archiveTotal, scrapedWebsites, sourceRows };
+  return waStatsCache;
+}
+
 router.get('/website-analysis/jobs', async (req, res) => {
   try {
     const page  = Math.max(1, Number(req.query.page)  || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     const skip  = (page - 1) * limit;
 
-    const [data, total, archiveTotal, scrapedWebsites, unscrapedWebsites, sourceRows] = await Promise.all([
+    const [data, total, stats] = await Promise.all([
       WebsiteAnalysisJob.find({}).sort({ startedAt: -1 }).skip(skip).limit(limit).lean(),
       WebsiteAnalysisJob.countDocuments({}),
-      WebsiteAnalysis.estimatedDocumentCount(),
-      WebsiteAnalysis.countDocuments({ scrapWebsite: true }),
-      WebsiteAnalysis.countDocuments({ scrapWebsite: { $ne: true } }),
-      ScrapedData.countDocuments(WA_FILTER),
+      getWebsiteAnalysisStats(),
     ]);
+    const { archiveTotal, scrapedWebsites, sourceRows } = stats;
+    const unscrapedWebsites = Math.max(0, archiveTotal - scrapedWebsites);
     res.json({
       data, total, page, limit, archiveTotal,
       scrapedWebsites,

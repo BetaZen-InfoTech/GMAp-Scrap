@@ -65,6 +65,10 @@ const WebsiteAnalysisPage: React.FC = () => {
   }, [tab]);
 
   // Live progress polling while a job is running.
+  // v1.8.7 — interval bumped 3s → 5s. The dedup worker only writes a heartbeat
+  // every 500-row batch (a few seconds), so polling faster than that just
+  // re-fetched the same numbers. 5s cuts the poll volume ~40% across all open
+  // admin sessions without making the UI feel less live.
   useEffect(() => {
     const active = jobs.find((j) => j.status === 'running' || j.status === 'queued');
     if (!active) return;
@@ -74,7 +78,7 @@ const WebsiteAnalysisPage: React.FC = () => {
       if (fresh && fresh.status !== 'running' && fresh.status !== 'queued') {
         fetchJobs(jobsPage);
       }
-    }, 3000);
+    }, 5000);
     return () => clearInterval(id);
   }, [jobs, jobsPage]);
 

@@ -23,19 +23,6 @@ function getClientIp(req) {
 }
 
 /**
- * Build duplicate keys from 5 fields.
- * Key 1: Phone + Rating + Reviews + Category + PlusCode
- * Key 2: Email + Rating + Reviews + Category + PlusCode
- * Returns array of keys (1 or 2 depending on available fields)
- */
-function dupKeys(phone, email, rating, reviews, category, plusCode) {
-  const keys = [];
-  if (phone) keys.push(`P|${phone}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`);
-  if (email) keys.push(`E|${email}|${rating || 0}|${reviews || 0}|${category || ''}|${plusCode || ''}`);
-  return keys;
-}
-
-/**
  * Extract a 6-digit Indian pincode from an address string.
  * Returns the first match or null.
  */
@@ -45,60 +32,24 @@ function extractPincode(address) {
   return match ? match[1] : null;
 }
 
-/**
- * Shared dedup helper used by both /batch and /from-website.
- *
- * Given an array of incoming records (each carrying phone/email/rating/reviews/
- * category/plusCode at minimum), returns:
- *   { newDocs, dupDocs, existingKeys }
- *
- * where every record is marked `isDuplicate: true|false` based on whether any
- * of its (Phone|Email)+R+R+C+PC keys already exist in the DB OR earlier in
- * the same incoming batch.
- *
- * The caller is responsible for inserting both arrays — both `/batch` and
- * `/from-website` save duplicates too (with the flag) so the operator can
- * see what was rejected by dedup.
- */
-async function classifyDuplicates(records) {
-  // Build the $or filter from every record's phone/email so we can fetch
-  // existing-key candidates in one round trip.
-  const phoneConditions = [];
-  const emailConditions = [];
-  for (const r of records) {
-    if (r.phone) phoneConditions.push({ phone: r.phone, rating: r.rating || 0, reviews: r.reviews || 0, category: r.category || null, plusCode: r.plusCode || null });
-    if (r.email) emailConditions.push({ email: r.email, rating: r.rating || 0, reviews: r.reviews || 0, category: r.category || null, plusCode: r.plusCode || null });
-  }
-  const orConditions = [...phoneConditions, ...emailConditions];
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.8.8 — Duplicate detection no longer runs on the write path.
+//
+// Until v1.8.7 every /batch and /from-website call ran a $or query against
+// Scraped-Data with up to 100 (phone+rating+reviews+category+plusCode)
+// conditions to flag duplicates inline. With 35+ G-Map devices and 7+
+// website-scraper workers all hitting the API in parallel, those queries
+// were a dominant source of MongoDB CPU load — and they all hit the same
+// duplicate_check_idx, so they serialized on the cache.
+//
+// Duplicate flagging is now handled POST-HOC by the admin "Analyze
+// Duplicates" action (see backend/src/routes/admin.js — re-evaluates
+// isDuplicate across the whole collection and moves the matches to the
+// Scraped-Data-Duplicate archive). All rows from the write path land here
+// flat with isDuplicate: false (the schema default).
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const existing = orConditions.length > 0
-    ? await ScrapedData.find(
-        { $or: orConditions },
-        { phone: 1, email: 1, rating: 1, reviews: 1, category: 1, plusCode: 1 }
-      ).lean()
-    : [];
-
-  const existingKeys = new Set();
-  for (const e of existing) {
-    for (const k of dupKeys(e.phone, e.email, e.rating, e.reviews, e.category, e.plusCode)) {
-      existingKeys.add(k);
-    }
-  }
-
-  const tagged = records.map((r) => {
-    const keys = dupKeys(r.phone, r.email, r.rating || 0, r.reviews || 0, r.category, r.plusCode);
-    const isDup = keys.some((k) => existingKeys.has(k));
-    if (!isDup) {
-      // Within-batch dedup: a later record with the same key gets flagged
-      for (const k of keys) existingKeys.add(k);
-    }
-    return { record: r, isDup };
-  });
-
-  return { tagged, existingKeys };
-}
-
-// POST /api/scraped-data/batch — receive batch of scraped records, deduplicate, and save to DB
+// POST /api/scraped-data/batch — receive batch of scraped records, save to DB
 router.post('/batch', async (req, res) => {
   try {
     const { batchNumber, deviceId, sessionId, records, timestamp, pincode: batchPincode, keyword: batchKeyword, scrapCategory: batchScrapCategory, scrapSubCategory: batchScrapSubCategory, round: batchRound } = req.body;
@@ -110,27 +61,18 @@ router.post('/batch', async (req, res) => {
     touchDevice(deviceId, getClientIp(req));
 
     // ── Phone normalization ──
-    // Normalize each record's phone in-place so duplicate detection and storage
-    // both use the same canonical value. `_numberFixing` is carried per-record
-    // so we can persist the flag when we build the doc below.
+    // Normalize each record's phone in-place so storage uses the canonical
+    // value. CPU-only transform, no DB roundtrip.
     for (const r of records) {
       const { phone: fixedPhone, fixed } = fixPhoneNumber(r.phone);
       r.phone = fixedPhone;
       r._numberFixing = fixed;
     }
 
-    // ── Duplicate detection (Phone+R+R+C+PC AND Email+R+R+C+PC) ──
-    const { tagged } = await classifyDuplicates(records);
-
-    // Split records into new and duplicates — both are saved, duplicates flagged
-    const newDocs = [];
-    const dupDocs = [];
-
-    for (const { record: r, isDup } of tagged) {
+    const docs = records.map((r) => {
       // Resolve pincode: record-level → batch-level → extract from address
       const resolvedPincode = r.pincode || batchPincode || extractPincode(r.address) || undefined;
-
-      const doc = {
+      return {
         sessionId: r.sessionId || sessionId,
         deviceId: deviceId || undefined,
         batchNumber: batchNumber || 0,
@@ -157,37 +99,23 @@ router.post('/batch', async (req, res) => {
         scrapedAt: r.timestamp || timestamp,
         scrapFrom: 'G-Map',
         numberFixing: r._numberFixing === true,
-        isDuplicate: isDup,
       };
+    });
 
-      if (isDup) dupDocs.push(doc);
-      else       newDocs.push(doc);
-    }
-
-    // Insert all records (new + duplicates)
     const insertedIds = [];
-    const duplicateIds = [];
-    const allDocs = [...newDocs, ...dupDocs];
-
-    if (allDocs.length > 0) {
-      const inserted = await ScrapedData.insertMany(allDocs, { ordered: false });
-      for (const d of inserted) {
-        if (d.isDuplicate) {
-          duplicateIds.push(d._id);
-        } else {
-          insertedIds.push(d._id);
-        }
-      }
+    if (docs.length > 0) {
+      const inserted = await ScrapedData.insertMany(docs, { ordered: false });
+      for (const d of inserted) insertedIds.push(d._id);
     }
 
     res.status(201).json({
       success: true,
-      count: newDocs.length,
-      duplicateCount: dupDocs.length,
+      count: docs.length,
+      duplicateCount: 0,
       totalReceived: records.length,
       batchNumber,
       insertedIds,
-      duplicateIds,
+      duplicateIds: [],
     });
   } catch (err) {
     console.error('[scraped-data/batch POST] Error:', err.message);
@@ -352,140 +280,140 @@ router.get('/website-pool', async (req, res) => {
 });
 
 // POST /api/scraped-data/from-website
-// CLI sends N harvested (phone/email/contactName) rows for one source website.
-// Records are tagged scrapFrom='website' + scrapWebsite=true so the admin's
-// website-scraper queue knows not to revisit them.
+// CLI sends one row per email and one row per phone harvested for one source
+// website. Records are tagged scrapFrom='website' + scrapWebsite=true so the
+// admin's website-scraper queue knows not to revisit them.
 //
-// Body: { sourceId, records: [...], deviceId? }
+// Body: { sourceId, sourceWebsite?, records: [...], deviceId? }
+//   sourceWebsite — the website URL the CLI just scraped. When present, the
+//                   backend skips the sourceId→URL lookup (saves 1-2 findById
+//                   queries per scrape). The CLI always knows this URL, so
+//                   legacy callers are the only ones that pay for the fallback.
 //
-// Dedup: runs the same Phone+R+R+C+PC / Email+R+R+C+PC classifier as /batch.
-// Two workers scraping the same backlog slice (or fan-out of the same email
-// across multiple phones from one site) used to write duplicate rows here;
-// they're now flagged with isDuplicate=true so the admin can filter them out.
+// v1.8.8 — No duplicate detection on the write path. Records save flat;
+// the admin "Analyze Duplicates" action handles dedup post-hoc. See the
+// long comment above /batch for the rationale (parallel-worker heat).
 router.post('/from-website', async (req, res) => {
   try {
-    const { sourceId, records, deviceId } = req.body;
+    const { sourceId, sourceWebsite, records, deviceId } = req.body;
     if (!Array.isArray(records) || records.length === 0) {
       return res.status(400).json({ error: 'records array required' });
     }
 
     touchDevice(deviceId, getClientIp(req));
 
-    // Normalize phones up front so dedup keys and storage both use the same
-    // canonical value. Stamp the `_numberFixing` flag per-record so we can
-    // persist it when building the final doc.
+    // Phone normalization — CPU-only, no DB roundtrip.
     for (const r of records) {
       const { phone: fixedPhone, fixed } = fixPhoneNumber(r.phone);
       r.phone = fixedPhone;
       r._numberFixing = fixed;
     }
 
-    const { tagged } = await classifyDuplicates(records);
-
-    const newDocs = [];
-    const dupDocs = [];
-    for (const { record: r, isDup } of tagged) {
-      const doc = {
-        sessionId: r.sessionId,
-        deviceId: deviceId || r.deviceId,
-        name: r.name,
-        nameEnglish: r.nameEnglish,
-        nameLocal: r.nameLocal,
-        address: r.address,
-        phone: r.phone,
-        email: r.email,
-        website: r.website,
-        rating: r.rating || 0,
-        reviews: r.reviews || 0,
-        category: r.category,
-        pincode: r.pincode,
-        plusCode: r.plusCode,
-        photoUrl: r.photoUrl,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        mapsUrl: r.mapsUrl,
-        scrapKeyword: r.scrapKeyword,
-        scrapCategory: r.scrapCategory,
-        scrapSubCategory: r.scrapSubCategory,
-        scrapRound: r.scrapRound,
-        scrapedAt: r.scrapedAt || new Date().toISOString(),
-        scrapFrom: 'website',
-        scrapWebsite: true,
-        numberFixing: r._numberFixing === true,
-        isDuplicate: isDup,
-      };
-      if (isDup) dupDocs.push(doc);
-      else       newDocs.push(doc);
-    }
+    const docs = records.map((r) => ({
+      sessionId: r.sessionId,
+      deviceId: deviceId || r.deviceId,
+      name: r.name,
+      nameEnglish: r.nameEnglish,
+      nameLocal: r.nameLocal,
+      address: r.address,
+      phone: r.phone,
+      email: r.email,
+      website: r.website,
+      rating: r.rating || 0,
+      reviews: r.reviews || 0,
+      category: r.category,
+      pincode: r.pincode,
+      plusCode: r.plusCode,
+      photoUrl: r.photoUrl,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      mapsUrl: r.mapsUrl,
+      scrapKeyword: r.scrapKeyword,
+      scrapCategory: r.scrapCategory,
+      scrapSubCategory: r.scrapSubCategory,
+      scrapRound: r.scrapRound,
+      scrapedAt: r.scrapedAt || new Date().toISOString(),
+      scrapFrom: 'website',
+      scrapWebsite: true,
+      numberFixing: r._numberFixing === true,
+    }));
 
     const insertedIds = [];
-    const duplicateIds = [];
-    const allDocs = [...newDocs, ...dupDocs];
-    if (allDocs.length > 0) {
+    if (docs.length > 0) {
       try {
-        const inserted = await ScrapedData.insertMany(allDocs, { ordered: false });
-        for (const d of inserted) {
-          if (d.isDuplicate) duplicateIds.push(d._id);
-          else               insertedIds.push(d._id);
-        }
+        const inserted = await ScrapedData.insertMany(docs, { ordered: false });
+        for (const d of inserted) insertedIds.push(d._id);
       } catch (err) {
         // Partial success on unique-index collisions — keep what landed.
-        for (const d of (err.insertedDocs || [])) {
-          if (d.isDuplicate) duplicateIds.push(d._id);
-          else               insertedIds.push(d._id);
-        }
+        for (const d of (err.insertedDocs || [])) insertedIds.push(d._id);
       }
     }
 
-    // Mark the source website scraped so the queue stops surfacing it.
-    // The queue is now Website-Analysis (unique websites), so sourceId is a
-    // WebsiteAnalysis _id — but we resolve the website URL and mark BOTH
-    // collections by URL: Website-Analysis (the scrape queue) AND Scraped-Data
-    // (so the legacy admin browser-flow queue stays consistent too).
-    // Fire-and-forget: a bad sourceId shouldn't fail the write that succeeded.
-    if (sourceId) {
-      try {
-        // sourceId is a WebsiteAnalysis _id in the v1.8.6 flow; fall back to a
-        // Scraped-Data lookup for any legacy caller still passing those ids.
-        let website = null;
-        const waSrc = await WebsiteAnalysis.findById(sourceId, { website: 1 }).lean();
-        if (waSrc?.website) {
-          website = waSrc.website;
-        } else {
-          const sdSrc = await ScrapedData.findById(sourceId, { website: 1 }).lean();
-          website = sdSrc?.website || null;
-        }
-
-        if (website) {
-          const now = new Date();
-          await Promise.all([
-            WebsiteAnalysis.updateMany(
-              { website },
-              { $set: { scrapWebsite: true, contactScrapedAt: now } }
-            ),
-            ScrapedData.updateMany(
-              { website },
-              { $set: { scrapWebsite: true } }
-            ),
-          ]);
-        } else {
-          // No URL resolved — at least flip the source row by id in both.
-          await Promise.all([
-            WebsiteAnalysis.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true, contactScrapedAt: new Date() } }),
-            ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } }),
-          ]);
-        }
-      } catch (_) { /* non-fatal */ }
-    }
-
+    // v1.8.7 — Send the response BEFORE doing the queue-flag mirror writes.
+    // The CLI only cares that the contacts landed; the scrapWebsite flag
+    // flips are housekeeping that the next worker pass observes. Detaching
+    // them lets the CLI move on to its next site while Mongo handles the
+    // updateMany in the background — cuts the per-site request latency in
+    // half on a healthy run.
     res.status(201).json({
       success: true,
-      count: newDocs.length,
-      duplicateCount: dupDocs.length,
+      count: docs.length,
+      duplicateCount: 0,
       totalReceived: records.length,
       insertedIds,
-      duplicateIds,
+      duplicateIds: [],
     });
+
+    // Mark the source website scraped so the queue stops surfacing it.
+    // The queue is now Website-Analysis (unique websites), so sourceId is a
+    // WebsiteAnalysis _id — we resolve the website URL and mark BOTH
+    // collections by URL: Website-Analysis (the scrape queue) AND Scraped-Data
+    // (so the legacy admin browser-flow queue stays consistent too).
+    //
+    // v1.8.7 — when the CLI passes `sourceWebsite` in the body (the URL it
+    // just scraped), skip the sourceId→URL lookup entirely. Across 4 parallel
+    // workers each posting hundreds of sites/hour, that's 1-2 fewer findById
+    // queries per scrape. The Scraped-Data `website` index (added in this
+    // version) is what keeps the updateMany itself off the hot list — without
+    // it, that updateMany was a full scan over ~6M rows.
+    if (sourceId || sourceWebsite) {
+      (async () => {
+        try {
+          let website = sourceWebsite || null;
+          if (!website && sourceId) {
+            const waSrc = await WebsiteAnalysis.findById(sourceId, { website: 1 }).lean();
+            if (waSrc?.website) {
+              website = waSrc.website;
+            } else {
+              const sdSrc = await ScrapedData.findById(sourceId, { website: 1 }).lean();
+              website = sdSrc?.website || null;
+            }
+          }
+
+          if (website) {
+            const now = new Date();
+            await Promise.all([
+              WebsiteAnalysis.updateMany(
+                { website },
+                { $set: { scrapWebsite: true, contactScrapedAt: now } }
+              ),
+              ScrapedData.updateMany(
+                { website },
+                { $set: { scrapWebsite: true } }
+              ),
+            ]);
+          } else if (sourceId) {
+            // No URL resolved — at least flip the source row by id in both.
+            await Promise.all([
+              WebsiteAnalysis.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true, contactScrapedAt: new Date() } }),
+              ScrapedData.updateOne({ _id: sourceId }, { $set: { scrapWebsite: true } }),
+            ]);
+          }
+        } catch (err) {
+          console.error('[from-website mirror] Non-fatal:', err.message);
+        }
+      })();
+    }
   } catch (err) {
     console.error('[scraped-data/from-website POST] Error:', err.message);
     res.status(500).json({ error: 'Server error', message: err.message });
@@ -496,24 +424,39 @@ router.post('/from-website', async (req, res) => {
 // CLI calls this when a site yields no contacts — so the next worker pass
 // doesn't keep revisiting dead URLs.
 //
-// Body: { ids: [...] }  (Website-Analysis _ids in the v1.8.6 flow)
-// Resolves each id's website URL and marks BOTH Website-Analysis (the scrape
-// queue) and Scraped-Data (legacy admin queue) by URL.
+// Body: { ids?: [...], urls?: [...] }
+//   ids   — Website-Analysis _ids (legacy / fallback). Requires a lookup.
+//   urls  — v1.8.7: the CLI passes the URL it just visited directly, letting
+//           the backend skip the lookup entirely. Either is accepted; if both
+//           are present, urls wins.
+//
+// Marks BOTH Website-Analysis (the scrape queue) and Scraped-Data (legacy
+// admin queue) by URL. Backed by the new Scraped-Data `website` index added
+// in v1.8.7 — without it, this updateMany was a full scan on ~6M rows for
+// EVERY dead site (and the website scraper hits many dead sites).
 router.patch('/mark-website-scraped', async (req, res) => {
   try {
-    const { ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'ids array required' });
+    const { ids, urls: bodyUrls } = req.body;
+    const hasUrls = Array.isArray(bodyUrls) && bodyUrls.length > 0;
+    const hasIds  = Array.isArray(ids) && ids.length > 0;
+    if (!hasUrls && !hasIds) {
+      return res.status(400).json({ error: 'ids or urls array required' });
     }
-    // Resolve URLs from the Website-Analysis queue first, fall back to
-    // Scraped-Data for any legacy id.
-    const waDocs = await WebsiteAnalysis.find({ _id: { $in: ids } }, { website: 1 }).lean();
-    let urls = waDocs.map((d) => d.website).filter(Boolean);
-    if (urls.length === 0) {
-      const sdDocs = await ScrapedData.find({ _id: { $in: ids } }, { website: 1 }).lean();
-      urls = sdDocs.map((d) => d.website).filter(Boolean);
+
+    let urls;
+    if (hasUrls) {
+      urls = [...new Set(bodyUrls.filter(Boolean))];
+    } else {
+      // Resolve URLs from the Website-Analysis queue first, fall back to
+      // Scraped-Data for any legacy id.
+      const waDocs = await WebsiteAnalysis.find({ _id: { $in: ids } }, { website: 1 }).lean();
+      let resolved = waDocs.map((d) => d.website).filter(Boolean);
+      if (resolved.length === 0) {
+        const sdDocs = await ScrapedData.find({ _id: { $in: ids } }, { website: 1 }).lean();
+        resolved = sdDocs.map((d) => d.website).filter(Boolean);
+      }
+      urls = [...new Set(resolved)];
     }
-    urls = [...new Set(urls)];
 
     const now = new Date();
     let modified = 0;
@@ -523,7 +466,7 @@ router.patch('/mark-website-scraped', async (req, res) => {
         ScrapedData.updateMany({ website: { $in: urls } }, { $set: { scrapWebsite: true } }),
       ]);
       modified = waR.modifiedCount;
-    } else {
+    } else if (hasIds) {
       const waR = await WebsiteAnalysis.updateMany({ _id: { $in: ids } }, { $set: { scrapWebsite: true, contactScrapedAt: now } });
       modified = waR.modifiedCount;
     }

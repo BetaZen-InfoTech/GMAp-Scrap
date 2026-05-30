@@ -58,4 +58,17 @@ scrapedDataSchema.index(
   }
 );
 
+// v1.8.7 — Index for the mirror-update path. After each website scrape the
+// backend flips scrapWebsite=true on every Scraped-Data row sharing the URL
+// (so the legacy admin browser-flow queue stays consistent with the new
+// Website-Analysis queue). Without this index, that updateMany ran as a
+// full collection scan on ~6M rows for EVERY scraped site — 4 parallel
+// CLI workers × hundreds of sites/hour was the #1 source of MongoDB CPU
+// load. Sparse: rows without a website (~80% of the collection) stay out
+// of the index, keeping it small.
+scrapedDataSchema.index(
+  { website: 1 },
+  { name: 'website_idx', sparse: true }
+);
+
 module.exports = mongoose.model('ScrapedData', scrapedDataSchema);

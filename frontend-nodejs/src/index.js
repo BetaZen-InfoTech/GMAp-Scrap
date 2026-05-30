@@ -885,11 +885,16 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
   // Mark a source row as scraped via PATCH so the queue stops surfacing it.
   // Fire-and-forget — failure here only means the same URL might get revisited
   // by the next worker pass, which is not catastrophic.
-  const markScraped = async (id) => {
+  //
+  // v1.8.7 — send the URL alongside the id so the backend can skip the
+  // sourceId→URL lookup (one fewer query per dead site, and the website
+  // scraper hits a LOT of dead sites).
+  const markScraped = async (id, website) => {
     try {
+      const body = website ? { ids: [id], urls: [website] } : { ids: [id] };
       await axios.patch(
         `${API_BASE_URL}/api/scraped-data/mark-website-scraped`,
-        { ids: [id] },
+        body,
         { timeout: 10000 }
       );
     } catch (_) { /* non-fatal */ }
@@ -919,49 +924,60 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
       errors++;
       print(chalk.red(`  ✗ ${result.error}`));
       // Still mark the source row so we don't retry forever
-      await markScraped(src._id);
+      await markScraped(src._id, src.website);
       continue;
     }
 
-    const { emails, phones, contactName } = result;
+    const { emails, phones } = result;
     if (emails.length + phones.length === 0) {
       print(chalk.gray(`    no contacts`));
-      await markScraped(src._id);
+      await markScraped(src._id, src.website);
       continue;
     }
 
-    // Build a row per (email, phone) pair. If only emails exist, use empty
-    // phone for each; if only phones, empty email. If both, fan out to max(len).
+    // v1.8.8 — Row shape rules:
+    //   • `name`     — always the G-Map business name from the source row.
+    //                  Never the contact-name that was extracted from the
+    //                  website page (which is usually a person's name and
+    //                  pollutes the business directory).
+    //   • `website`  — also mirrors the G-Map source URL, not the
+    //                  post-redirect `finalUrl`. Keeps the website-scraped
+    //                  records joinable back to the G-Map rows on URL.
+    //   • emails and phones save as SEPARATE rows. One row per email (with
+    //                  blank phone), one row per phone (with blank email).
+    //                  We used to fan out to email×phone pairs which created
+    //                  ghost combinations the post-hoc dedup couldn't reason
+    //                  about.
+    const baseRow = {
+      sessionId,
+      name: src.name,
+      address: src.address,
+      website: src.website,
+      category: src.category,
+      pincode: src.pincode,
+      plusCode: src.plusCode,
+      latitude: src.latitude,
+      longitude: src.longitude,
+      scrapKeyword: src.scrapKeyword,
+      scrapCategory: src.scrapCategory,
+      scrapSubCategory: src.scrapSubCategory,
+      scrapedAt: new Date().toISOString(),
+    };
     const rows = [];
-    const len = Math.max(emails.length, phones.length, 1);
-    for (let k = 0; k < len; k++) {
-      const email = emails[k] || (k === 0 ? '' : emails[0] || '');
-      const phone = phones[k] || (k === 0 ? '' : phones[0] || '');
-      if (!email && !phone) continue;
-      rows.push({
-        sessionId,
-        name: contactName || src.name,
-        address: src.address,
-        phone,
-        email,
-        website: result.finalUrl || src.website,
-        category: src.category,
-        pincode: src.pincode,
-        plusCode: src.plusCode,
-        latitude: src.latitude,
-        longitude: src.longitude,
-        scrapKeyword: src.scrapKeyword,
-        scrapCategory: src.scrapCategory,
-        scrapSubCategory: src.scrapSubCategory,
-        scrapedAt: new Date().toISOString(),
-      });
+    for (const email of emails) {
+      if (email) rows.push({ ...baseRow, email, phone: '' });
+    }
+    for (const phone of phones) {
+      if (phone) rows.push({ ...baseRow, email: '', phone });
     }
 
     if (rows.length > 0) {
       try {
+        // v1.8.7 — pass `sourceWebsite` so the backend skips the sourceId→URL
+        // lookup (1-2 fewer findById queries per scrape × 4 parallel workers).
         const saveRes = await axios.post(
           `${API_BASE_URL}/api/scraped-data/from-website`,
-          { sourceId: src._id, records: rows, deviceId },
+          { sourceId: src._id, sourceWebsite: result.finalUrl || src.website, records: rows, deviceId },
           { timeout: 30000 }
         );
         const count = saveRes.data?.count ?? rows.length;
@@ -973,11 +989,11 @@ async function runWebsiteScraperMode({ deviceId, workerIndex, totalWorkers, rang
         const status = err.response?.status;
         print(chalk.red(`    ✗ save failed (${status || 'net'}): ${err.response?.data?.error || err.message}`));
         // Still mark scraped so this URL doesn't keep cycling on retries
-        await markScraped(src._id);
+        await markScraped(src._id, src.website);
       }
     } else {
       // Defensive — shouldn't happen since we already short-circuited above
-      await markScraped(src._id);
+      await markScraped(src._id, src.website);
     }
   }
 
