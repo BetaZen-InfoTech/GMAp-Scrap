@@ -448,7 +448,7 @@ const DuplicatesPage: React.FC = () => {
               <span className="text-sm font-semibold text-white">Scraped-Data-Duplicate Collection</span>
             </div>
             <p className="text-xs text-slate-500">
-              Records moved here by the Delete Duplicates action. Analyze Duplicates flags rows where phone + email + website all match another row (all three must be non-empty).
+              Records moved here by the Delete Duplicates action. Analyze Duplicates flags rows that share the exact same (phone, email, website) triplet with another row — empty fields count as their own value.
             </p>
           </div>
 
@@ -603,10 +603,11 @@ const DuplicatesPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-white">Run Duplicate Analysis?</h2>
                 <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records where{' '}
-                  <strong className="text-orange-300">phone AND email AND website</strong> all match another row
-                  (case-insensitive, trimmed). Rows where any of the three is empty are skipped — they can never
-                  participate in a match group.
+                  Scans <span className="font-mono text-slate-300">Scraped-Data</span> for records that share the
+                  exact same <strong className="text-orange-300">(phone, email, website)</strong> triplet with
+                  another row (case-insensitive, trimmed). <strong className="text-slate-200">Empty fields count
+                  as their own value</strong> — so two rows where both have an empty phone but the same email and
+                  website do match each other. Only rows where <em>all three</em> are empty are skipped entirely.
                 </p>
                 <p className="text-sm text-slate-400 mt-2 leading-relaxed">
                   Within each match group the <strong className="text-slate-200">oldest record stays clean</strong>;

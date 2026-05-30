@@ -2546,44 +2546,58 @@ router.get('/duplicates', async (req, res) => {
 });
 
 // ── POST /api/admin/duplicates/analyze ──
-// v1.8.13 — Back to strict AND semantics, per spec: a record is a
-// duplicate if and only if another row has the SAME phone AND the SAME
-// email AND the SAME website. All three must be present (non-empty);
-// rows missing any of the three are excluded from the scan entirely —
-// they can never participate in a match group.
+// v1.8.14 — Dedup key: the exact (phone, email, website) triplet.
+// Comparison is case-insensitive + whitespace-trimmed. Empty / null
+// values are NOT excluded — they're treated as their own value in the
+// key, so two rows with the same shape (e.g. phone+email present,
+// website blank) and identical values match each other.
 //
-// Comparison is case-insensitive + whitespace-trimmed on every field.
+// The only rows excluded are those where ALL THREE fields are empty
+// (or null) — they carry no information to be "duplicate" of, so
+// grouping them together would be meaningless.
+//
 // Within each match group the OLDEST row (smallest _id) stays clean;
-// every later row gets isDuplicate=true. The first call clears every
-// existing isDuplicate flag before scanning, so re-running yields a
-// fresh result from current data.
+// every later row gets isDuplicate=true.
 //
-// Records are NOT moved here — only flagged. "Delete Duplicates" is what
-// archives the flagged rows to Scraped-Data-Duplicate.
+// The first step of every run clears every existing isDuplicate flag so
+// the result reflects current data, not residue from a prior run.
+// Records are NOT moved here — only flagged. "Delete Duplicates" is
+// what archives the flagged rows to Scraped-Data-Duplicate.
+//
+// Worked example (the user's test case):
+//   (123, a@a.c, a.com)  -> 3 rows -> flag 2 (the 2nd & 3rd occurrences)
+//   (123, a@a.c, "")     -> 2 rows -> flag 1 (the 2nd occurrence)
+// → flags = 3 dups, even though the second group has an empty website.
 router.post('/duplicates/analyze', async (req, res) => {
   try {
     // 1. Clear every existing isDuplicate flag so a re-run reflects the
     //    current data, not a layered remnant from a prior pass.
     await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
 
-    // 2. Group by (phone, email, website) — all three non-empty, all three
-    //    case-insensitive + trimmed. $sort: { _id: 1 } puts the oldest row
-    //    at index 0 of every group's ids array.
+    // 2. Group by the exact (phone, email, website) triplet. Empty / null
+    //    are normalized to "" via $ifNull so they collapse into the same
+    //    group key. $sort: { _id: 1 } puts the oldest row at index 0 of
+    //    every group's ids array. The $match step excludes only rows
+    //    where ALL THREE fields are empty.
     const groups = await ScrapedData.aggregate([
       {
         $match: {
-          phone:   { $nin: [null, ''] },
-          email:   { $nin: [null, ''] },
-          website: { $nin: [null, ''] },
+          $expr: {
+            $or: [
+              { $and: [{ $ne: ['$phone',   null] }, { $ne: ['$phone',   ''] }] },
+              { $and: [{ $ne: ['$email',   null] }, { $ne: ['$email',   ''] }] },
+              { $and: [{ $ne: ['$website', null] }, { $ne: ['$website', ''] }] },
+            ],
+          },
         },
       },
       { $sort: { _id: 1 } },
       {
         $group: {
           _id: {
-            phone:   { $toLower: { $trim: { input: '$phone' } } },
-            email:   { $toLower: { $trim: { input: '$email' } } },
-            website: { $toLower: { $trim: { input: '$website' } } },
+            phone:   { $toLower: { $trim: { input: { $ifNull: ['$phone',   ''] } } } },
+            email:   { $toLower: { $trim: { input: { $ifNull: ['$email',   ''] } } } },
+            website: { $toLower: { $trim: { input: { $ifNull: ['$website', ''] } } } },
           },
           ids:   { $push: '$_id' },
           count: { $sum: 1 },
