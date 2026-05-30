@@ -2390,9 +2390,10 @@ router.post('/scrap-database/from-website', async (req, res) => {
 // Implementation notes:
 //  - "Source pool" = Scraped-Data rows with scrapFrom='G-Map' AND a website.
 //    Unscraped means `scrapWebsite` is not true.
-//  - "Harvested" = rows written by either flow (admin-browser scraping marks
-//    them scrapFrom='website'; CLI WEB mode marks them scrapFrom='Website').
-//    We match case-insensitively to count both.
+//  - "Harvested" = rows written by the website-scrap flow with scrapFrom='website'
+//    (canonical lowercase). v1.8.8 normalised legacy 'Website' rows to lowercase
+//    via the normalizeScrapFromWebsite migration, so an exact-match filter is
+//    enough — no need for a case-insensitive regex anymore.
 //  - Phones / emails counted only when present (not empty string / null) so
 //    the numbers reflect actual extracted contacts, not just row count.
 //  - Recent runs come from SessionStats keyword prefix 'website-worker-' —
@@ -2404,8 +2405,7 @@ router.get('/website-scraper/stats', async (_req, res) => {
       website: { $nin: [null, ''] },
     };
     const HARVESTED_FILTER = {
-      // case-insensitive match — admin flow writes 'website', CLI writes 'Website'
-      scrapFrom: { $regex: /^website$/i },
+      scrapFrom: 'website',
     };
 
     const [
@@ -2629,87 +2629,6 @@ router.post('/duplicates/delete-phone-name-address', async (req, res) => {
     res.json({ success: true, movedCount, groupCount: groups.length });
   } catch (err) {
     console.error('[admin/duplicates/delete-phone-name-address] Error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ── POST /api/admin/duplicates/delete-name-address ──
-// Phone-AGNOSTIC variant of delete-phone-name-address. Groups records by
-// name + address only (case-insensitive, trimmed) so the same business
-// listed with multiple different phone numbers — call centre numbers,
-// staff cell numbers, branch numbers, etc. — collapses to one row.
-//
-// Same archival mechanics: keeps the OLDEST row in Scraped-Data, moves
-// every later duplicate to Scraped-Data-Duplicate (restorable). Step 1
-// unsets the legacy `isDuplicate` flag everywhere, same as the
-// phone-aware route.
-//
-// This is MORE aggressive than the phone-aware route — running both in
-// sequence is safe (phone-aware first, then this), but in practice this
-// one is the superset: it catches everything the phone-aware route does
-// plus the different-phone-same-business case.
-router.post('/duplicates/delete-name-address', async (req, res) => {
-  try {
-    // Step 1 — same cleanup pass as the phone-aware route.
-    await ScrapedData.updateMany({}, { $unset: { isDuplicate: '' } });
-
-    const groups = await ScrapedData.aggregate([
-      {
-        $match: {
-          name:    { $nin: [null, ''] },
-          address: { $nin: [null, ''] },
-        },
-      },
-      { $sort: { _id: 1 } }, // oldest first
-      {
-        $group: {
-          _id: {
-            name:    { $toLower: { $trim: { input: '$name' } } },
-            address: { $toLower: { $trim: { input: '$address' } } },
-          },
-          docs: { $push: { id: '$_id', createdAt: '$createdAt' } },
-          count: { $sum: 1 },
-        },
-      },
-      { $match: { count: { $gte: 2 } } },
-    ], { allowDiskUse: true });
-
-    if (groups.length === 0) {
-      return res.json({ success: true, movedCount: 0, groupCount: 0 });
-    }
-
-    const moveIds = [];
-    for (const group of groups) {
-      // Sort each group's docs by createdAt ASC; keep [0], archive the rest.
-      const sorted = group.docs.slice().sort((a, b) =>
-        new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
-      );
-      for (let i = 1; i < sorted.length; i++) moveIds.push(sorted[i].id);
-    }
-
-    // Same 500-batch archive loop as the phone-aware route so a 3M-record
-    // deduplication doesn't OOM either side.
-    const BATCH = 500;
-    const now = new Date();
-    let movedCount = 0;
-
-    for (let i = 0; i < moveIds.length; i += BATCH) {
-      const batchIds = moveIds.slice(i, i + BATCH);
-      const recordsToMove = await ScrapedData.find({ _id: { $in: batchIds } }).lean();
-      if (recordsToMove.length > 0) {
-        const dupDocs = recordsToMove.map((r) => {
-          const { _id, __v, ...rest } = r;
-          return { ...rest, originalId: String(_id), movedAt: now };
-        });
-        await ScrapedDataDuplicate.insertMany(dupDocs, { ordered: false });
-        const del = await ScrapedData.deleteMany({ _id: { $in: batchIds } });
-        movedCount += del.deletedCount;
-      }
-    }
-
-    res.json({ success: true, movedCount, groupCount: groups.length });
-  } catch (err) {
-    console.error('[admin/duplicates/delete-name-address] Error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

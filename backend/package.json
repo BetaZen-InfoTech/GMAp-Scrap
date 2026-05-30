@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "seed": "node src/scripts/seed.js",
-    "remove-duplicate-flag": "node src/scripts/removeDuplicateFlag.js"
+    "remove-duplicate-flag": "node src/scripts/removeDuplicateFlag.js",
+    "migrate:normalize-scrapfrom-website": "node src/migrations/normalizeScrapFromWebsite.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
