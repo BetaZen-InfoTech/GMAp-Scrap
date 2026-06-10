@@ -1,6 +1,7 @@
 import api from './api';
 import type { ScrapedDataRecord } from '../../shared/types';
 import type { ScrapDbFilters } from '../store/useScrapDatabaseStore';
+import { serializePincodeRanges } from '../store/useScrapDatabaseStore';
 
 function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
   const params: Record<string, string> = {};
@@ -9,6 +10,8 @@ function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
   if (filters.scrapCategory?.length) params.scrapCategory = filters.scrapCategory.join(',');
   if (filters.scrapSubCategory?.length) params.scrapSubCategory = filters.scrapSubCategory.join(',');
   if (filters.pincode?.length) params.pincode = filters.pincode.join(',');
+  const ranges = serializePincodeRanges(filters.pincodeRanges);
+  if (ranges) params.pincodeRanges = ranges;
   if (filters.missingPhone) params.missingPhone = 'true';
   if (filters.missingAddress) params.missingAddress = 'true';
   if (filters.missingWebsite) params.missingWebsite = 'true';
@@ -109,4 +112,36 @@ export async function exportExcel(filters: ScrapDbFilters, selectedIds?: string[
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Scraped Data');
   XLSX.writeFile(wb, `scraped-data-${Date.now()}.xlsx`);
+}
+
+// v1.8.18 — JSON export of the filtered (or selected) set. Hits the same
+// /scrap-database/export endpoint we use for Excel (which returns a clean
+// array of records under `data`) and saves it as a downloadable .json file
+// via a Blob. Same 100k row server-side cap as the other formats.
+export async function exportJSON(filters: ScrapDbFilters, selectedIds?: string[]) {
+  const params: Record<string, string> = {
+    ...filtersToParams(filters),
+    format: 'json',
+  };
+  if (selectedIds?.length) params.ids = selectedIds.join(',');
+
+  let res;
+  try {
+    res = await api.get('/api/admin/scrap-database/export', { params });
+  } catch (err) {
+    const msg = messageFrom(err);
+    console.error('[export JSON] failed:', msg);
+    throw new Error(`JSON export failed: ${msg}`);
+  }
+  const data: ScrapedDataRecord[] = res.data.data || [];
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `scraped-data-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { useScrapDatabaseStore, type ViewMode } from '../store/useScrapDatabaseStore';
-import { exportCSV, exportExcel } from '../lib/export';
+import { exportCSV, exportExcel, exportJSON } from '../lib/export';
+import type { PincodeRange } from '../store/useScrapDatabaseStore';
 import api from '../lib/api';
 import Pagination from '../components/Pagination';
 import Spinner from '../components/Spinner';
@@ -232,6 +233,37 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
     }
   };
 
+  const handleExportJSON = async () => {
+    setExporting(true);
+    try {
+      const ids = selectedIds.size > 0 && !selectAllPages ? Array.from(selectedIds) : undefined;
+      await exportJSON(filters, ids);
+    } catch (err) {
+      alert((err as Error).message || 'JSON export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // ── Pincode-range editor helpers ──
+  // Ranges live in `filters.pincodeRanges` as PincodeRange[]; the backend
+  // expects them serialized as "from-to,from-to". Each helper mutates the
+  // local array and re-fetches the first page so the user sees the result
+  // immediately (no separate Search click needed for these specifically).
+  const pincodeRanges: PincodeRange[] = filters.pincodeRanges || [];
+  const updateRange = (idx: number, patch: Partial<PincodeRange>) => {
+    const next = pincodeRanges.map((r, i) => (i === idx ? { ...r, ...patch } : r));
+    setFilters({ pincodeRanges: next });
+  };
+  const addRange = () => {
+    setFilters({ pincodeRanges: [...pincodeRanges, { from: '', to: '' }] });
+  };
+  const removeRange = (idx: number) => {
+    const next = pincodeRanges.filter((_, i) => i !== idx);
+    setFilters({ pincodeRanges: next.length ? next : undefined });
+    setTimeout(() => fetchRecords(1), 0);
+  };
+
   const handleFixNumbers = async () => {
     if (fixingNumbers) return;
     if (!confirm('Normalize every unfixed phone number in the database? This cleans spaces/hyphens, drops leading zeros, and prefixes +91 for Indian numbers. Safe to re-run.')) return;
@@ -248,7 +280,7 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
   };
 
   const selectionCount = selectAllPages ? total : selectedIds.size;
-  const hasFilters = !!(filters.search || filters.category?.length || filters.scrapCategory?.length || filters.scrapSubCategory?.length || filters.pincode?.length || filters.missingPhone || filters.missingAddress || filters.missingWebsite || filters.missingEmail || filters.hasPhone || filters.hasAddress || filters.hasWebsite || filters.hasEmail || filters.minRating != null || filters.maxRating != null || filters.minReviews != null || filters.maxReviews != null || filters.scrapWebsite != null);
+  const hasFilters = !!(filters.search || filters.category?.length || filters.scrapCategory?.length || filters.scrapSubCategory?.length || filters.pincode?.length || filters.pincodeRanges?.length || filters.missingPhone || filters.missingAddress || filters.missingWebsite || filters.missingEmail || filters.hasPhone || filters.hasAddress || filters.hasWebsite || filters.hasEmail || filters.minRating != null || filters.maxRating != null || filters.minReviews != null || filters.maxReviews != null || filters.scrapWebsite != null);
 
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
@@ -298,6 +330,17 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             Excel
+          </button>
+          <button
+            onClick={handleExportJSON}
+            disabled={exporting}
+            title="Download the filtered (or selected) set as a JSON array"
+            className="flex items-center gap-1.5 bg-amber-800 hover:bg-amber-700 disabled:opacity-50 text-amber-100 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            JSON
           </button>
 
           {/* Fix Numbers (backfill phone normalization) */}
@@ -573,6 +616,59 @@ const ScrapDatabasePage: React.FC<ScrapDatabasePageProps> = ({ onNavigate }) => 
             Clear
           </button>
         )}
+      </div>
+
+      {/* Pincode ranges — repeatable from/to pairs. Combined with the
+          "All Pincodes" multi-select via OR on the backend: records matching
+          either an exact pincode OR any range are returned. Empty rows are
+          ignored. Six-digit Indian pincodes sort lexicographically the same
+          as numerically, so the backend $gte/$lte on the String field is
+          correct without any casting. */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+        <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Pincode Ranges</span>
+        {pincodeRanges.length === 0 && (
+          <span className="text-xs text-slate-600 italic">none — exact pincodes use &ldquo;All Pincodes&rdquo; above</span>
+        )}
+        {pincodeRanges.map((r, idx) => (
+          <div key={idx} className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-md px-1.5 py-0.5">
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={r.from || ''}
+              onChange={(e) => updateRange(idx, { from: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+              onBlur={() => fetchRecords(1)}
+              onKeyDown={(e) => { if (e.key === 'Enter') fetchRecords(1); }}
+              placeholder="From"
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-600 w-20 focus:outline-none focus:border-blue-500 text-center font-mono"
+            />
+            <span className="text-slate-500 text-xs px-0.5">–</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={r.to || ''}
+              onChange={(e) => updateRange(idx, { to: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+              onBlur={() => fetchRecords(1)}
+              onKeyDown={(e) => { if (e.key === 'Enter') fetchRecords(1); }}
+              placeholder="To"
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-600 w-20 focus:outline-none focus:border-blue-500 text-center font-mono"
+            />
+            <button
+              onClick={() => removeRange(idx)}
+              title="Remove this range"
+              className="text-slate-500 hover:text-red-400 text-xs px-1 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={addRange}
+          className="text-xs font-medium px-2.5 py-1 rounded-md bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 ring-1 ring-blue-700/50 transition-colors"
+        >
+          + Add Range
+        </button>
       </div>
 
       {/* Selection bar */}

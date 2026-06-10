@@ -1726,7 +1726,7 @@ router.get('/scraped-pincodes', async (req, res) => {
 
 function buildScrapDbFilter(params) {
   const {
-    search, category, pincode, scrapCategory, scrapSubCategory,
+    search, category, pincode, pincodeRanges, scrapCategory, scrapSubCategory,
     missingPhone, missingAddress, missingWebsite, missingEmail,
     hasPhone, hasAddress, hasWebsite, hasEmail,
     minRating, maxRating, minReviews, maxReviews,
@@ -1757,9 +1757,42 @@ function buildScrapDbFilter(params) {
     const arr = scrapSubCategory.split(',').map((s) => s.trim()).filter(Boolean);
     filter.scrapSubCategory = arr.length === 1 ? arr[0] : { $in: arr };
   }
+
+  // ── Pincode filter (exact list AND/OR ranges) ──
+  // v1.8.18 — `pincode` is the existing exact-match list (comma-separated).
+  // `pincodeRanges` is new: a comma-separated list of FROM-TO pairs
+  // (e.g. "700000-700099,400001-400099"). When both are present, results
+  // include matches from EITHER input (set union via $or).
+  //
+  // Pincode is stored as a String (always 6 digits for Indian pincodes),
+  // so lexicographic $gte/$lte equals numeric ordering — no cast needed.
+  const pincodeConditions = [];
   if (pincode) {
     const arr = pincode.split(',').map((s) => s.trim()).filter(Boolean);
-    filter.pincode = arr.length === 1 ? arr[0] : { $in: arr };
+    if (arr.length === 1) pincodeConditions.push({ pincode: arr[0] });
+    else if (arr.length > 1) pincodeConditions.push({ pincode: { $in: arr } });
+  }
+  if (pincodeRanges) {
+    const rangeStrs = pincodeRanges.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const r of rangeStrs) {
+      const [from, to] = r.split('-').map((s) => (s || '').trim());
+      const cond = {};
+      if (from) cond.$gte = from;
+      if (to)   cond.$lte = to;
+      if (Object.keys(cond).length > 0) pincodeConditions.push({ pincode: cond });
+    }
+  }
+  if (pincodeConditions.length === 1) {
+    Object.assign(filter, pincodeConditions[0]);
+  } else if (pincodeConditions.length > 1) {
+    // Combine the pincode-or-set with an existing search $or via $and so
+    // both top-level $or blocks survive.
+    if (filter.$or) {
+      filter.$and = [{ $or: filter.$or }, { $or: pincodeConditions }];
+      delete filter.$or;
+    } else {
+      filter.$or = pincodeConditions;
+    }
   }
 
   // Missing filters (field is null or empty)

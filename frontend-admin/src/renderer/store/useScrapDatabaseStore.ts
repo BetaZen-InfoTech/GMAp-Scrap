@@ -4,12 +4,20 @@ import type { ScrapedDataRecord } from '../../shared/types';
 
 export type ViewMode = 'table' | 'card' | 'excel';
 
+// A single pincode range — both ends are inclusive. Either side can be blank
+// (open-ended). Stored as strings to match the Mongo schema's pincode type.
+export interface PincodeRange {
+  from?: string;
+  to?: string;
+}
+
 export interface ScrapDbFilters {
   search?: string;
   category?: string[];
   scrapCategory?: string[];
   scrapSubCategory?: string[];
   pincode?: string[];
+  pincodeRanges?: PincodeRange[];
   missingPhone?: boolean;
   missingAddress?: boolean;
   missingWebsite?: boolean;
@@ -23,6 +31,21 @@ export interface ScrapDbFilters {
   minReviews?: number;
   maxReviews?: number;
   scrapWebsite?: boolean;
+}
+
+// Serialize pincode ranges as a comma-separated list of "from-to" pairs.
+// Empty ranges (both ends blank) are dropped so they don't muddy the URL.
+export function serializePincodeRanges(ranges?: PincodeRange[]): string | undefined {
+  if (!ranges?.length) return undefined;
+  const parts = ranges
+    .map((r) => {
+      const f = (r.from || '').trim();
+      const t = (r.to || '').trim();
+      if (!f && !t) return '';
+      return `${f}-${t}`;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(',') : undefined;
 }
 
 interface ScrapDatabaseStore {
@@ -65,6 +88,8 @@ function filtersToParams(filters: ScrapDbFilters): Record<string, string> {
   if (filters.scrapCategory?.length) params.scrapCategory = filters.scrapCategory.join(',');
   if (filters.scrapSubCategory?.length) params.scrapSubCategory = filters.scrapSubCategory.join(',');
   if (filters.pincode?.length) params.pincode = filters.pincode.join(',');
+  const rangesParam = serializePincodeRanges(filters.pincodeRanges);
+  if (rangesParam) params.pincodeRanges = rangesParam;
   if (filters.missingPhone) params.missingPhone = 'true';
   if (filters.missingAddress) params.missingAddress = 'true';
   if (filters.missingWebsite) params.missingWebsite = 'true';
